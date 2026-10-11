@@ -5919,9 +5919,13 @@ def _core_l4_conflict(new_binds, exclude_id=None):
     return next((L for L in _core_others(exclude_id) if keys & _core_link_binds(L)), None)
 
 
-def _tcp_ports_on(node_id, ip, exclude_id):
-    return {p: L.get("name") for L in _core_others(exclude_id)
+def _ports_held_on(node_id, ip, exclude_id):
+    held = {p: L.get("name") for L in _core_others(exclude_id)
             for n, i, p, proto in _core_link_binds(L) if (n, i, proto) == (node_id, ip, "tcp")}
+    for c in _pf_node_configs(node_id)[0]:
+        if _sint(c.get("listen_port")) and (c.get("listen_ip") or "") in ("", ip):
+            held.setdefault(_sint(c.get("listen_port")), c.get("name") or "")
+    return held
 
 
 
@@ -9693,6 +9697,7 @@ _CDN_ZONE_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+([a-
 _CDN_NAME_TYPES = {"cf": ("A", "AAAA", "CNAME"), "ar": ("A", "AAAA", "CNAME", "ANAME")}
 _CF_HOST_RE = re.compile(r'"([^"]+)"')
 _CF_PORT = "tnl_p"
+_CF_PORT_RE = re.compile("^%s([0-9]+)$" % _CF_PORT)
 _CF_SSL_REF = "tnl_ssl"
 _CF_ORIGIN = "http_request_origin"
 _CF_CONFIG = "http_config_settings"
@@ -10254,10 +10259,6 @@ def _cf_hosts(rule):
     return set(_CF_HOST_RE.findall(str((rule or {}).get("expression") or "")))
 
 
-def _cf_rule_port(rule):
-    return _sint(((rule.get("action_parameters") or {}).get("origin") or {}).get("port"))
-
-
 def _cf_host_expr(hosts):
     hs = sorted(hosts)
     return 'http.host eq "%s"' % hs[0] if len(hs) == 1 else "http.host in {%s}" % " ".join('"%s"' % h for h in hs)
@@ -10305,6 +10306,11 @@ def _cf_config_room(z, cfg, srule):
 
 def _cf_rule_ref(port):
     return "%s%d" % (_CF_PORT, port)
+
+
+def _cf_ref_port(rule):
+    m = _CF_PORT_RE.match(str(rule.get("ref") or ""))
+    return int(m.group(1)) if m else 0
 
 
 def _cf_wants_rule(port, tls):
@@ -10695,7 +10701,7 @@ def _cf_take_out(cred, zid, rs, rule, gone, jr):
     path = _cf_rules_path(zid, rs, rule)
     old = {k: rule[k] for k in _CF_RULE_KEEP if k in rule}
     left = hosts - gone
-    port = _cf_rule_port(rule)
+    port = ((rule.get("action_parameters") or {}).get("origin") or {}).get("port")
     names = tx_join("، ", sorted(gone), ", ")
     if not left:
         jr.doing(tx("پاک‌کردنِ قانونِ SSL", "removing the SSL rule") if ssl else tx("پاک‌کردنِ قانونِ پورت", "removing the port rule"))
@@ -11239,10 +11245,10 @@ def api_cdn_ports(d):
     cred = _cdn_cred("cf")
     z = _cdn_zone(cred, _cdn_zone_name(d.get("zone")))
     rules = [r for r in (_cf_entry(cred, z["id"]) or {}).get("rules") or [] if isinstance(r, dict)]
-    mine = [r for r in rules if str(r.get("ref") or "").startswith(_CF_PORT) and _cf_rule_port(r)]
+    mine = [r for r in rules if _cf_ref_port(r)]
     return {"ok": True, "zone": z["name"], "cap": CF_RULE_CAPS.get(z["plan"], 0), "hand": len(rules) - len(mine),
-            "rules": sorted(({"port": _cf_rule_port(r), "hosts": len(_cf_hosts(r))} for r in mine), key=lambda r: r["port"]),
-            "taken": _tcp_ports_on(node["id"], str(d.get("ip") or ""), str(d.get("id") or ""))}
+            "rules": sorted(({"port": _cf_ref_port(r), "hosts": len(_cf_hosts(r))} for r in mine), key=lambda r: r["port"]),
+            "taken": _ports_held_on(node["id"], str(d.get("ip") or ""), str(d.get("id") or ""))}
 
 
 def api_cdn_check(d):

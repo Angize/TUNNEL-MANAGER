@@ -38,10 +38,15 @@ function portVerdict(info, port, tls) {
 function Meter({ info, next }) {
   const panel = info.rules.length
   const n = used(info)
+  const free = Math.max(0, info.cap - n)
+  const take = next && free ? 1 : 0
   const [before, after] = T('cpr_head').split('{z}')
-  const cells = Array.from({ length: info.cap }, (_, i) =>
-    i < panel ? 'cp' : i < n ? 'ch' : i === n && next ? 'cn' : ''
-  )
+  const parts = [
+    ['cp', panel],
+    ['ch', info.hand],
+    ['cn', take],
+    ['', free - take],
+  ].filter(([, k]) => k > 0)
 
   return (
     <div className="cprmeter">
@@ -58,8 +63,8 @@ function Meter({ info, next }) {
         </b>
       </div>
       <div className="cprbar" aria-hidden="true">
-        {cells.map((k, i) => (
-          <i key={i} className={k || undefined} />
+        {parts.map(([cls, k]) => (
+          <i key={cls || 'free'} className={cls || undefined} style={{ flexGrow: k }} />
         ))}
       </div>
       <div className="cprlegend">
@@ -75,7 +80,7 @@ function Meter({ info, next }) {
         ) : null}
         <span>
           <i aria-hidden="true" />
-          {TF('cpr_legend_free', { n: faNum(Math.max(0, info.cap - n)) })}
+          {TF('cpr_legend_free', { n: faNum(free) })}
         </span>
       </div>
     </div>

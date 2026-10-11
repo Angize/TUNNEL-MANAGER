@@ -430,7 +430,7 @@ export const DOCS = {
       ['subnet', 0, S, 'new subnet'],
       ['port', 0, N, 'new port; not sent = keep the current one, empty = automatic'],
       ...TUNNEL_FIELDS,
-      ['cdn', 0, O, CDN_PARAM + ' Not sent = keep what the tunnel has; null = stop using it. A host the edit leaves (null or another label) is detached: it leaves the Origin Rule of its port, keeps its record and SSL, and is ready for another tunnel.'],
+      ['cdn', 0, O, CDN_PARAM + ' Not sent = keep what the tunnel has; null = stop using it. A host the edit leaves (null or another label) is detached: it leaves the Origin Rule of its port, if it has one, keeps its record and SSL, and is ready for another tunnel.'],
     ],
   },
   'rebuild-link': {
@@ -462,7 +462,7 @@ export const DOCS = {
     p: [
       ['id', 1, S, 'tunnel id'],
       ['force', 0, B, 'delete even if one end is down'],
-      ['cdn_keep', 0, B, 'detach instead of remove: the host leaves the Origin Rule of its port, keeps its record and SSL, and is ready for another tunnel (default false = remove the record, the rule host and the SSL host, and forget the subdomain)'],
+      ['cdn_keep', 0, B, 'detach instead of remove: the host leaves the Origin Rule of its port, if it has one, keeps its record and SSL, and is ready for another tunnel (default false = remove the record, the rule host and the SSL host, and forget the subdomain)'],
       ['cdn_skip', 0, B, 'after a failed CDN removal (offer=cdn_skip): delete the tunnel only and leave the record and rule in the CDN (logged as cdn-left)'],
     ],
   },
@@ -709,7 +709,7 @@ export const DOCS = {
   },
   'cdn-ports': {
     t: 'Port rules of a Cloudflare domain',
-    d: 'Reads the Origin Rules of one Cloudflare domain for the tunnel form. cap is the plan limit (0 when the plan is unknown), hand counts the rules the panel did not make, rules lists the panel port rules as port and hosts (how many subdomains the rule holds), and taken maps every TCP port another core tunnel already uses on that node and IP to the tunnel name; the tunnel named by id is left out. A tunnel with wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Writes nothing.',
+    d: 'Reads the Origin Rules of one Cloudflare domain for the tunnel form. cap is the plan limit (0 when the plan is unknown), hand counts the rules the panel did not make, rules lists the panel port rules as port and hosts (how many subdomains the rule holds), and taken maps every port already held on that node and IP to its owner: the TCP port of another core tunnel (the tunnel named by id is left out) or the listen port of a port forward on that IP or on every IP. A tunnel with wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Writes nothing.',
     p: [
       ['zone', 1, S, 'domain'],
       ['node', 1, S, 'id of the server node'],

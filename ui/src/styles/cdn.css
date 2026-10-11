@@ -1108,11 +1108,14 @@
 }
 
 .cprbar {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  display: flex;
   gap: 3px;
   margin-top: 7px;
+}
+
+.cprbar i {
+  flex-basis: 0;
+  min-width: 6px;
 }
 
 .cprbar i,
