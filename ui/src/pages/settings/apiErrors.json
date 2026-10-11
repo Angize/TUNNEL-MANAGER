@@ -380,6 +380,60 @@
    ]
   ]
  },
+ "cdn-ports": {
+  "bad": [
+   [
+    400,
+    "bad_cdn_zone",
+    "invalid CDN domain"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_no_key",
+    "there is no … key in the panel — add it under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
+   ],
+   [
+    400,
+    "node_not_found",
+    "node not found"
+   ],
+   [
+    400,
+    "proxy_not_found",
+    "the proxy on the … route is gone — change the route under Settings › CDN"
+   ]
+  ]
+ },
  "cdn-set": {
   "bad": [
    [

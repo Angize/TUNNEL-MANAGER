@@ -68,6 +68,10 @@ export function cdnAuto(form) {
   return cdnSingle(form) || (!!form && form.Tr === 'ws' && !!form.pool.pool && !!form.poolCdn)
 }
 
+export function cfWantsRule(port, tls) {
+  return !(tls && Number(port) === 80)
+}
+
 export function hasCdnKey(keys) {
   return CDN_PROVIDERS.some((p) => keys && keys[p] && keys[p].set)
 }
