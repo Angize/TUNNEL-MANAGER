@@ -68,6 +68,12 @@ export function cdnAuto(form) {
   return cdnSingle(form) || (!!form && form.Tr === 'ws' && !!form.pool.pool && !!form.poolCdn)
 }
 
+export function cfZones(form, owners) {
+  if (form.Tr !== 'ws') return []
+  if (!form.pool.pool) return form.cdnOwner === 'cf' ? [form.cdnZone] : []
+  return [...new Set(form.pool.sni.map((h) => owners[h]).filter((o) => o && o.provider === 'cf').map((o) => o.zone))]
+}
+
 export function cfWantsRule(port, tls) {
   return !(tls && Number(port) === 80)
 }
