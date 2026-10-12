@@ -11247,7 +11247,7 @@ def api_cdn_ports(d):
     rules = [r for r in (_cf_entry(cred, z["id"]) or {}).get("rules") or [] if isinstance(r, dict)]
     mine = [r for r in rules if _cf_ref_port(r)]
     return {"ok": True, "zone": z["name"], "cap": CF_RULE_CAPS.get(z["plan"], 0), "hand": len(rules) - len(mine),
-            "rules": sorted(({"port": _cf_ref_port(r), "hosts": len(_cf_hosts(r))} for r in mine), key=lambda r: r["port"]),
+            "rules": sorted(({"port": _cf_ref_port(r), "hosts": sorted(_cf_hosts(r))} for r in mine), key=lambda r: r["port"]),
             "taken": _ports_held_on(node["id"], str(d.get("ip") or ""), str(d.get("id") or ""))}
 
 
