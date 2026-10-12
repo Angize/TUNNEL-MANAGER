@@ -18,7 +18,7 @@ import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
 import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
-import { cdnAuto, cfZones } from '../../../lib/cdn.js'
+import { cdnAuto, cfHosts } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
 import { useSummary } from '../../../state/SummaryContext.jsx'
@@ -170,7 +170,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     ? pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvStored || srvIps[0] || ''
     : ''
   const portRules = useCdnPorts(
-    form ? { zones: cfZones(form, cdnOwners), node: form[srvSide + 'Node'], ip: serverIp, id: link ? link.id : '' } : null
+    form ? { zones: cfHosts(form, cdnOwners), node: form[srvSide + 'Node'], ip: serverIp, id: link ? link.id : '' } : null
   )
 
   const poolLid = link && link.ws_pool ? link.id : ''

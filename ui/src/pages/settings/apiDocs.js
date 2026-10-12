@@ -709,7 +709,7 @@ export const DOCS = {
   },
   'cdn-ports': {
     t: 'Port rules of a Cloudflare domain',
-    d: 'Reads the Origin Rules of one Cloudflare domain for the tunnel form. cap is the plan limit (0 when the plan is unknown), hand counts the rules the panel did not make, rules lists the panel port rules as port and hosts (how many subdomains the rule holds), and taken maps every port already held on that node and IP to its owner: the TCP port of another core tunnel (the tunnel named by id is left out) or the listen port of a port forward on that IP or on every IP. A tunnel with wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Writes nothing.',
+    d: 'Reads the Origin Rules of one Cloudflare domain for the tunnel form. cap is the plan limit (0 when the plan is unknown), hand counts the rules the panel did not make, rules lists the panel port rules as port and hosts (the subdomains the rule holds), and taken maps every port already held on that node and IP to its owner: the TCP port of another core tunnel (the tunnel named by id is left out) or the listen port of a port forward on that IP or on every IP. A tunnel with wss on port 80 takes no rule, because Flexible already sends edge 443 to port 80. Writes nothing.',
     p: [
       ['zone', 1, S, 'domain'],
       ['node', 1, S, 'id of the server node'],

@@ -16,12 +16,16 @@ function full(info) {
   return !!info.cap && used(info) >= info.cap
 }
 
+function room(info) {
+  return !info.cap || used(info) - info.freed < info.cap
+}
+
 function ruled(info, port) {
   return info.rules.some((r) => r.port === port)
 }
 
 function fits(infos, port) {
-  return infos.every((i) => ruled(i, port) || !full(i))
+  return infos.every((i) => ruled(i, port) || room(i))
 }
 
 function ports(infos) {
@@ -34,12 +38,12 @@ function names(infos) {
   return infos.map((i) => i.zone).join('، ')
 }
 
-function fills(infos, add) {
-  return infos.map((i) => TF('cpr_count', { u: faNum(used(i) + add), c: faNum(i.cap) })).join('؛ ')
+function fills(infos, count) {
+  return infos.map((i) => TF('cpr_count', { u: faNum(count(i)), c: faNum(i.cap) })).join('؛ ')
 }
 
 function slot(v) {
-  return v.next.some((i) => !i.cap) ? { ...v, kind: v.kind + '_x' } : { ...v, f: fills(v.next, 1) }
+  return v.next.some((i) => !i.cap) ? { ...v, kind: v.kind + '_x' } : { ...v, f: fills(v.next, (i) => used(i) - i.freed + 1) }
 }
 
 export function autoPort(infos) {
@@ -59,15 +63,15 @@ function portVerdict(infos, port, tls) {
       if (!miss.length) return { kind: many ? 'auto_join_all' : 'auto_join', tone: 'ok', p, n: infos.length }
       return slot({ kind: 'auto_part', tone: 'gold', p, z: names(miss), next: miss })
     }
-    const blocked = infos.filter(full)
+    const blocked = infos.filter((i) => !room(i))
     if (blocked.length) return { kind: 'auto_full', tone: 'no', z: names(blocked) }
     return slot({ kind: 'auto_new', tone: 'gold', next: infos })
   }
   if (taken[port]) return { kind: 'taken', tone: 'no', p: port, t: taken[port] }
   if (!cfWantsRule(port, tls)) return { kind: 'none', tone: 'ok', p: port }
   const miss = infos.filter((i) => !ruled(i, port))
-  const blocked = miss.filter(full)
-  if (blocked.length) return { kind: 'full', tone: 'no', p: port, z: names(blocked), f: fills(blocked, 0) }
+  const blocked = miss.filter((i) => !room(i))
+  if (blocked.length) return { kind: 'full', tone: 'no', p: port, z: names(blocked), f: fills(blocked, used) }
   if (!miss.length) return { kind: many ? 'join_all' : 'join', tone: 'ok', p: port, n: infos.length }
   return slot({ kind: many ? 'new_some' : 'new', tone: 'gold', p: port, z: names(miss), next: miss })
 }
@@ -76,7 +80,7 @@ function Meter({ info, next, many }) {
   const panel = info.rules.length
   const n = used(info)
   const free = Math.max(0, info.cap - n)
-  const take = next && free ? 1 : 0
+  const take = next && free && !info.freed ? 1 : 0
   const [before, after] = T('cpr_head').split('{z}')
   const parts = [
     ['cp', panel],
@@ -130,7 +134,7 @@ function chipOff(infos, port) {
 }
 
 function chipSub(infos, port, hits) {
-  if (infos.length === 1) return TF('cpr_hosts', { n: faNum(infos[0].rules.find((r) => r.port === port).hosts) })
+  if (infos.length === 1) return TF('cpr_hosts', { n: faNum(infos[0].rules.find((r) => r.port === port).hosts.length) })
   return hits === infos.length ? T('cpr_in_all') : TF('cpr_in_some', { n: faNum(hits), m: faNum(infos.length) })
 }
 
