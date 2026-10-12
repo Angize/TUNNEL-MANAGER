@@ -172,7 +172,7 @@ export default function SettingsTab({
           />
           <WarnCap text={portError} style={{ marginTop: 8 }} />
           <CdnPortRules
-            info={portRules}
+            infos={portRules}
             port={form.port}
             tls={!!form.WsTls}
             bad={!!portError}

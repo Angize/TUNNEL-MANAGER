@@ -16,26 +16,63 @@ function full(info) {
   return !!info.cap && used(info) >= info.cap
 }
 
-export function autoPort(info) {
-  const free = info ? info.rules.find((r) => !info.taken[r.port]) : null
-  return free ? free.port : 0
+function ruled(info, port) {
+  return info.rules.some((r) => r.port === port)
 }
 
-function portVerdict(info, port, tls) {
+function fits(infos, port) {
+  return infos.every((i) => ruled(i, port) || !full(i))
+}
+
+function ports(infos) {
+  const seen = new Map()
+  for (const info of infos) for (const r of info.rules) seen.set(r.port, (seen.get(r.port) || 0) + 1)
+  return [...seen].sort((a, b) => b[1] - a[1] || a[0] - b[0])
+}
+
+function names(infos) {
+  return infos.map((i) => i.zone).join('، ')
+}
+
+function fills(infos, add) {
+  return infos.map((i) => TF('cpr_count', { u: faNum(used(i) + add), c: faNum(i.cap) })).join('؛ ')
+}
+
+function slot(v) {
+  return v.next.some((i) => !i.cap) ? { ...v, kind: v.kind + '_x' } : { ...v, f: fills(v.next, 1) }
+}
+
+export function autoPort(infos) {
+  if (!infos) return 0
+  const taken = infos[0].taken
+  const fit = ports(infos).find(([p]) => !taken[p] && fits(infos, p))
+  return fit ? fit[0] : 0
+}
+
+function portVerdict(infos, port, tls) {
+  const taken = infos[0].taken
+  const many = infos.length > 1
   if (!port) {
-    const p = autoPort(info)
-    if (p) return { kind: 'auto_join', tone: 'ok', p }
-    if (full(info)) return { kind: 'auto_full', tone: 'no' }
-    return { kind: 'auto_new', tone: 'gold', next: true }
+    const p = autoPort(infos)
+    if (p) {
+      const miss = infos.filter((i) => !ruled(i, p))
+      if (!miss.length) return { kind: many ? 'auto_join_all' : 'auto_join', tone: 'ok', p, n: infos.length }
+      return slot({ kind: 'auto_part', tone: 'gold', p, z: names(miss), next: miss })
+    }
+    const blocked = infos.filter(full)
+    if (blocked.length) return { kind: 'auto_full', tone: 'no', z: names(blocked) }
+    return slot({ kind: 'auto_new', tone: 'gold', next: infos })
   }
-  if (info.taken[port]) return { kind: 'taken', tone: 'no', p: port, t: info.taken[port] }
+  if (taken[port]) return { kind: 'taken', tone: 'no', p: port, t: taken[port] }
   if (!cfWantsRule(port, tls)) return { kind: 'none', tone: 'ok', p: port }
-  if (info.rules.some((r) => r.port === port)) return { kind: 'join', tone: 'ok', p: port }
-  if (full(info)) return { kind: 'full', tone: 'no', p: port }
-  return { kind: 'new', tone: 'gold', p: port, next: true }
+  const miss = infos.filter((i) => !ruled(i, port))
+  const blocked = miss.filter(full)
+  if (blocked.length) return { kind: 'full', tone: 'no', p: port, z: names(blocked), f: fills(blocked, 0) }
+  if (!miss.length) return { kind: many ? 'join_all' : 'join', tone: 'ok', p: port, n: infos.length }
+  return slot({ kind: many ? 'new_some' : 'new', tone: 'gold', p: port, z: names(miss), next: miss })
 }
 
-function Meter({ info, next }) {
+function Meter({ info, next, many }) {
   const panel = info.rules.length
   const n = used(info)
   const free = Math.max(0, info.cap - n)
@@ -52,11 +89,11 @@ function Meter({ info, next }) {
     <div className="cprmeter">
       <div className="cprtop">
         <span className="cprhead">
-          {before}
+          {many ? null : before}
           <span className="mono" dir="ltr">
             {info.zone}
           </span>
-          {after}
+          {many ? null : after}
         </span>
         <b className={'cprcount' + (full(info) ? ' full' : '')}>
           {TF('cpr_count', { u: faNum(n), c: faNum(info.cap) })}
@@ -87,11 +124,23 @@ function Meter({ info, next }) {
   )
 }
 
-export default function CdnPortRules({ info, port, tls, bad, onPick }) {
-  if (!info) return null
+function chipOff(infos, port) {
+  if (infos[0].taken[port]) return 'cpr_here'
+  return fits(infos, port) ? '' : 'cpr_nofit'
+}
+
+function chipSub(infos, port, hits) {
+  if (infos.length === 1) return TF('cpr_hosts', { n: faNum(infos[0].rules.find((r) => r.port === port).hosts) })
+  return hits === infos.length ? T('cpr_in_all') : TF('cpr_in_some', { n: faNum(hits), m: faNum(infos.length) })
+}
+
+export default function CdnPortRules({ infos, port, tls, bad, onPick }) {
+  if (!infos) return null
   const typed = intOf(port)
-  const v = bad ? null : portVerdict(info, typed, tls)
-  const key = v ? 'cpr_' + v.kind + (v.next && !info.cap ? '_x' : '') : ''
+  const v = bad ? null : portVerdict(infos, typed, tls)
+  const next = new Set(v && v.next ? v.next.map((i) => i.zone) : [])
+  const many = infos.length > 1
+  const list = ports(infos)
 
   return (
     <div className="cpr">
@@ -99,25 +148,29 @@ export default function CdnPortRules({ info, port, tls, bad, onPick }) {
         <div className={'warncap ' + v.tone} role="status">
           <Icon name={ICON[v.tone]} />
           <span>
-            <RichText text={TF(key, { p: v.p, t: v.t, u: faNum(used(info) + 1), c: faNum(info.cap) })} />
+            <RichText text={TF('cpr_' + v.kind, { p: v.p, t: v.t, z: v.z, n: v.n && faNum(v.n), f: v.f })} />
           </span>
         </div>
       ) : null}
-      {info.cap ? <Meter info={info} next={!!(v && v.next)} /> : null}
-      {info.rules.length ? (
+      {many ? <div className="cprpick">{TF('cpr_zones', { n: faNum(infos.length) })}</div> : null}
+      {infos.map((info) => (info.cap ? <Meter key={info.zone} info={info} next={next.has(info.zone)} many={many} /> : null))}
+      {list.length ? (
         <>
           <div className="cprpick">{T('cpr_pick')}</div>
           <ScrollSeg label={T('cpr_pick')}>
-            {info.rules.map((r) => (
-              <SegOpt
-                key={r.port}
-                on={typed === r.port}
-                title={String(r.port)}
-                sub={info.taken[r.port] ? T('cpr_here') : TF('cpr_hosts', { n: faNum(r.hosts) })}
-                disabled={!!info.taken[r.port]}
-                onClick={() => onPick(String(r.port))}
-              />
-            ))}
+            {list.map(([p, hits]) => {
+              const off = chipOff(infos, p)
+              return (
+                <SegOpt
+                  key={p}
+                  on={typed === p}
+                  title={String(p)}
+                  sub={off ? T(off) : chipSub(infos, p, hits)}
+                  disabled={!!off}
+                  onClick={() => onPick(String(p))}
+                />
+              )
+            })}
           </ScrollSeg>
         </>
       ) : null}
