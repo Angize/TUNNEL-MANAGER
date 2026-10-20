@@ -6,6 +6,8 @@ import TagPicker from '../../components/TagPicker.jsx'
 import TunnelMeta from './TunnelMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from './sideHealth.js'
+import SideDot from './SideDot.jsx'
+import DriftNote from './DriftNote.jsx'
 import RebuildPicker, { loadRebuild } from '../../components/RebuildPicker.jsx'
 import CardResult from '../../components/CardResult.jsx'
 import Grip from '../../components/Grip.jsx'
@@ -15,7 +17,7 @@ import useDragging from '../../lib/useDragging.js'
 import { useActionBusy } from '../../lib/useBusy.js'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { postError, translateError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
@@ -41,11 +43,6 @@ function Chevron() {
       <path d="M6 9l6 6 6-6" />
     </svg>
   )
-}
-
-function SideDot({ link, side }) {
-  const state = linkSideState(link, side)
-  return <span className={'sdot ' + state.kind} title={state.title} />
 }
 
 function SideStatus({ link, side }) {
@@ -228,21 +225,7 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
         </div>
 
         <CardBody open={open}>
-          {link.drift ? (
-            <div
-              className="msg err"
-              style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Icon name="warn" color="#e0564f" />
-              <span>{T('drift_note')}</span>
-            </div>
-          ) : null}
-          {link.rb && !link.rb.ok ? (
-            <div className="msg err" style={{ margin: '0 0 9px' }}>
-              {T('rb_last_fail')}
-              {translateError(link.rb.error || T('rebuild_failed'))}
-            </div>
-          ) : null}
+          <DriftNote link={link} busy={busyAct === 'rebuild'} locked={!!busyAct} onRebuild={rebuild} />
 
           <div className="tninfo">
             <SideBox link={link} side="a" />
@@ -323,6 +306,7 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
         <RebuildPicker
           id={link.id}
           start={pickingRebuild}
+          onStart={() => setMessage(null)}
           onClose={() => setPickingRebuild(null)}
           onDone={onReload}
         />

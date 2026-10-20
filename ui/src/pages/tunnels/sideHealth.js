@@ -25,6 +25,11 @@ function sideState(online, health) {
   return { kind: 'na', word: '…', title: T('checking') }
 }
 
+export function movedTo(link, side) {
+  const now = link.drift ? link[side + '_ips'] || [] : []
+  return now.length && !now.includes(link[side + '_ip']) ? now : null
+}
+
 export function linkSideState(link, side) {
   if (link.enabled === false) return { kind: 'na', word: T('st_off'), title: T('st_off'), off: true }
   if (link.building && !link[side + '_health']) return { kind: 'na', word: '…', title: T('checking') }

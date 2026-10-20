@@ -5736,7 +5736,7 @@ def api_fleet(d):
         rec = {**pub, "a_online": _node_answered(L["a_node"]), "b_online": _node_answered(L["b_node"]),
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
-               "drift": link_drift(L["id"]), "rb": rb_last(L["id"]), "tag": int(L.get("tag") or 0),
+               "drift": link_drift(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
         if L.get("type") == "core":
             _ct = [t for t in ((L["a_name"], la.get("ct") or {}), (L["b_name"], lb.get("ct") or {}))
@@ -7650,37 +7650,11 @@ def _restart_link_impl(d, h):
     return {"ok": True}
 
 
-_rb_lock = threading.Lock()
-_rb_last = {}
-RB_KEEP = 900
-
-
-def _rb_note(lid, ok, error=None):
-    with _rb_lock:
-        for k in [k for k, v in _rb_last.items() if time.time() - v["ts"] > RB_KEEP]:
-            _rb_last.pop(k, None)
-        _rb_last[lid] = {"ok": ok, "error": tx_cut(_why(error), 200) if error is not None else "", "ts": int(time.time())}
-
-
-def rb_last(lid):
-    with _rb_lock:
-        v = _rb_last.get(lid)
-        return dict(v) if v and time.time() - v["ts"] <= RB_KEEP else None
-
-
 def _rebuild_job(d):
     def rebuild(h):
         a, b = _link_nodes(d)
         with _PairLock(a, b):
-            try:
-                r = _rebuild_link_impl(d, h)
-            except ActCancelled:
-                raise
-            except Exception as e:
-                _rb_note(str(d.get("id") or ""), False, e)
-                raise
-            _rb_note(str(d.get("id") or ""), bool(r.get("ok")))
-            return r
+            return _rebuild_link_impl(d, h)
 
     return rebuild
 

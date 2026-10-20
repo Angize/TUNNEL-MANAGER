@@ -7,6 +7,8 @@ import CoreMeta from './CoreMeta.jsx'
 import CdnEdge from './CdnEdge.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from '../tunnels/sideHealth.js'
+import SideDot from '../tunnels/SideDot.jsx'
+import DriftNote from '../tunnels/DriftNote.jsx'
 import { carrierFamily, carrierLabel } from './carrier.js'
 import RebuildPicker, { loadRebuild } from '../../components/RebuildPicker.jsx'
 import CardResult from '../../components/CardResult.jsx'
@@ -53,11 +55,6 @@ function serverIsA(link) {
 
 function sideOrder(link) {
   return serverIsA(link) ? ['b', 'a'] : ['a', 'b']
-}
-
-function HeaderDot({ link, side }) {
-  const state = linkSideState(link, side)
-  return <span className={'sdot ' + state.kind} title={state.title} />
 }
 
 function SideStatus({ link, side }) {
@@ -273,11 +270,11 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
                 </span>
               )}
               <span className="hpeers" dir="ltr">
-                <HeaderDot link={link} side={first} />
+                <SideDot link={link} side={first} />
                 <span className="pn">{link[first + '_name']}</span>
                 <Icon name="arrows" />
                 <span className="pn">{link[second + '_name']}</span>
-                <HeaderDot link={link} side={second} />
+                <SideDot link={link} side={second} />
               </span>
             </div>
           </div>
@@ -285,21 +282,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
         </div>
 
         <CardBody open={open}>
-          {link.drift ? (
-            <div
-              className="msg err"
-              style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Icon name="warn" color="#e0564f" />
-              <span>{T('drift_note')}</span>
-            </div>
-          ) : null}
-          {link.rb && !link.rb.ok ? (
-            <div className="msg err" style={{ margin: '0 0 9px' }}>
-              {T('rb_last_fail')}
-              {translateError(link.rb.error || T('rebuild_failed'))}
-            </div>
-          ) : null}
+          <DriftNote link={link} busy={busyAct === 'rebuild'} locked={!!busyAct} onRebuild={rebuild} />
 
           <div className="tninfo">
             <SideBox
@@ -392,6 +375,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
         <RebuildPicker
           id={link.id}
           start={pickingRebuild}
+          onStart={() => setMessage(null)}
           onClose={() => setPickingRebuild(null)}
           onDone={onReload}
         />
