@@ -5857,16 +5857,17 @@ def _shared_ports(ttype, exclude_id=None):
     return frozenset(held)
 
 
-def _guard_port_conflicts(bindings, exclude=frozenset()):
+def _guard_port_conflicts(bindings, exclude=frozenset(), mine=""):
     for node, ip, port, proto in bindings:
         if (node["id"], ip or "", int(port), proto) in exclude:
             continue
-        r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or ""}, timeout=10)
+        r = node_call(node, "portcheck", "POST", {"port": port, "proto": proto, "ip": ip or "", "own": mine}, timeout=10)
         if not r.get("ok"):
             continue
         if r.get("busy"):
-            who = str(r.get("who") or "").strip()
-            tail = f" — {who}" if who else ""
+            owner = str(r.get("tunnel") or "")
+            who = tx("هستهٔ تونلِ «{0}»", "the core of tunnel '{0}'", owner) if owner else str(r.get("who") or "").strip()
+            tail = tx(" — {0}", " — {0}", who) if who else ""
             onip = tx(" (روی {0})", " (on {0})", ip) if ip else ""
             raise Bad("port_busy", "پورتِ {0}/{1} روی نودِ «{2}»{3} اشغال است{4}؛ یک پورتِ دیگر انتخاب کن",
                       "port {0}/{1} on node '{2}'{3} is in use{4}; pick another port",
@@ -5894,7 +5895,7 @@ def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, 
                       "روی یک آی‌پی و پورت فقط UDP کنارِ TCP یا CDN جا می‌شود (RAW پورت نمی‌گیرد)؛ TCP و CDN هر دو TCP‌اند.",
                       "this server IP and port already belong to tunnel '{0}'. Use another port — one IP and port "
                       "fits only UDP next to TCP or CDN (RAW takes no port); TCP and CDN are both TCP.", clash.get("name"))
-    _guard_port_conflicts(binds, exclude=own | _shared_ports(ttype, lid))
+    _guard_port_conflicts(binds, exclude=own | _shared_ports(ttype, lid), mine=L.get("name", "") if L else "")
 
 
 
