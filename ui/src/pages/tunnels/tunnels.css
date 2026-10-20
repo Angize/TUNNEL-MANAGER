@@ -109,6 +109,100 @@
   background: var(--sub);
 }
 
+.sdotw {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-block: -2px;
+}
+
+.hpeers .sdotw .ic {
+  width: 14px;
+  height: 14px;
+  color: var(--gold-tx);
+}
+
+.driftbox {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
+  background: var(--goldw);
+  color: var(--gold-tx);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.driftbox > .ic {
+  grid-row: 1;
+  width: 18px;
+  height: 18px;
+}
+
+.dbh {
+  grid-column: 2;
+  font-weight: 800;
+}
+
+.ghost.tone.dbgo {
+  --c: var(--gold-tx);
+  grid-column: 3;
+  grid-row: 1;
+  margin: 0;
+  padding: 8px 13px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ghost.tone.dbgo .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.ghost.tone.dbgo:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.dbips {
+  grid-column: 2 / 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 12px;
+}
+
+.dbn {
+  font-weight: 700;
+}
+
+.dbip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  color: var(--tx);
+}
+
+.dbip .mono {
+  white-space: nowrap;
+}
+
+.dbip .old {
+  text-decoration: line-through;
+  opacity: .65;
+}
+
 .stw {
   font-size: 10px;
   font-weight: 800;

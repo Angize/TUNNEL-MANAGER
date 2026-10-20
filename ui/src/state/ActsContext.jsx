@@ -141,7 +141,7 @@ export function ActsProvider({ children }) {
       if (r) {
         apply(r)
         const act = r.acts[key]
-        if (!act) return { err: T('act_lost') }
+        if (!act) return { err: T('act_lost'), lost: true }
         if (act.state === 'fail') return { err: act.error }
         if (act.state === 'cancel') return { cancelled: true }
         if (act.state === 'done' || num(act.si) >= 1) return { ok: true }

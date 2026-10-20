@@ -5,7 +5,7 @@ import IpChips from './IpChips.jsx'
 import { T } from '../i18n/fa.js'
 import { checkable } from '../lib/keys.js'
 import { apiPost } from '../lib/api.js'
-import { postError, readError, translateError } from '../lib/errors.js'
+import { postError, readError } from '../lib/errors.js'
 import { toast } from '../lib/toast.js'
 import useBusy from '../lib/useBusy.js'
 import { useActs } from '../state/ActsContext.jsx'
@@ -40,7 +40,7 @@ export async function loadRebuild(id) {
   return { info: r.d, picked: chosen }
 }
 
-export default function RebuildPicker({ id, start, onClose, onDone }) {
+export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
   const info = start.info
   const [picked, setPicked] = useState(start.picked)
   const [message, setMessage] = useState('')
@@ -58,18 +58,12 @@ export default function RebuildPicker({ id, start, onClose, onDone }) {
       toast(postError(r, 'rebuild_failed'), 'err')
       return
     }
+    onStart()
     const verdict = await waitAccepted(r.d.act, () => true)
     if (verdict.gone) return
-    if (verdict.err || verdict.cancelled) {
-      setMessage('')
-      toast(
-        verdict.cancelled ? T('a_stopped') : translateError(verdict.err) || T('rebuild_failed'),
-        'err'
-      )
-      return
-    }
     onClose()
-    onDone()
+    if (verdict.lost) toast(verdict.err, 'err')
+    else if (!verdict.err && !verdict.cancelled) onDone()
   }
 
   const footer = (
