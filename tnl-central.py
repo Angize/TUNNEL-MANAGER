@@ -2872,10 +2872,12 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                     "ws_rotate_secs", "ws_port_roll", "gso",
+                    "self_ech", "ech_public", "self_ech_mat",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
-_PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool", "ws_pool_auto")
+_PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool", "ws_pool_auto",
+                    "self_ech", "ech_public", "self_ech_mat")
 
 
 def _node_extra(extra):
@@ -2935,6 +2937,25 @@ def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
     rs = int(src.get("rotate_secs") or 0)
     _apply_core_rotation(a_body, a_body.get("role") == "client", ap, bp, rs)
     _apply_core_rotation(b_body, b_body.get("role") == "client", bp, ap, rs)
+
+
+def _self_ech_bodies(src, a_body, b_body):
+    if not src.get("self_ech"):
+        return
+    mat = src.get("self_ech_mat") or {}
+    for body in (a_body, b_body):
+        if body.get("role") == "server":
+            if mat.get("srv_cert") and mat.get("srv_key"):
+                body["srv_cert"] = mat["srv_cert"]
+                body["srv_key"] = mat["srv_key"]
+                if mat.get("srv_ech_key") and mat.get("srv_ech_conf"):
+                    body["srv_ech_key"] = mat["srv_ech_key"]
+                    body["srv_ech_conf"] = mat["srv_ech_conf"]
+        elif body.get("role") == "client":
+            if mat.get("ws_ech"):
+                body["ws_ech"] = mat["ws_ech"]
+            if mat.get("ws_ca"):
+                body["ws_ca"] = mat["ws_ca"]
 
 
 def _core_end_bodies(src, a_body, b_body):
@@ -6265,6 +6286,108 @@ def _cdn_shape_fields(d, cur, cdn):
     return out
 
 
+def _gen_self_ech(public, inner):
+    def _ossl(args, inp=None):
+        return subprocess.run(["openssl"] + args, input=inp, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, check=True).stdout
+    priv_pem = _ossl(["genpkey", "-algorithm", "X25519"])
+    priv_der = _ossl(["pkey", "-inform", "PEM", "-outform", "DER"], inp=priv_pem)
+    pub_der = _ossl(["pkey", "-inform", "PEM", "-pubout", "-outform", "DER"], inp=priv_pem)
+    priv_raw, pub_raw = priv_der[-32:], pub_der[-32:]
+    c = bytearray()
+    c.append(hashlib.sha256(pub_raw).digest()[0])
+    c += b"\x00\x20"
+    c += len(pub_raw).to_bytes(2, "big") + pub_raw
+    suites = b"\x00\x01\x00\x01\x00\x01\x00\x02"
+    c += len(suites).to_bytes(2, "big") + suites
+    c.append(64)
+    pn = public.encode()
+    c.append(len(pn))
+    c += pn
+    c += b"\x00\x00"
+    config = b"\xfe\x0d" + len(c).to_bytes(2, "big") + bytes(c)
+    ech_list = len(config).to_bytes(2, "big") + config
+    with tempfile.TemporaryDirectory() as drt:
+        kp, cp = os.path.join(drt, "k.pem"), os.path.join(drt, "c.pem")
+        _ossl(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+               "-keyout", kp, "-out", cp, "-days", "3650", "-nodes",
+               "-subj", "/CN=" + inner,
+               "-addext", "subjectAltName=DNS:" + inner,
+               "-addext", "basicConstraints=critical,CA:TRUE"])
+        with open(cp) as f:
+            cert_pem = f.read()
+        with open(kp) as f:
+            key_pem = f.read()
+    return {"public": public, "inner": inner, "srv_ech_key": priv_raw.hex(),
+            "srv_ech_conf": base64.b64encode(config).decode(),
+            "ws_ech": base64.b64encode(ech_list).decode(),
+            "srv_cert": cert_pem, "srv_key": key_pem, "ws_ca": cert_pem}
+
+
+def _self_ech_fields(d, cur):
+    cur = cur or {}
+    out = {"ws_port_roll": bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))}
+    host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip().lower()
+    if not re.match(_DOMAIN_RE, host):
+        raise Bad("self_ech_needs_inner",
+                  "ECHِ خودمیزبان به یک «نامِ داخلی» (ws_host) نیاز دارد — همان نامی که روی گواهیِ سرورِ خودت می‌نشیند و در "
+                  "ClientHello رمز می‌شود و از چشمِ DPI پنهان می‌ماند؛ یک دامنهٔ معتبر بگذار",
+                  "self-hosted ECH needs an inner name (ws_host) — the name on your own server cert, encrypted inside the "
+                  "ClientHello and hidden from the DPI; set a valid domain")
+    public = str((d["ech_public"] if "ech_public" in d
+                  else (cur.get("ech_public") or (cur.get("self_ech_mat") or {}).get("public"))) or "").strip().lower()
+    if not public:
+        raise Bad("self_ech_needs_public",
+                  "ECHِ خودمیزبان به یک «نامِ بیرونیِ طعمه» نیاز دارد — دامنه‌ای که در روشناییِ روز روی سیم می‌رود "
+                  "(مثلاً www.google.com) و فیلترش برای DPI آسیبِ جانبی دارد",
+                  "self-hosted ECH needs a public decoy name — the domain that travels in the clear (e.g. www.google.com) "
+                  "whose filtering would hurt the censor")
+    if not re.match(_DOMAIN_RE, public):
+        raise Bad("bad_ech_public", "نامِ بیرونیِ ECH (دامنهٔ طعمه) نامعتبر است", "invalid ECH public name (decoy domain)")
+    if public == host:
+        raise Bad("ech_public_eq_inner",
+                  "نامِ طعمه و نامِ داخلی نباید یکی باشند — طعمه چیزی است که همه روی سیم می‌بینند، نامِ داخلی چیزی که پنهان می‌ماند",
+                  "the decoy and the inner name must differ — the decoy is what everyone sees on the wire, the inner name is what stays hidden")
+    if (d.get("ech") if "ech" in d else cur.get("ech")):
+        raise Bad("self_ech_vs_cf",
+                  "ECHِ خودمیزبان و ECHِ کلاودفلر با هم روشن نمی‌شوند — یکی را انتخاب کن؛ خودمیزبان یعنی TLS روی سرورِ خودت بسته می‌شود نه روی لبهٔ CDN",
+                  "self-hosted ECH and Cloudflare ECH can't both be on — pick one; self-hosted ends TLS on your own server, not a CDN edge")
+    if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
+        raise Bad("self_ech_vs_pool",
+                  "ECHِ خودمیزبان با استخرِ لبه جمع نمی‌شود — مستقیم به سرورِ خودت وصل می‌شود، استخری از لبه‌های CDN در کار نیست",
+                  "self-hosted ECH doesn't combine with an edge pool — it dials your own server directly, there is no CDN edge pool")
+    if str((d["edge_ip"] if "edge_ip" in d else cur.get("edge_ip")) or "").strip():
+        raise Bad("self_ech_vs_edge",
+                  "ECHِ خودمیزبان آی‌پیِ لبهٔ CDN نمی‌خواهد — کلاینت مستقیم به آی‌پیِ سرور دیال می‌کند؛ «آی‌پیِ لبه» را خالی بگذار",
+                  "self-hosted ECH wants no CDN edge IP — the client dials the server IP directly; leave the edge IP empty")
+    cdn = _cdn_carrier(d, cur)
+    if cdn == "grpc":
+        raise Bad("self_ech_no_grpc",
+                  "ECHِ خودمیزبان فعلاً فقط ws و http را پوشش می‌دهد؛ grpc (HTTP/2) هنوز روی سرورِ خودمان TLS+ECH را نمی‌بندد",
+                  "self-hosted ECH covers only the ws and http carriers for now; grpc (HTTP/2) is not terminated on our own server yet")
+    out["ws_host"] = host
+    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
+    if path:
+        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
+            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
+                      "invalid WebSocket path (ws_path) (must start with /)")
+        out["ws_path"] = path
+    out["ws_tls"] = True
+    if cdn != "ws":
+        out["cdn_carrier"] = cdn
+        out.update(_cdn_shape_fields(d, cur, cdn))
+    mat = cur.get("self_ech_mat") or {}
+    fresh = (mat.get("public") == public and mat.get("inner") == host and mat.get("srv_cert")
+             and mat.get("srv_key") and mat.get("srv_ech_key") and mat.get("srv_ech_conf")
+             and mat.get("ws_ech") and mat.get("ws_ca"))
+    if not fresh:
+        mat = _gen_self_ech(public, host)
+    out["self_ech"] = True
+    out["ech_public"] = public
+    out["self_ech_mat"] = mat
+    return out
+
+
 def _ws_fields(d, transport, cur=None, ech_later=False):
     out = {}
     if transport != "ws":
@@ -6274,6 +6397,8 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         out.update(_ws_pool_fields(d, cur))
         return out
+    if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
+        return _self_ech_fields(d, cur)
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise Bad("bad_ws_host", "دامنهٔ WebSocket (ws_host) نامعتبر است", "invalid WebSocket domain (ws_host)")
@@ -6529,6 +6654,7 @@ _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
                   "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                   "ws_rotate_secs", "ws_port_roll", "sni_split", "split_pos", "sni_mode", "split_ttl",
+                  "self_ech", "ech_public", "self_ech_mat",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
@@ -6895,6 +7021,7 @@ def _create_tunnel_impl(d, h):
             a_body["role"] = "server" if server_side == "a" else "client"
             b_body["role"] = "server" if server_side == "b" else "client"
             _core_rotation_bodies(extra, a_body, b_body)
+            _self_ech_bodies(extra, a_body, b_body)
             _core_end_bodies(extra, a_body, b_body)
             _apply_core_tuning(a_body, b_body)
         _apply_probe_tuning(a_body, b_body)
@@ -7122,6 +7249,7 @@ def _restore_link(A, B, L, extra=None):
             L, a_body, b_body,
             _flat_ips(_cached_ping(A["id"])) if A else None,
             _flat_ips(_cached_ping(B["id"])) if B else None)
+        _self_ech_bodies(L, a_body, b_body)
         _core_end_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
@@ -7493,6 +7621,7 @@ def _edit_link_impl(d, h):
                 a_body["role"] = "server" if server_side == "a" else "client"
                 b_body["role"] = "server" if server_side == "b" else "client"
                 _core_rotation_bodies(extra, a_body, b_body)
+                _self_ech_bodies(extra, a_body, b_body)
                 _core_end_bodies(extra, a_body, b_body)
                 _apply_core_tuning(a_body, b_body)
             _apply_probe_tuning(a_body, b_body)
@@ -7700,6 +7829,7 @@ def _rebuild_link_impl(d, h):
     if ttype == "core":
         a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
         _core_rotation_bodies(src, a_body, b_body, a_ips, b_ips)
+        _self_ech_bodies(L, a_body, b_body)
         _core_end_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
