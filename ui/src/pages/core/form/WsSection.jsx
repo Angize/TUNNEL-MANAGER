@@ -76,49 +76,105 @@ function CdnShape(props) {
 function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMade, patch }) {
   const current = wsProfOf(form.Cdn)
 
+  const toggleSelfEch = () => {
+    if (form.SelfEch) {
+      patch({ SelfEch: false, WsTls: false })
+    } else {
+      patch({
+        SelfEch: true,
+        WsTls: true,
+        Cdn: form.Cdn === 'grpc' ? 'ws' : form.Cdn,
+        Ech: false,
+        EchProxy: false,
+        SniSplit: false,
+        cdnOwner: '',
+        cdnZone: '',
+        poolCdn: false,
+        cdnEdgeAuto: true,
+        wsEdge: '',
+        pool: { ...form.pool, pool: false },
+      })
+    }
+  }
+
   return (
     <div>
       <label>{T('ws_prof_lbl')}</label>
       <Tiles p3 label={T('ws_prof_lbl')}>
-        {wsProfiles().map((profile) => (
-          <Tile
-            key={profile.v}
-            on={profile.v === current}
-            name={profile.v}
-            meta={profile.m}
-            onClick={() => patch({ Cdn: profile.v })}
-          />
-        ))}
+        {wsProfiles()
+          .filter((profile) => !form.SelfEch || profile.v !== 'grpc')
+          .map((profile) => (
+            <Tile
+              key={profile.v}
+              on={profile.v === current}
+              name={profile.v}
+              meta={profile.m}
+              onClick={() => patch({ Cdn: profile.v })}
+            />
+          ))}
       </Tiles>
       <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
       <SwitchRow
-        on={form.pool.pool}
-        title={T('ws_pool_t')}
-        note={T('ws_pool_d')}
-        onToggle={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
+        on={form.SelfEch}
+        title={T('selfech_t')}
+        note={T('selfech_d')}
+        onToggle={toggleSelfEch}
       />
-      <SwapCascade value={!!form.pool.pool}>
-        <Reveal show={form.pool.pool}>
-          <WsPool
-            edges={cdnKeys && cdnKeys.edges}
-            keys={cdnKeys}
-            owners={cdnOwners}
-            serverIp={serverIp}
-            onCdnMade={onCdnMade}
-            form={form}
-            enums={cfg.enums}
-            lid={lid}
-            live={live}
-            patch={patch}
-          />
-        </Reveal>
-        <Reveal show={!form.pool.pool}>
-          <div style={{ marginTop: 12 }}>
-            <CdnHostField form={form} keys={cdnKeys} serverIp={serverIp} patch={patch} onMade={onCdnMade} />
+      <Reveal show={!!form.SelfEch}>
+        <div style={{ marginTop: 8 }}>
+          <Field label={T('selfech_inner_lbl')}>
+            <input
+              {...LTR_TEXT}
+              placeholder={T('selfech_inner_ph')}
+              value={form.wsHost}
+              onChange={(e) => patch({ wsHost: e.target.value })}
+            />
+          </Field>
+          <Field label={T('selfech_public_lbl')} style={{ marginTop: 8 }}>
+            <input
+              {...LTR_TEXT}
+              placeholder={T('selfech_public_ph')}
+              value={form.echPublic}
+              onChange={(e) => patch({ echPublic: e.target.value })}
+            />
+          </Field>
+          <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
+            <RichText text={T('selfech_note')} />
           </div>
-        </Reveal>
-      </SwapCascade>
+        </div>
+      </Reveal>
+      <Reveal show={!form.SelfEch}>
+        <>
+          <SwitchRow
+            on={form.pool.pool}
+            title={T('ws_pool_t')}
+            note={T('ws_pool_d')}
+            onToggle={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
+          />
+          <SwapCascade value={!!form.pool.pool}>
+            <Reveal show={form.pool.pool}>
+              <WsPool
+                edges={cdnKeys && cdnKeys.edges}
+                keys={cdnKeys}
+                owners={cdnOwners}
+                serverIp={serverIp}
+                onCdnMade={onCdnMade}
+                form={form}
+                enums={cfg.enums}
+                lid={lid}
+                live={live}
+                patch={patch}
+              />
+            </Reveal>
+            <Reveal show={!form.pool.pool}>
+              <div style={{ marginTop: 12 }}>
+                <CdnHostField form={form} keys={cdnKeys} serverIp={serverIp} patch={patch} onMade={onCdnMade} />
+              </div>
+            </Reveal>
+          </SwapCascade>
+        </>
+      </Reveal>
       <Field label={T('ws_path_lbl')}>
         <input
           {...LTR_TEXT}
@@ -127,7 +183,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
           onChange={(e) => patch({ wsPath: e.target.value })}
         />
       </Field>
-      <Reveal show={!cdnAuto(form)}>
+      <Reveal show={!cdnAuto(form) && !form.SelfEch}>
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
           <RichText text={T('ws_note')} />
         </div>
