@@ -45,6 +45,34 @@ function poolCollect(form, body) {
   return ''
 }
 
+function selfEchCollect(form, enums, body) {
+  if (form.Cdn === 'grpc') return T('selfech_grpc_alert')
+  const inner = form.wsHost.trim()
+  const decoy = form.echPublic.trim()
+  if (!inner) return T('selfech_need_inner')
+  if (!decoy) return T('selfech_need_public')
+  if (inner === decoy) return T('selfech_decoy_eq')
+  body.ech = false
+  body.ws_pool = false
+  body.ws_tls = true
+  body.ws_host = inner
+  body.ech_public = decoy
+  body.edge_ip = ''
+  body.cdn_carrier = form.Cdn
+  if (form.Cdn === 'http') {
+    const shapeError = cdnShapeErr(form, enums)
+    if (shapeError) return shapeError
+    const shape = cdnShape(enums)
+    for (const name of CDN_FIELD_NAMES) {
+      const field = shape[name]
+      if (cdnShapeApplies(field, form.Cdn, enums)) {
+        body[field.k] = cdnShapeValue(form, name, enums)
+      }
+    }
+  }
+  return ''
+}
+
 function rotPicked(ips, selected) {
   if (!ips.length) return Object.keys(selected).filter((ip) => selected[ip])
   return ips.filter((ip) => selected[ip])
@@ -143,8 +171,14 @@ export function collectCarrier(form, cfg, body) {
 
   if (form.Tr === 'ws') {
     body.ws_path = form.wsPath.trim()
-    body.ws_tls = form.WsTls
     body.ws_port_roll = form.PortRoll
+    body.self_ech = form.SelfEch
+    if (form.SelfEch) {
+      const selfError = selfEchCollect(form, enums, body)
+      if (selfError) return selfError
+      return ''
+    }
+    body.ws_tls = form.WsTls
     body.ech = form.Ech
     body.ech_proxy = form.Ech && form.EchProxy
     if (form.Ech && form.EchProxy) body.ech_proxy_id = form.echProxyId
