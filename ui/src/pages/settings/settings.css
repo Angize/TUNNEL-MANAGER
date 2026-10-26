@@ -733,3 +733,106 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 92%, #fff), var(--bad));
   box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
 }
+
+.cdnedge .edgeintro {
+  margin: 0 2px 12px;
+  color: var(--sub);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+.cdnedge .edgemuted {
+  margin: 10px 2px;
+  color: var(--sub);
+  font-size: 13px;
+}
+.cdnedge .edgelist {
+  display: grid;
+  gap: 8px;
+}
+.cdnedge .edgerow {
+  border: 1px solid var(--bord);
+  border-radius: 14px;
+  background: var(--field);
+  overflow: hidden;
+}
+.cdnedge .edgerow.open {
+  border-color: color-mix(in srgb, var(--acc) 40%, transparent);
+}
+.cdnedge .edgehd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+}
+.cdnedge .edgehd .swrow {
+  flex: 1;
+  min-width: 0;
+}
+.cdnedge .edgecfg {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ctl);
+  color: var(--sub);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.cdnedge .edgecfg[aria-expanded='true'] {
+  color: var(--acc);
+  background: var(--accw);
+}
+.cdnedge .edgecfg svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.18s;
+}
+.cdnedge .edgecfg[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.cdnedge .edgebody {
+  padding: 2px 12px 14px;
+  display: grid;
+  gap: 11px;
+}
+.cdnedge .edgegrid {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+}
+@media (max-width: 460px) {
+  .cdnedge .edgegrid {
+    grid-template-columns: 1fr;
+  }
+}
+.cdnedge .edgewarn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border-radius: 12px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.7;
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+}
+.cdnedge .edgewarn svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+}
+.cdnedge .edgeacts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cdnedge .edgeacts .grow {
+  flex: 1;
+}
+.cdnedge .edgecount {
+  margin: 12px 2px 0;
+  color: var(--sub);
+  font-size: 12px;
+}

@@ -4,11 +4,13 @@ import ValuesTab from './ValuesTab.jsx'
 import ApiTab from './ApiTab.jsx'
 import UpkeepTab from './UpkeepTab.jsx'
 import CdnTab from './CdnTab.jsx'
+import CdnEdgeTab from './CdnEdgeTab.jsx'
 import './settings.css'
 
 export const SETTINGS_KINDS = [
   { id: 'set-api', labelKey: 'set_tab_api', subKey: 'set_api_sub', Page: ApiTab },
   { id: 'set-cdn', labelKey: 'set_tab_cdn', subKey: 'set_cdn_sub', Page: CdnTab },
+  { id: 'set-edge', labelKey: 'set_tab_edge', subKey: 'set_edge_sub', Page: CdnEdgeTab },
   { id: 'set-upkeep', labelKey: 'set_tab_upkeep', subKey: 'set_upkeep_sub', Page: UpkeepTab },
   { id: 'set-values', labelKey: 'set_tab_values', subKey: 'set_sub', Page: ValuesTab },
 ]
