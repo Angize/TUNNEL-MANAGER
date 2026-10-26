@@ -11277,6 +11277,84 @@ def api_cdn_set(d):
     return {"ok": True, "cdn": _cdn_public()}
 
 
+EDGE_DECOY_DEFAULT = "www.google.com"
+_EDGE_PORT_DEFAULT = 443
+
+
+def _edge_of(node):
+    e = node.get("edge")
+    return dict(e) if isinstance(e, dict) else {}
+
+
+def _edge_routes(node_id):
+    routes = []
+    for L in load_links():
+        if L.get("edge_node") != node_id or not L.get("enabled", True):
+            continue
+        r = L.get("edge_route")
+        if isinstance(r, dict) and r.get("inner") and r.get("backend") and r.get("cert") and r.get("key"):
+            routes.append({"inner": r["inner"], "backend": r["backend"], "cert": r["cert"], "key": r["key"]})
+    return routes
+
+
+def _front_sync(node):
+    e = _edge_of(node)
+    if not e.get("on"):
+        return node_call(node, "front", body={"stop": True}, timeout=NODE_OP_TIMEOUT)
+    routes = _edge_routes(node["id"])
+    if not routes:
+        return node_call(node, "front", body={"stop": True}, timeout=NODE_OP_TIMEOUT)
+    listen = "%s:%d" % (node["host"], int(e.get("port") or _EDGE_PORT_DEFAULT))
+    body = _front_body(listen, e.get("srv_ech_key"), e.get("srv_ech_conf"), routes)
+    return node_call(node, "front", body=body, timeout=NODE_OP_TIMEOUT)
+
+
+def _edge_public(node):
+    e = _edge_of(node)
+    return {"id": node["id"], "name": node["name"], "host": node["host"],
+            "on": bool(e.get("on")), "port": int(e.get("port") or _EDGE_PORT_DEFAULT),
+            "decoy": e.get("decoy") or "", "routes": len(_edge_routes(node["id"])),
+            "ready": bool(e.get("srv_ech_key"))}
+
+
+def api_cdn_edge(d):
+    d = d or {}
+    act = str(d.get("act") or "state").strip().lower()
+    if act == "state":
+        return {"ok": True, "edges": [_edge_public(n) for n in load_nodes()]}
+    _require(d, ["id"])
+    with _reg_lock:
+        node = get_node(d["id"])
+        if not node:
+            raise _no_node()
+        n2 = _thaw(node)
+        e = _edge_of(n2)
+        if act == "on":
+            port = int(d.get("port") or e.get("port") or _EDGE_PORT_DEFAULT)
+            if not 1 <= port <= 65535:
+                raise Bad("bad_edge_port", "پورتِ لبه باید بین ۱ و ۶۵۵۳۵ باشد", "the edge port must be 1..65535")
+            decoy = str(d.get("decoy") or e.get("decoy") or EDGE_DECOY_DEFAULT).strip().lower()
+            if not re.match(_DOMAIN_RE, decoy):
+                raise Bad("bad_edge_decoy", "نامِ طعمه نامعتبر است", "the decoy name is invalid")
+            if not e.get("srv_ech_key") or e.get("decoy") != decoy:
+                mat = _gen_ech_key(decoy)
+                e["srv_ech_key"] = mat["srv_ech_key"]
+                e["srv_ech_conf"] = mat["srv_ech_conf"]
+                e["ws_ech"] = mat["ws_ech"]
+            e["on"] = True
+            e["port"] = port
+            e["decoy"] = decoy
+        elif act == "off":
+            e["on"] = False
+        else:
+            raise Bad("bad_edge_act", "عملِ لبهٔ ناشناخته: {0}", "unknown edge action: {0}", act)
+        n2["edge"] = e
+        with store_tx() as t:
+            t.put(_NODES, n2)
+    res = _front_sync(n2)
+    return {"ok": True, "edge": _edge_public(n2), "node": res}
+
+
 def api_cdn_test(d):
     prov = _cdn_prov((d or {}).get("provider"))
     cred = _cdn_cred(prov)
@@ -12113,6 +12191,7 @@ API = {
     "backup": api_backup, "backup-restore": api_backup_restore, "sign-key-rotate": api_sign_key_rotate,
     "cdn": api_cdn, "cdn-key": api_cdn_key, "cdn-set": api_cdn_set, "cdn-test": api_cdn_test, "cdn-zones": api_cdn_zones,
     "cdn-check": api_cdn_check, "cdn-notes": api_cdn_notes, "cdn-ports": api_cdn_ports, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
+    "cdn-edge": api_cdn_edge,
 }
 MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
@@ -12124,9 +12203,9 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "update-agent", "update-core",
              "reorder", "link-tag",
              "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync"}
+             "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync", "cdn-edge"}
 TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
-              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync"}
+              "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync", "cdn-edge"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
     "locked": ("تلاشِ زیاد — چند دقیقه صبر کن", 429, "too many failed attempts from this address; try again in a few minutes"),
