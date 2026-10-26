@@ -243,6 +243,60 @@
    ]
   ]
  },
+ "cdn-edge": {
+  "bad": [
+   [
+    400,
+    "bad_edge_act",
+    "unknown edge action: …"
+   ],
+   [
+    400,
+    "bad_edge_decoy",
+    "the decoy name is invalid"
+   ],
+   [
+    400,
+    "bad_edge_port",
+    "the edge port must be 1..65535"
+   ],
+   [
+    400,
+    "edge_busy",
+    "a tunnel build or edit on edge '…' is running right now — let it finish, then try again"
+   ],
+   [
+    400,
+    "edge_in_use",
+    "'…' is the private-CDN edge of … tunnels ('…') — …; take those tunnels off this edge first"
+   ],
+   [
+    400,
+    "edge_port_agent",
+    "port … is this node's agent port — pick another port for the edge"
+   ],
+   [
+    400,
+    "edge_port_held",
+    "port …/TCP on this node belongs to '…' — pick another port for the edge"
+   ],
+   [
+    400,
+    "edge_port_held",
+    "port …/TCP on this node belongs to tunnel '…' — pick another port for the edge"
+   ],
+   [
+    400,
+    "missing_field",
+    "field '…' is missing"
+   ],
+   [
+    400,
+    "node_not_found",
+    "node not found"
+   ]
+  ]
+ },
  "cdn-key": {
   "bad": [
    [
@@ -747,6 +801,11 @@
    ],
    [
     400,
+    "bad_ech_public",
+    "invalid ECH public name (decoy domain)"
+   ],
+   [
+    400,
     "bad_edge_ip",
     "invalid CDN edge address (edge_ip) — write an IP or IP:port"
    ],
@@ -1072,6 +1131,61 @@
    ],
    [
     400,
+    "ech_public_eq_inner",
+    "the decoy and the inner name must differ — the decoy is what everyone sees on the wire, the inner name is what stays hidden"
+   ],
+   [
+    400,
+    "edge_is_end",
+    "the private-CDN edge must be a third node, not one of this tunnel's two ends"
+   ],
+   [
+    400,
+    "edge_no_grpc",
+    "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge"
+   ],
+   [
+    400,
+    "edge_node_missing",
+    "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel"
+   ],
+   [
+    400,
+    "edge_off",
+    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+   ],
+   [
+    400,
+    "edge_port_taken",
+    "port …/TCP on node '…' belongs to this node's private-CDN edge — use another port"
+   ],
+   [
+    400,
+    "edge_vs_cdn",
+    "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
+   ],
+   [
+    400,
+    "edge_vs_cf_ech",
+    "a private-CDN edge brings its own ECH; turn Cloudflare ECH off"
+   ],
+   [
+    400,
+    "edge_vs_edge_ip",
+    "with a private-CDN edge leave the edge IP empty — the panel sets the edge node's IP and port itself"
+   ],
+   [
+    400,
+    "edge_vs_pool",
+    "a private-CDN edge doesn't combine with an edge pool — the client dials that one edge only"
+   ],
+   [
+    400,
+    "edge_vs_self_ech",
+    "a private-CDN edge and self-hosted ECH can't both be on — pick one"
+   ],
+   [
+    400,
     "grpc_needs_wss",
     "the grpc carrier needs wss (for HTTP/2 to the edge) — turn wss on first"
    ],
@@ -1244,6 +1358,36 @@
     400,
     "save_unknown",
     "the tunnel was built on both nodes but … — so it was not torn down. If it is missing from the list later, the dashboard reports it as unregistered and you can delete it with stray-del"
+   ],
+   [
+    400,
+    "self_ech_needs_inner",
+    "self-hosted ECH needs an inner name (ws_host) — the name on your own server cert, encrypted inside the ClientHello and hidden from the DPI; set a valid domain"
+   ],
+   [
+    400,
+    "self_ech_needs_public",
+    "self-hosted ECH needs a public decoy name — the domain that travels in the clear (e.g. www.google.com) whose filtering would hurt the censor"
+   ],
+   [
+    400,
+    "self_ech_no_grpc",
+    "self-hosted ECH covers only the ws and http carriers for now; grpc (HTTP/2) is not terminated on our own server yet"
+   ],
+   [
+    400,
+    "self_ech_vs_cf",
+    "self-hosted ECH and Cloudflare ECH can't both be on — pick one; self-hosted ends TLS on your own server, not a CDN edge"
+   ],
+   [
+    400,
+    "self_ech_vs_edge",
+    "self-hosted ECH wants no CDN edge IP — the client dials the server IP directly; leave the edge IP empty"
+   ],
+   [
+    400,
+    "self_ech_vs_pool",
+    "self-hosted ECH doesn't combine with an edge pool — it dials your own server directly, there is no CDN edge pool"
    ],
    [
     400,
@@ -1488,6 +1632,11 @@
    ],
    [
     400,
+    "bad_ech_public",
+    "invalid ECH public name (decoy domain)"
+   ],
+   [
+    400,
     "bad_edge_ip",
     "invalid CDN edge address (edge_ip) — write an IP or IP:port"
    ],
@@ -1813,6 +1962,61 @@
    ],
    [
     400,
+    "ech_public_eq_inner",
+    "the decoy and the inner name must differ — the decoy is what everyone sees on the wire, the inner name is what stays hidden"
+   ],
+   [
+    400,
+    "edge_is_end",
+    "the private-CDN edge must be a third node, not one of this tunnel's two ends"
+   ],
+   [
+    400,
+    "edge_no_grpc",
+    "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge"
+   ],
+   [
+    400,
+    "edge_node_missing",
+    "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel"
+   ],
+   [
+    400,
+    "edge_off",
+    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+   ],
+   [
+    400,
+    "edge_port_taken",
+    "port …/TCP on node '…' belongs to this node's private-CDN edge — use another port"
+   ],
+   [
+    400,
+    "edge_vs_cdn",
+    "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
+   ],
+   [
+    400,
+    "edge_vs_cf_ech",
+    "a private-CDN edge brings its own ECH; turn Cloudflare ECH off"
+   ],
+   [
+    400,
+    "edge_vs_edge_ip",
+    "with a private-CDN edge leave the edge IP empty — the panel sets the edge node's IP and port itself"
+   ],
+   [
+    400,
+    "edge_vs_pool",
+    "a private-CDN edge doesn't combine with an edge pool — the client dials that one edge only"
+   ],
+   [
+    400,
+    "edge_vs_self_ech",
+    "a private-CDN edge and self-hosted ECH can't both be on — pick one"
+   ],
+   [
+    400,
     "grpc_needs_wss",
     "the grpc carrier needs wss (for HTTP/2 to the edge) — turn wss on first"
    ],
@@ -1970,6 +2174,36 @@
     400,
     "same_node",
     "the two ends of a tunnel must be two different nodes"
+   ],
+   [
+    400,
+    "self_ech_needs_inner",
+    "self-hosted ECH needs an inner name (ws_host) — the name on your own server cert, encrypted inside the ClientHello and hidden from the DPI; set a valid domain"
+   ],
+   [
+    400,
+    "self_ech_needs_public",
+    "self-hosted ECH needs a public decoy name — the domain that travels in the clear (e.g. www.google.com) whose filtering would hurt the censor"
+   ],
+   [
+    400,
+    "self_ech_no_grpc",
+    "self-hosted ECH covers only the ws and http carriers for now; grpc (HTTP/2) is not terminated on our own server yet"
+   ],
+   [
+    400,
+    "self_ech_vs_cf",
+    "self-hosted ECH and Cloudflare ECH can't both be on — pick one; self-hosted ends TLS on your own server, not a CDN edge"
+   ],
+   [
+    400,
+    "self_ech_vs_edge",
+    "self-hosted ECH wants no CDN edge IP — the client dials the server IP directly; leave the edge IP empty"
+   ],
+   [
+    400,
+    "self_ech_vs_pool",
+    "self-hosted ECH doesn't combine with an edge pool — it dials your own server directly, there is no CDN edge pool"
    ],
    [
     400,
@@ -2429,6 +2663,16 @@
     400,
     "cdn_remove_failed",
     "removing from … did not finish: … — the node and its tunnels were left as they are"
+   ],
+   [
+    400,
+    "edge_busy",
+    "a tunnel build or edit on edge '…' is running right now — let it finish, then try again"
+   ],
+   [
+    400,
+    "edge_in_use",
+    "'…' is the private-CDN edge of … tunnels ('…') — …; take those tunnels off this edge first"
    ],
    [
     400,
@@ -3287,8 +3531,28 @@
    ],
    [
     400,
+    "cdn_private_ip",
+    "the server IP (…) is not public and the CDN cannot reach it — pick a public IPv4"
+   ],
+   [
+    400,
     "ech_proxy_missing",
     "this tunnel's ECH proxy no longer exists — create one and pick it when editing the tunnel"
+   ],
+   [
+    400,
+    "edge_node_missing",
+    "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel"
+   ],
+   [
+    400,
+    "edge_off",
+    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+   ],
+   [
+    400,
+    "edge_port_taken",
+    "port …/TCP on node '…' belongs to this node's private-CDN edge — use another port"
    ],
    [
     400,

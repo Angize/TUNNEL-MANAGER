@@ -73,6 +73,31 @@ function selfEchCollect(form, enums, body) {
   return ''
 }
 
+function edgeCollect(form, enums, body) {
+  if (form.Cdn === 'grpc') return T('pedge_grpc_alert')
+  if (!form.edgeNode) return T('pedge_need_pick')
+  if (form.edgeNode === form.aNode || form.edgeNode === form.bNode) return T('pedge_is_end')
+  body.ech = false
+  body.ws_pool = false
+  body.self_ech = false
+  body.ws_tls = true
+  body.edge_node = form.edgeNode
+  body.edge_ip = ''
+  body.cdn_carrier = form.Cdn
+  if (form.Cdn === 'http') {
+    const shapeError = cdnShapeErr(form, enums)
+    if (shapeError) return shapeError
+    const shape = cdnShape(enums)
+    for (const name of CDN_FIELD_NAMES) {
+      const field = shape[name]
+      if (cdnShapeApplies(field, form.Cdn, enums)) {
+        body[field.k] = cdnShapeValue(form, name, enums)
+      }
+    }
+  }
+  return ''
+}
+
 function rotPicked(ips, selected) {
   if (!ips.length) return Object.keys(selected).filter((ip) => selected[ip])
   return ips.filter((ip) => selected[ip])
@@ -172,6 +197,8 @@ export function collectCarrier(form, cfg, body) {
   if (form.Tr === 'ws') {
     body.ws_path = form.wsPath.trim()
     body.ws_port_roll = form.PortRoll
+    if (form.EdgeOn) return edgeCollect(form, enums, body)
+    body.edge_node = ''
     body.self_ech = form.SelfEch
     if (form.SelfEch) {
       const selfError = selfEchCollect(form, enums, body)
