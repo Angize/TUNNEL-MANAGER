@@ -1637,7 +1637,7 @@ NODE_WIRE = {
     "portcheck": "pc", "speedtest": "sd", "edge-status": "es", "peer-status": "ps", "peer-select": "pl",
     "pool-select": "qs", "retest-now": "rt", "ech-update": "eu",
     "core-put": "cp", "core-apply": "ca", "set-update-key": "sk", "kernel-tune": "kt", "link-enable": "le",
-    "core-restart": "cr",
+    "core-restart": "cr", "front": "fr",
 }
 
 
@@ -6286,13 +6286,15 @@ def _cdn_shape_fields(d, cur, cdn):
     return out
 
 
-def _gen_self_ech(public, inner):
-    def _ossl(args, inp=None):
-        return subprocess.run(["openssl"] + args, input=inp, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE, check=True).stdout
-    priv_pem = _ossl(["genpkey", "-algorithm", "X25519"])
-    priv_der = _ossl(["pkey", "-inform", "PEM", "-outform", "DER"], inp=priv_pem)
-    pub_der = _ossl(["pkey", "-inform", "PEM", "-pubout", "-outform", "DER"], inp=priv_pem)
+def _ech_ossl(args, inp=None):
+    return subprocess.run(["openssl"] + args, input=inp, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, check=True).stdout
+
+
+def _gen_ech_key(public):
+    priv_pem = _ech_ossl(["genpkey", "-algorithm", "X25519"])
+    priv_der = _ech_ossl(["pkey", "-inform", "PEM", "-outform", "DER"], inp=priv_pem)
+    pub_der = _ech_ossl(["pkey", "-inform", "PEM", "-pubout", "-outform", "DER"], inp=priv_pem)
     priv_raw, pub_raw = priv_der[-32:], pub_der[-32:]
     c = bytearray()
     c.append(hashlib.sha256(pub_raw).digest()[0])
@@ -6307,21 +6309,42 @@ def _gen_self_ech(public, inner):
     c += b"\x00\x00"
     config = b"\xfe\x0d" + len(c).to_bytes(2, "big") + bytes(c)
     ech_list = len(config).to_bytes(2, "big") + config
+    return {"public": public, "srv_ech_key": priv_raw.hex(),
+            "srv_ech_conf": base64.b64encode(config).decode(),
+            "ws_ech": base64.b64encode(ech_list).decode()}
+
+
+def _gen_name_cert(inner):
     with tempfile.TemporaryDirectory() as drt:
         kp, cp = os.path.join(drt, "k.pem"), os.path.join(drt, "c.pem")
-        _ossl(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
-               "-keyout", kp, "-out", cp, "-days", "3650", "-nodes",
-               "-subj", "/CN=" + inner,
-               "-addext", "subjectAltName=DNS:" + inner,
-               "-addext", "basicConstraints=critical,CA:TRUE"])
+        _ech_ossl(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                   "-keyout", kp, "-out", cp, "-days", "3650", "-nodes",
+                   "-subj", "/CN=" + inner,
+                   "-addext", "subjectAltName=DNS:" + inner,
+                   "-addext", "basicConstraints=critical,CA:TRUE"])
         with open(cp) as f:
             cert_pem = f.read()
         with open(kp) as f:
             key_pem = f.read()
-    return {"public": public, "inner": inner, "srv_ech_key": priv_raw.hex(),
-            "srv_ech_conf": base64.b64encode(config).decode(),
-            "ws_ech": base64.b64encode(ech_list).decode(),
-            "srv_cert": cert_pem, "srv_key": key_pem, "ws_ca": cert_pem}
+    return {"cert": cert_pem, "key": key_pem}
+
+
+def _gen_self_ech(public, inner):
+    ech = _gen_ech_key(public)
+    nc = _gen_name_cert(inner)
+    return {"public": public, "inner": inner, "srv_ech_key": ech["srv_ech_key"],
+            "srv_ech_conf": ech["srv_ech_conf"], "ws_ech": ech["ws_ech"],
+            "srv_cert": nc["cert"], "srv_key": nc["key"], "ws_ca": nc["cert"]}
+
+
+def _front_body(listen, ech_key, ech_conf, routes):
+    body = {"listen": listen, "routes": [
+        {"inner": r["inner"], "backend": r["backend"], "cert": r["cert"], "key": r["key"]}
+        for r in routes]}
+    if ech_key and ech_conf:
+        body["srv_ech_key"] = ech_key
+        body["srv_ech_conf"] = ech_conf
+    return body
 
 
 def _self_ech_fields(d, cur):
