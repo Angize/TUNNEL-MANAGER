@@ -25,27 +25,38 @@ function Chip({ tone, text }) {
   return <span className={'cdnchip ' + tone}>{text}</span>
 }
 
-const VERDICT_TONE = { err: 'bad', nozone: 'warn', partial: 'warn', on: 'ok' }
+const VERDICT_TONE = { err: 'bad', nozone: 'warn', inactive: 'warn', partial: 'warn', on: 'ok' }
 
-function verdict(result) {
+function unused(check, mode) {
+  return check.k === 'config' && mode === 'zone'
+}
+
+function verdict(result, mode) {
   if (result.error) return 'err'
-  if (!result.usable) return 'nozone'
-  if ((result.checks || []).some((c) => !c.ok)) return 'partial'
+  if (!result.zones) return 'nozone'
+  if (!result.usable) return 'inactive'
+  if ((result.checks || []).some((c) => !c.ok && !unused(c, mode))) return 'partial'
   return 'on'
 }
 
-function headChip(status, phase, result) {
+function headChip(status, phase, result, mode) {
   if (phase === 'testing' || phase === 'saving') return <Chip tone="run" text={T('cdn_testing')} />
   if (!status.set) return <Chip tone="off" text={T('cdn_no_key_chip')} />
-  if (!result) return <Chip tone="off" text={T('cdn_chip_untested')} />
-  const v = verdict(result)
+  if (!result) return <Chip tone="set" text={T('cdn_chip_untested')} />
+  const v = verdict(result, mode)
   return <Chip tone={VERDICT_TONE[v]} text={T('cdn_chip_' + v)} />
 }
 
-function TestResult({ provider, result }) {
+function checkNote(c, tone) {
+  if (tone === 'ok') return T('cdn_chk_read')
+  if (tone === 'off') return T('cdn_chk_unused')
+  return c.why || T('cdn_chk_no')
+}
+
+function TestResult({ provider, result, mode }) {
   if (result.error) return <WarnCap text={result.error} />
   const checks = result.checks || []
-  const warn = verdict(result) !== 'on'
+  const warn = verdict(result, mode) !== 'on'
   return (
     <div className="cdnres">
       <div className={'cdnresh' + (warn ? ' warn' : '')}>
@@ -59,15 +70,21 @@ function TestResult({ provider, result }) {
         </span>
       </div>
       {provider === 'ar' && !result.zones ? <WarnCap tone="gold" text={T('cdn_ar_policy')} /> : null}
+      {result.zones > 0 && !result.usable ? (
+        <WarnCap tone="gold" text={TF('cdn_inactive_note', { p: providerName(provider) })} />
+      ) : null}
       {checks.length ? (
         <div className="cdnperm">
-          {checks.map((c) => (
-            <div key={c.k} className={'cdnpermr ' + (c.ok ? 'ok' : 'bad')}>
-              <Icon name={c.ok ? 'check' : 'x'} />
-              <span>{T('cdn_chk_' + c.k)}</span>
-              <small>{c.ok ? T('cdn_chk_read') : c.why || T('cdn_chk_no')}</small>
-            </div>
-          ))}
+          {checks.map((c) => {
+            const tone = c.ok ? 'ok' : unused(c, mode) ? 'off' : 'bad'
+            return (
+              <div key={c.k} className={'cdnpermr ' + tone}>
+                <Icon name={c.ok ? 'check' : 'x'} />
+                <span>{T('cdn_chk_' + c.k)}</span>
+                <small>{checkNote(c, tone)}</small>
+              </div>
+            )
+          })}
           <div className="cdnpermn">
             {result.zone ? TF('cdn_chk_zone', { z: result.zone }) + ' · ' : ''}
             {T('cdn_chk_write_later')}
@@ -165,7 +182,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
           <b>{providerName(provider)}</b>
           <small>{T('cdn_' + provider + '_sub')}</small>
         </div>
-        {headChip(status, phase, result)}
+        {headChip(status, phase, result, sslNow)}
       </div>
 
       <Reveal show={status.set && !editing}>
@@ -236,7 +253,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
 
       <Reveal show={!!result}>
         <div className={busy ? 'cdnstale' : undefined} aria-busy={busy || undefined}>
-          {result ? <TestResult provider={provider} result={result} /> : null}
+          {result ? <TestResult provider={provider} result={result} mode={sslNow} /> : null}
         </div>
       </Reveal>
 

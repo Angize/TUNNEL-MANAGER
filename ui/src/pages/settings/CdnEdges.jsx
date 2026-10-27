@@ -41,7 +41,7 @@ export default function CdnEdges({ edges, onStatus }) {
       return
     }
     if (rows.includes(v)) {
-      setDraft('')
+      setError(T('edges_dup'))
       return
     }
     if (await save(rows.concat(v), '+')) {
@@ -61,7 +61,7 @@ export default function CdnEdges({ edges, onStatus }) {
           <small>{T('edges_d')}</small>
         </div>
         <span className={'cdnchip ' + (rows.length ? 'ok' : 'off')}>
-          {rows.length ? TF('edges_n', { n: rows.length }) : T('cdn_hosts_zero')}
+          {rows.length ? TF('edges_n', { n: rows.length }) : T('edges_zero')}
         </span>
       </div>
       <div className="cdnhostl" ref={list}>
@@ -80,7 +80,7 @@ export default function CdnEdges({ edges, onStatus }) {
               <ActionButton
                 icon="trash"
                 tone="del"
-                title={T('tip_delete')}
+                title={TF('edges_del', { ip: e })}
                 spinning={busy === e}
                 disabled={!!busy}
                 onClick={() => save(rows.filter((x) => x !== e), e)}
@@ -90,34 +90,31 @@ export default function CdnEdges({ edges, onStatus }) {
         ))}
       </div>
       {rows.length ? null : <div className="cdnempty">{T('edges_none')}</div>}
-      <Field error={error}>
-        <div className="cdnsni">
-          <input
-            {...LTR_TEXT}
-            className="mono"
-            aria-label={T('edges_add_ph')}
-            aria-invalid={error ? 'true' : undefined}
-            placeholder="104.16.0.1:443"
-            value={draft}
-            onChange={(e) => {
-              setDraft(latinDigits(e.target.value).replace(/٫/g, '.'))
-              setError('')
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') add()
-            }}
-          />
-          <button
-            type="button"
-            className="padd"
-            aria-label={T('edges_add')}
-            title={T('edges_add')}
-            disabled={!!busy || !draft.trim()}
-            onClick={add}
-          >
-            {busy === '+' ? <span className="bspin sm" /> : <Icon name="plus" />}
-          </button>
-        </div>
+      <Field error={error} className="cdnedgeadd">
+        <input
+          {...LTR_TEXT}
+          className="mono"
+          aria-label={T('edges_add_ph')}
+          placeholder="104.16.0.1:443"
+          value={draft}
+          onChange={(e) => {
+            setDraft(latinDigits(e.target.value).replace(/٫/g, '.'))
+            setError('')
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') add()
+          }}
+        />
+        <button
+          type="button"
+          className="padd"
+          aria-label={T('edges_add')}
+          title={T('edges_add')}
+          disabled={!!busy || !draft.trim()}
+          onClick={add}
+        >
+          {busy === '+' ? <span className="bspin sm" /> : <Icon name="plus" />}
+        </button>
       </Field>
     </div>
   )

@@ -57,6 +57,12 @@
   border-color: color-mix(in srgb, var(--acc) 26%, transparent);
 }
 
+.cdnchip.set {
+  background: transparent;
+  color: var(--acc-tx);
+  border-color: color-mix(in srgb, var(--acc) 34%, transparent);
+}
+
 .warncap.gold {
   background: var(--goldw);
   color: var(--gold-tx);
@@ -111,8 +117,10 @@
 
 .cdnpermr {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  column-gap: 7px;
+  row-gap: 1px;
   font-size: 11px;
   min-width: 0;
 }
@@ -128,6 +136,15 @@
   color: var(--bad-tx);
 }
 
+.cdnpermr.off .ic {
+  color: var(--sub);
+}
+
+.cdnpermr > .ic + span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .cdnpermr .mono {
   font-size: 11px;
 }
@@ -136,7 +153,15 @@
   margin-inline-start: auto;
   color: var(--sub);
   font-size: 10.5px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.cdnpermr.bad small,
+.cdnpermr.off small {
+  flex: 1 1 100%;
+  margin-inline-start: 0;
+  padding-inline-start: 20px;
+  line-height: 1.7;
 }
 
 .cdngrid {
@@ -1005,6 +1030,26 @@
 
 .cdnedges .estat {
   color: var(--sub);
+}
+
+.cdnedges .erow {
+  border-inline-start-width: 1px;
+}
+
+.cdnedgeadd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.cdnedgeadd input {
+  min-width: 0;
+  text-align: left;
+}
+
+.cdnedgeadd .flderr {
+  grid-column: 1 / -1;
 }
 
 .cdnnames {
