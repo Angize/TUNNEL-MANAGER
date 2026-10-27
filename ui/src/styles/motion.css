@@ -359,10 +359,6 @@ body.reord-on .rgrip {
   animation-timing-function: ease;
 }
 
-.logempty {
-  animation: fadeup .22s var(--ease-out);
-}
-
 .ogood.won > div {
   animation: fadeup .2s var(--ease-out) both;
 }
