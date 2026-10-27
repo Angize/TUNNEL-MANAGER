@@ -3005,13 +3005,17 @@ def _core_end_bodies(src, a_body, b_body):
             body["ws_port_roll"] = True
 
 
+def _buf_bytes(mb):
+    mb = max(0, min(64, int(mb)))
+    return -1 if mb == 0 else mb * (1 << 20)
+
+
 def _apply_core_tuning(a_body, b_body):
     tn = _settings_tuning()
     for key, field, carriers in (("sock_buf_mb", "sock_buf", SOCKBUF_TRANSPORTS),
                                  ("tcp_buf_mb", "tcp_buf", TCPBUF_TRANSPORTS)):
         if key in tn and a_body.get("transport") in carriers:
-            _mb = max(0, min(64, int(tn[key])))
-            a_body[field] = b_body[field] = -1 if _mb == 0 else _mb * (1 << 20)
+            a_body[field] = b_body[field] = _buf_bytes(tn[key])
     _tn = {k: v for k, v in tn.items()
            if k not in ("sock_buf_mb", "tcp_buf_mb", "probe_min_pct")}
     if _tn:
@@ -11465,6 +11469,7 @@ def api_cdn_set(d):
 
 EDGE_DECOY_DEFAULT = "www.google.com"
 _EDGE_PORT_DEFAULT = 443
+_EDGE_BUF_DEFAULT = 16
 
 
 def _edge_of(node):
@@ -11474,6 +11479,10 @@ def _edge_of(node):
 
 def _edge_port(e):
     return int(e.get("port") or _EDGE_PORT_DEFAULT)
+
+
+def _edge_buf(e):
+    return int(e.get("buf_mb", _EDGE_BUF_DEFAULT))
 
 
 def _edge_table():
@@ -11566,7 +11575,7 @@ def _front_sync(node):
         e = _edge_of(node)
         routes = _edge_table().get(node["id"], []) if e.get("on") else []
         body = ({"port": _edge_port(e), "routes": routes, "srv_ech_key": e["srv_ech_key"],
-                 "srv_ech_conf": e["srv_ech_conf"]} if routes else {"stop": True})
+                 "srv_ech_conf": e["srv_ech_conf"], "tcp_buf": _buf_bytes(_edge_buf(e))} if routes else {"stop": True})
         return node_call(node, "front", body=body, timeout=NODE_OP_TIMEOUT)
 
 
@@ -11576,7 +11585,8 @@ def _edge_list():
     for n in load_nodes():
         e = _edge_of(n)
         out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
-                    "port": _edge_port(e), "decoy": e.get("decoy") or "", "routes": len(table.get(n["id"], [])),
+                    "port": _edge_port(e), "decoy": e.get("decoy") or "", "buf_mb": _edge_buf(e),
+                    "routes": len(table.get(n["id"], [])),
                     "online": _node_answered(n["id"]), "front": bool(_cached_ping(n["id"]).get("front")),
                     "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
     return out
@@ -11601,6 +11611,10 @@ def api_cdn_edge(d):
             decoy = str(d.get("decoy") or e.get("decoy") or EDGE_DECOY_DEFAULT).strip().lower()
             if not re.match(_DOMAIN_RE, decoy):
                 raise Bad("bad_edge_decoy", "نامِ طعمه نامعتبر است", "the decoy name is invalid")
+            lo, hi = _TUNING_RANGES["tcp_buf_mb"]
+            buf = _int_in(_edge_buf(e) if d.get("buf_mb") in (None, "") else d["buf_mb"], lo, hi,
+                          Bad("bad_edge_buf", "بافرِ لبه باید بین {0} و {1} مگابایت باشد",
+                              "the edge buffer must be from {0} to {1} MB", lo, hi))
             if not e.get("on") or port != was:
                 _edge_port_free(n2, port)
             if port != was or decoy != e.get("decoy"):
@@ -11614,6 +11628,7 @@ def api_cdn_edge(d):
             e["on"] = True
             e["port"] = port
             e["decoy"] = decoy
+            e["buf_mb"] = buf
         elif act == "off":
             _edge_unused(n2, tx("خاموش‌کردنش همه را قطع می‌کند", "turning it off cuts them all"))
             e["on"] = False
