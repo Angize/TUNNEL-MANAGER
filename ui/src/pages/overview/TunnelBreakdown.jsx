@@ -2,7 +2,7 @@ import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
 import { setPageQuery } from '../../lib/pageQuery.js'
-import StatusGroups from './StatusGroups.jsx'
+import StatusGroups, { byName } from './StatusGroups.jsx'
 
 const TYPE_COLORS = [
   ['core', 'var(--h-indigo)'],
@@ -54,8 +54,7 @@ export default function TunnelBreakdown({ summary, onNavigate }) {
   const total = TYPE_COLORS.reduce((sum, [key]) => sum + num(types[key]), 0) || 1
   const present = TYPE_COLORS.filter(([key]) => num(types[key]) > 0)
   const groups = summary.tunnel_groups || {}
-  const list = (key) => groups[key] || []
-  const byPing = [...list('up')].sort((a, b) => num(b.rtt) - num(a.rtt))
+  const list = (key) => [...(groups[key] || [])].sort(byName)
   const fleetPing = summary.fleet_avg_ping
 
   const row = (t) => (
@@ -88,7 +87,7 @@ export default function TunnelBreakdown({ summary, onNavigate }) {
             key: 'up',
             tone: 'ok',
             title: T('tst_connected'),
-            items: byPing,
+            items: list('up'),
             row,
             preview:
               fleetPing != null ? (
