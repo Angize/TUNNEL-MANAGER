@@ -1,7 +1,7 @@
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 
-export default function SettingsGroup({ section, icon, titleKey, chipKey, tone, children }) {
+export default function SettingsGroup({ section, icon, titleKey, chipKey, chip = T(chipKey), tone, children }) {
   const Tag = section ? 'section' : 'div'
   return (
     <Tag className={(section ? 'sgsec ' : 'card sg ') + tone}>
@@ -10,7 +10,7 @@ export default function SettingsGroup({ section, icon, titleKey, chipKey, tone, 
           <Icon name={icon} />
         </span>
         <b>{T(titleKey)}</b>
-        <span className="schip">{T(chipKey)}</span>
+        {chip ? <span className="schip">{chip}</span> : null}
       </div>
       <div className="sgb">{children}</div>
     </Tag>
