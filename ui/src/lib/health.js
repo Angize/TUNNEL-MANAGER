@@ -1,4 +1,4 @@
-const WARN_PCT = 60
+export const WARN_PCT = 60
 const LEVEL_COLOR = { ok: 'var(--ok-tx)', warn: 'var(--gold-tx)', crit: 'var(--bad-tx)' }
 
 export function cssVar(name) {

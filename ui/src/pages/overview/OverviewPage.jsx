@@ -4,13 +4,13 @@ import Icon from '../../components/Icon.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import AlertList from './AlertList.jsx'
-import NodeHeat from './NodeHeat.jsx'
+import NodeGroups from './NodeGroups.jsx'
 import Gauge from './Gauge.jsx'
 import TunnelBreakdown from './TunnelBreakdown.jsx'
 import TrafficChart from './TrafficChart.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
-import { scoreColor, uptimeColor, usageColor, usageLevel } from '../../lib/health.js'
+import { scoreColor, uptimeColor } from '../../lib/health.js'
 import { fmtBytes, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -44,25 +44,6 @@ function Kpi({ label, value, total, color, note }) {
   )
 }
 
-function WorstRow({ label, entry, crit }) {
-  if (!entry) return null
-  const pct = num(entry.pct)
-  return (
-    <div className="wrow">
-      <span className="wk">{label}</span>
-      <span className="wnm" dir="auto" title={entry.name}>
-        {entry.name}
-      </span>
-      <span className="wbar">
-        <i className={usageLevel(pct, crit)} style={{ width: pct + '%' }} />
-      </span>
-      <span className="wpc" style={{ color: usageColor(pct, crit) }}>
-        {pct + T('pct')}
-      </span>
-    </div>
-  )
-}
-
 function gb(mb) {
   const v = num(mb) / 1024
   return v < 10 ? v.toFixed(1) : Math.round(v)
@@ -70,7 +51,6 @@ function gb(mb) {
 
 export default function OverviewPage({ onNavigate }) {
   const config = useUiConfig()
-  const crit = num(config.usage_crit_pct)
   const live = useRef([])
 
   const load = useCallback(async (onProgress) => {
@@ -100,7 +80,6 @@ export default function OverviewPage({ onNavigate }) {
   const score = num(summary.health_score)
   const central = summary.central || {}
   const load1 = (central.load || [])[0]
-  const worst = summary.worst || {}
   const linksUp = num(summary.link_up)
   const linksOff = num(summary.link_off)
   const linksOn = num(summary.link_total) - linksOff
@@ -162,7 +141,7 @@ export default function OverviewPage({ onNavigate }) {
         </div>
 
         <Section icon="grid" titleKey="ov_allnodes">
-          <NodeHeat heat={summary.heat || []} onNavigate={onNavigate} />
+          <NodeGroups heat={summary.heat || []} onNavigate={onNavigate} />
         </Section>
 
         <div className="ogrid">
@@ -204,27 +183,8 @@ export default function OverviewPage({ onNavigate }) {
             </div>
           </Section>
 
-          <Section icon="activity" titleKey="ov_worst">
-            <div className="card">
-              {worst.disk || worst.ram || worst.cpu ? (
-                <div className="owst">
-                  <WorstRow label={T('disk')} entry={worst.disk} crit={crit} />
-                  <WorstRow label={T('ram')} entry={worst.ram} crit={crit} />
-                  <WorstRow label="CPU" entry={worst.cpu} crit={crit} />
-                </div>
-              ) : (
-                <div
-                  className="muted"
-                  style={{ textAlign: 'center', padding: '8px 0', fontSize: 12.5 }}
-                >
-                  {T('ov_no_online')}
-                </div>
-              )}
-            </div>
-          </Section>
-
           <Section icon="link" titleKey="ov_tunbreak">
-            <TunnelBreakdown summary={summary} />
+            <TunnelBreakdown summary={summary} onNavigate={onNavigate} />
           </Section>
 
           <Section icon="clock" titleKey="ov_uptime">

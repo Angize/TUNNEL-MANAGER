@@ -31,12 +31,16 @@
     {
      "name": "N1",
      "pct": 32,
-     "online": true
+     "met": "disk",
+     "online": true,
+     "disabled": false
     },
     {
      "name": "N2",
      "pct": 32,
-     "online": true
+     "met": "ram",
+     "online": true,
+     "disabled": false
     }
    ],
    "worst": {
@@ -68,6 +72,25 @@
     "core": 1
    },
    "worst_tunnel": null,
+   "tunnel_groups": {
+    "down": [],
+    "drift": [],
+    "noping": [],
+    "wait": [],
+    "up": [
+     {
+      "name": "core1",
+      "tab": "core",
+      "type": "core",
+      "a": "N1",
+      "b": "N2",
+      "rtt": 1,
+      "loss": 0
+     },
+     "… 1 more"
+    ],
+    "off": []
+   },
    "subnet_free": {
     "192.168": 253,
     "172.16": 4093,
