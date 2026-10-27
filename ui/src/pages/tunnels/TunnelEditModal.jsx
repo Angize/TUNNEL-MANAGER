@@ -21,6 +21,7 @@ import { useSummary } from '../../state/SummaryContext.jsx'
 import Msg from '../../components/Msg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
+import '../core/coreform.css'
 
 const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
 
@@ -117,7 +118,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const aCur = aNode === link.a_node ? link.a_ip : ''
   const bCur = bNode === link.b_node ? link.b_ip : ''
   const showPort = PORT_TYPES.includes(type)
-  const portLabel = type === 'vxlan' ? T('le_port_4789') : T('le_port_auto')
+  const vxlan = type === 'vxlan'
 
   const save = async () => {
     if (aNode === bNode) {
@@ -251,10 +252,8 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
                 <input {...LTR_TEXT} value={subnet} onChange={(e) => setSubnet(e.target.value)} />
               </Field>
 
-              <div className="muted" style={{ fontSize: 11.5, marginTop: 9 }}>
-                {T('link_ip_note1')}
-                {link.tunnel_id}
-                {T('link_ip_note2')}
+              <div className="fldhint">
+                {T('link_ip_note1') + link.tunnel_id + T('link_ip_note2')}
               </div>
             </>
           ),
@@ -265,9 +264,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
               </Field>
 
               <Reveal show={showPort}>
-                <Field label={rangeLabel(portLabel, 1, PORT_MAX)}>
+                <Field
+                  label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)}
+                  hint={T(vxlan ? 'ttype_vxlan_note' : 'ttype_l2_note')}
+                >
                   <NumberInput
-                    placeholder={type === 'vxlan' ? '4789' : T('ttype_port_ph')}
+                    placeholder={T(vxlan ? 'ttype_vxlan_ph' : 'ttype_port_ph')}
                     value={port}
                     onChange={setPort}
                   />
@@ -277,7 +279,9 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
           ),
         }}
       />
-      <Msg text={message} />
+      <div className="fmsg">
+        <Msg text={message} />
+      </div>
     </Modal>
   )
 }

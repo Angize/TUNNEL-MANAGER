@@ -2,7 +2,6 @@ import Field from '../../../components/Field.jsx'
 import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
-import RichText from '../../../components/RichText.jsx'
 import Select from '../../../components/Select.jsx'
 import { ScrollSeg, SegOpt, Tile, Tiles, WarnCap } from './controls.jsx'
 import ProtoSection from './ProtoSection.jsx'
@@ -18,7 +17,7 @@ import CdnPortRules from './CdnPortRules.jsx'
 import { coverOk, ctbDefault, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
-import { NO_AUTOFIX, rangeLabel } from '../../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
 import { cdnAuto } from '../../../lib/cdn.js'
 import { T } from '../../../i18n/fa.js'
 
@@ -138,16 +137,13 @@ export default function SettingsTab({
       <WsToggleRows form={form} cfg={cfg} proxies={proxies} patch={patch} />
 
       <Reveal show={form.Cover && form.Tr === 'tcp'}>
-        <Field label={T('cover_sni_lbl')}>
+        <Field label={T('cover_sni_lbl')} hint={T('cover_sni_note')}>
           <input
-            {...NO_AUTOFIX}
+            {...LTR_TEXT}
             placeholder={T('cover_sni_ph')}
             value={form.coverSni}
             onChange={(e) => patch({ coverSni: e.target.value })}
           />
-          <div className="muted" style={{ fontSize: 11, marginTop: 5, lineHeight: 1.7 }}>
-            <RichText text={T('cover_sni_note')} />
-          </div>
         </Field>
       </Reveal>
 
@@ -162,9 +158,7 @@ export default function SettingsTab({
       <DesyncSection form={form} limits={cfg.limits} patch={patch} />
 
       <Reveal show={form.Tr !== 'raw'}>
-        <Field
-          label={rangeLabel(T(link ? 'core_port_lbl2' : 'core_port_lbl'), ...cfg.limits.port)}
-        >
+        <Field label={rangeLabel(T('core_port_lbl'), ...cfg.limits.port)}>
           <NumberInput
             placeholder={T(form.Tr !== 'ws' ? 'port_band_ph' : !cdnAuto(form) ? 'port_ws_ph' : 'cdn_port_ph')}
             value={form.port}
@@ -181,11 +175,7 @@ export default function SettingsTab({
         </Field>
       </Reveal>
 
-      {link ? (
-        <div className="muted" style={{ fontSize: 11, margin: '2px 2px 0' }}>
-          {T('core_edit_note')}
-        </div>
-      ) : null}
+      {link ? <div className="fldhint">{T('core_edit_note')}</div> : null}
     </>
   )
 }

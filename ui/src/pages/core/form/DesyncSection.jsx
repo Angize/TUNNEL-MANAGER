@@ -55,10 +55,6 @@ function Desync({ form, limits, patch }) {
           </div>
           <WarnCap text={ttlUsed ? limitErr(form, 'dsTtl', limits) : ''} style={{ marginTop: 8 }} />
           <WarnCap text={limitErr(form, 'dsCount', limits)} style={{ marginTop: 8 }} />
-          <WarnCap text={T('ds_ttl_cap')} style={{ marginTop: 8 }} />
-          <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-            {T('ds_note')}
-          </div>
         </div>
       </Reveal>
     </>

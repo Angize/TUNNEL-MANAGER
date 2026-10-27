@@ -21,21 +21,22 @@ import { useSummary } from '../../state/SummaryContext.jsx'
 import Msg from '../../components/Msg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
+import '../core/coreform.css'
 
 const PORT_TYPES = ['l2tpv3', 'fou']
 
 function TypeExtra({ type, port, onPort }) {
   if (PORT_TYPES.includes(type)) {
     return (
-      <Field label={rangeLabel(T('ttype_port_auto_lbl'), 1, PORT_MAX)} hint={T('ttype_l2_note')}>
+      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_l2_note')}>
         <NumberInput placeholder={T('ttype_port_ph')} value={port} onChange={onPort} />
       </Field>
     )
   }
   if (type === 'vxlan') {
     return (
-      <Field label={T('ttype_vxlan_lbl')} hint={T('ttype_vxlan_note')}>
-        <NumberInput placeholder="4789" value={port} onChange={onPort} />
+      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_vxlan_note')}>
+        <NumberInput placeholder={T('ttype_vxlan_ph')} value={port} onChange={onPort} />
       </Field>
     )
   }
@@ -279,7 +280,9 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
         }}
       />
 
-      <Msg text={message} />
+      <div className="fmsg">
+        <Msg text={message} />
+      </div>
     </Modal>
   )
 }

@@ -17,6 +17,7 @@ import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields
 import Msg from '../../components/Msg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
+import '../core/coreform.css'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [busy, guard] = useBusy()
@@ -118,7 +119,9 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
         onRotate={setRotate}
         onMinutes={setRotateMinutes}
       />
-      <Msg text={message} />
+      <div className="fmsg">
+        <Msg text={message} />
+      </div>
     </Modal>
   )
 }

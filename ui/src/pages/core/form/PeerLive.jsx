@@ -122,9 +122,7 @@ export default function PeerLive({ live }) {
           />
         ))
       ) : (
-        <div className="muted" style={{ fontSize: 11, lineHeight: 1.7 }}>
-          {T('peer_live_empty')}
-        </div>
+        <div className="fldhint">{T('peer_live_empty')}</div>
       )}
     </div>
   )

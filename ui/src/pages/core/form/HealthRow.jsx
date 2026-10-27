@@ -64,6 +64,7 @@ export function ProgressBar({ health, now, polledMs }) {
 }
 
 export function Badges({ total, suspect, dead }) {
+  if (!total) return null
   return (
     <>
       <span className="pbadge ok">{total - suspect - dead + ' ' + T('pb_healthy')}</span>

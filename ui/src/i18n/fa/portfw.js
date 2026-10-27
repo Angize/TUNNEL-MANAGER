@@ -31,7 +31,7 @@ export default {
   pf_rot_between: 'چرخش بینِ مقصدها',
   pf_rot_every: 'چرخش هر ',
   pf_rot_interval: 'بازهٔ چرخش (دقیقه)',
-  pf_rot_note: 'چرخش فقط با 2 آی‌پیِ مقصد یا بیشتر فعال می‌شود.',
+  pf_rot_note: 'فقط با 2 آی‌پیِ مقصد یا بیشتر',
   pf_rotate_done: 'چرخش انجام شد ← ',
   pf_rotate_failed: 'چرخش ناموفق',
   pf_rotate_now: 'چرخش الان',

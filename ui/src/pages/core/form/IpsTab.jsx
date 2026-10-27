@@ -9,7 +9,7 @@ import { rotIntervalItems } from './presets.js'
 import { rotMulti } from './gates.js'
 import { nodeLabel, seedIp } from '../../../lib/nodes.js'
 import { toast } from '../../../lib/toast.js'
-import { NO_AUTOFIX } from '../../../lib/form.js'
+import { LTR_TEXT } from '../../../lib/form.js'
 import { subnetForBase, subnetRangeItems } from '../../../lib/subnet.js'
 import { T } from '../../../i18n/fa.js'
 
@@ -51,9 +51,7 @@ function Side({ form, side, ips, stored, patch }) {
         onChange={(v) => patch({ [ipKey]: v })}
       />
       <Reveal show={form.rot.on && !ips.length}>
-        <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
-          {T('rot_ips_unknown')}
-        </div>
+        <div className="fldhint">{T('rot_ips_unknown')}</div>
       </Reveal>
     </div>
   )
@@ -64,8 +62,8 @@ function SubnetExtra({ form, link, patch }) {
     return (
       <Field label={T('custom_subnet')}>
         <input
-          className={link ? 'mono' : undefined}
-          {...NO_AUTOFIX}
+          className={link ? 'mono' : 'phrtl'}
+          {...LTR_TEXT}
           placeholder={link ? undefined : T('ph_subnet')}
           value={form.subnet}
           onChange={(e) => patch({ subnet: e.target.value })}
@@ -75,9 +73,11 @@ function SubnetExtra({ form, link, patch }) {
   }
   if (!link) return null
   return (
-    <div className="muted" style={{ fontSize: 11, margin: '6px 2px 0' }}>
+    <div className="fldhint">
       {T('core_subnet_lbl') + ': '}
-      <b className="mono">{subnetForBase('core', link.tunnel_id, form.range) || '—'}</b>
+      <b className="mono" dir="ltr">
+        {subnetForBase('core', link.tunnel_id, form.range) || '—'}
+      </b>
     </div>
   )
 }
@@ -147,11 +147,6 @@ export default function IpsTab({
         </Field>
       </div>
 
-      <div className="grid2" style={{ marginTop: 11 }}>
-        <Side form={form} side="a" ips={aIps} stored={storedA} patch={patch} />
-        <Side form={form} side="b" ips={bIps} stored={storedB} patch={patch} />
-      </div>
-
       <Reveal show={multi}>
         <SwitchRow
           on={form.rot.on}
@@ -170,6 +165,11 @@ export default function IpsTab({
           />
         </Field>
       </Reveal>
+
+      <div className="grid2" style={{ marginTop: 11 }}>
+        <Side form={form} side="a" ips={aIps} stored={storedA} patch={patch} />
+        <Side form={form} side="b" ips={bIps} stored={storedB} patch={patch} />
+      </div>
 
       {peer ? <PeerLive live={peer} /> : null}
 

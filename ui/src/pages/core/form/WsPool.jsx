@@ -217,8 +217,14 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
                 value={draft[sec] || ''}
                 onChange={(e) => setDraft({ ...draft, [sec]: e.target.value })}
               />
-              <button type="button" className="padd" onClick={() => add(kind, group)}>
-                +
+              <button
+                type="button"
+                className="padd"
+                aria-label={TF('pool_add', { t: title })}
+                title={TF('pool_add', { t: title })}
+                onClick={() => add(kind, group)}
+              >
+                <Icon name="plus" />
               </button>
               {kind === 'sni' && hasCdnKey(keys) ? (
                 <button

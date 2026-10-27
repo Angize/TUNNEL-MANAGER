@@ -399,7 +399,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         }}
       />
 
-      <Msg text={message} />
+      <div className="fmsg">
+        <Msg text={message} />
+      </div>
     </Modal>
   )
 }

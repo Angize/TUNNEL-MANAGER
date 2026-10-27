@@ -3,7 +3,6 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwapCascade from '../../../components/SwapCascade.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
-import RichText from '../../../components/RichText.jsx'
 import Select from '../../../components/Select.jsx'
 import RotIpPool from './RotIpPool.jsx'
 import { Tile, Tiles, WarnCap } from './controls.jsx'
@@ -63,6 +62,7 @@ function Shape({ form, enums, patch }) {
           )
         })}
       </div>
+      {uploadOnly ? <div className="fldhint">{T('cdn_uprate_hint')}</div> : null}
       <WarnCap text={cdnShapeErr(form, enums)} />
     </div>
   )
@@ -103,9 +103,7 @@ function EdgeIps({ form, picked, patch }) {
         selected={Object.fromEntries(chosen.map((ip) => [ip, true]))}
         onToggle={toggle}
       />
-      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-        {T('pedge_ips_note')}
-      </div>
+      <div className="fldhint">{T('pedge_ips_note')}</div>
       <Reveal show={chosen.length > 1}>
         <Field label={T('rot_int_lbl')}>
           <Select
@@ -129,32 +127,32 @@ function PrivateEdge({ form, fronts, patch }) {
     <div style={{ marginTop: 8 }}>
       {items.length ? (
         <>
-          <Field label={T('pedge_pick_lbl')}>
+          <Field
+            label={T('pedge_pick_lbl')}
+            hint={
+              picked ? (
+                <>
+                  {T('pedge_decoy_lbl') + ' '}
+                  <span className="mono" dir="ltr">
+                    {picked.decoy}
+                  </span>
+                </>
+              ) : null
+            }
+          >
             <Select
               items={items}
               value={form.edgeNode}
               placeholder={T('select')}
               onChange={(v) => patch({ edgeNode: v, edgeIps: [] })}
             />
-            {picked ? (
-              <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-                {T('pedge_decoy_lbl')}{' '}
-                <span className="mono" dir="ltr">
-                  {picked.decoy}
-                </span>
-              </div>
-            ) : null}
           </Field>
           {picked && picked.ips.length > 1 ? <EdgeIps form={form} picked={picked} patch={patch} /> : null}
         </>
       ) : (
-        <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-          {T('pedge_none')}
-        </div>
+        <div className="fldhint">{T('pedge_none')}</div>
       )}
-      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
-        <RichText text={T('pedge_note')} />
-      </div>
+      <div className="fldhint">{T('pedge_note')}</div>
     </div>
   )
 }
@@ -230,9 +228,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
               onChange={(e) => patch({ echPublic: e.target.value })}
             />
           </Field>
-          <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
-            <RichText text={T('selfech_note')} />
-          </div>
+          <div className="fldhint">{T('selfech_note')}</div>
         </div>
       </Reveal>
       <SwitchRow on={form.EdgeOn} title={T('pedge_t')} note={T('pedge_d')} onToggle={toggleEdge} />
@@ -279,9 +275,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
         />
       </Field>
       <Reveal show={!cdnAuto(form) && !form.SelfEch && !form.EdgeOn}>
-        <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
-          <RichText text={T('ws_note')} />
-        </div>
+        <div className="fldhint">{T('ws_note')}</div>
       </Reveal>
     </div>
   )
