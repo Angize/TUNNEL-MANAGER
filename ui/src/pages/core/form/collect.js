@@ -45,6 +45,21 @@ function poolCollect(form, body) {
   return ''
 }
 
+function shapeCollect(form, enums, body) {
+  body.cdn_carrier = form.Cdn
+  if (form.Cdn === 'ws') return ''
+  const shapeError = cdnShapeErr(form, enums)
+  if (shapeError) return shapeError
+  const shape = cdnShape(enums)
+  for (const name of CDN_FIELD_NAMES) {
+    const field = shape[name]
+    if (cdnShapeApplies(field, form.Cdn, enums)) {
+      body[field.k] = cdnShapeValue(form, name, enums)
+    }
+  }
+  return ''
+}
+
 function selfEchCollect(form, enums, body) {
   if (form.Cdn === 'grpc') return T('selfech_grpc_alert')
   const inner = form.wsHost.trim()
@@ -58,19 +73,19 @@ function selfEchCollect(form, enums, body) {
   body.ws_host = inner
   body.ech_public = decoy
   body.edge_ip = ''
-  body.cdn_carrier = form.Cdn
-  if (form.Cdn === 'http') {
-    const shapeError = cdnShapeErr(form, enums)
-    if (shapeError) return shapeError
-    const shape = cdnShape(enums)
-    for (const name of CDN_FIELD_NAMES) {
-      const field = shape[name]
-      if (cdnShapeApplies(field, form.Cdn, enums)) {
-        body[field.k] = cdnShapeValue(form, name, enums)
-      }
-    }
-  }
-  return ''
+  return shapeCollect(form, enums, body)
+}
+
+function edgeCollect(form, enums, body) {
+  if (!form.edgeNode) return T('pedge_need_pick')
+  if (form.edgeNode === form.aNode || form.edgeNode === form.bNode) return T('pedge_is_end')
+  body.ech = false
+  body.ws_pool = false
+  body.self_ech = false
+  body.ws_tls = true
+  body.edge_node = form.edgeNode
+  body.edge_ip = ''
+  return shapeCollect(form, enums, body)
 }
 
 function rotPicked(ips, selected) {
@@ -172,6 +187,8 @@ export function collectCarrier(form, cfg, body) {
   if (form.Tr === 'ws') {
     body.ws_path = form.wsPath.trim()
     body.ws_port_roll = form.PortRoll
+    if (form.EdgeOn) return edgeCollect(form, enums, body)
+    body.edge_node = ''
     body.self_ech = form.SelfEch
     if (form.SelfEch) {
       const selfError = selfEchCollect(form, enums, body)
@@ -195,18 +212,8 @@ export function collectCarrier(form, cfg, body) {
       }
       if (form.Ech && !body.split_pos) return T('sni_ech_need_pos')
     }
-    body.cdn_carrier = form.Cdn
-    if (form.Cdn === 'http' || form.Cdn === 'grpc') {
-      const shapeError = cdnShapeErr(form, enums)
-      if (shapeError) return shapeError
-      const shape = cdnShape(enums)
-      for (const name of CDN_FIELD_NAMES) {
-        const field = shape[name]
-        if (cdnShapeApplies(field, form.Cdn, enums)) {
-          body[field.k] = cdnShapeValue(form, name, enums)
-        }
-      }
-    }
+    const shapeError = shapeCollect(form, enums, body)
+    if (shapeError) return shapeError
     if (form.pool.pool) {
       const poolError = poolCollect(form, body)
       if (poolError) return poolError

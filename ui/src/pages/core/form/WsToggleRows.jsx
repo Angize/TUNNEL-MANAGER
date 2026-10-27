@@ -73,7 +73,7 @@ function Toggles({ form, cfg, proxies, patch }) {
         locked={locked}
         onToggle={toggleTls}
       />
-      <Reveal show={!form.SelfEch}>
+      <Reveal show={!form.SelfEch && !form.EdgeOn}>
       <>
       <SwitchRow on={form.Ech} title={T('ech_t')} note={T('ech_d')} onToggle={toggleEch} />
       <Reveal show={!!form.Ech}>

@@ -17,7 +17,7 @@ export const TEXT = {
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',
     'Every answer is JSON, all of its text is English, and it starts with the HTTP status in <b>code</b> — 200 on success. Every failure is an HTTP error (400, or 500 for a fault in the panel) with a stable name in <b>error</b> and an English explanation in <b>message</b> — a bot should decide on error, not on the text. Under each route are all the errors that route can return.',
     'Creating, editing, rebuilding, restarting and deleting a tunnel return an <b>act</b> at once and the work runs in the background. Read <b>/api/acts</b> until state goes from run to done or fail; a failed job has code (400, or 500 for a fault in the panel), error and message.',
-    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-notes, cdn-ports, cdn-make, cdn-drop and cdn-sync).',
+    'Some routes work only from inside the panel and get 403 with a token: saving the settings, a new token, backup and restore, rotating the update signing key, and every CDN route (cdn, cdn-key, cdn-set, cdn-test, cdn-zones, cdn-check, cdn-notes, cdn-ports, cdn-make, cdn-drop, cdn-sync and cdn-edge).',
   ],
   search: 'Search routes…',
   empty: 'No route found',
@@ -98,7 +98,7 @@ export const GROUPS = [
   ['pools', 'Edge and IP pools', ['edge-status', 'pool-retest-now', 'pool-select', 'peer-status', 'peer-retest-now', 'peer-select']],
   ['portfw', 'Port forwards', ['portfw-list', 'portfw', 'portfw-edit', 'portfw-toggle', 'portfw-next', 'portfw-del']],
   ['proxies', 'Proxies', ['proxies', 'proxy-add', 'proxy-edit', 'proxy-test', 'proxy-del']],
-  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-notes', 'cdn-ports', 'cdn-make', 'cdn-drop', 'cdn-sync']],
+  ['cdn', 'CDN automation', ['cdn', 'cdn-key', 'cdn-set', 'cdn-test', 'cdn-zones', 'cdn-check', 'cdn-notes', 'cdn-ports', 'cdn-make', 'cdn-drop', 'cdn-sync', 'cdn-edge']],
   [
     'updates',
     'Agent and core',
@@ -186,6 +186,7 @@ const TUNNEL_FIELDS = [
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
+  ['edge_node', 0, S, "id of a node that is a live private-CDN edge (cdn-edge): the client dials that node, which ends TLS and ECH and forwards to the server by a hidden inner name the panel makes, so the client never learns the server IP. any cdn_carrier (ws, http or grpc); not with ws_pool, ech, self_ech, edge_ip or cdn; not one of the tunnel's two ends. On an edit empty = take the tunnel off its edge. Only from inside the panel: with a token a non-empty edge_node gets 403 token_cdn"],
 ]
 
 const CDN_PARAM =
@@ -659,7 +660,7 @@ export const DOCS = {
 
   cdn: {
     t: 'CDN keys',
-    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. edges is the clean edge IP list from the settings key cdn_edges. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is not returned here; cdn-key returns it.',
+    d: 'Whether a key is saved for each provider (set), its last 4 characters (tail), the proxy its API calls go through (proxy_id, empty = direct) and how many tunnels were built with it (used). hosts lists the subdomains the panel made (host, provider, zone, made as unix seconds, link = the id of the tunnel that uses it or empty when ready, name = the tunnel name), newest first. edges is the clean edge IP list from the settings key cdn_edges. fronts lists the nodes that are a live private-CDN edge, in the shape of cdn-edge. Cloudflare also has ssl_mode: host (default — one Configuration Rule per zone sets SSL Flexible only for the tunnels\' hostnames) or zone (the zone SSL goes to Flexible and Automatic SSL off). The key itself is not returned here; cdn-key returns it.',
   },
   'cdn-key': {
     t: 'Read a CDN key',
@@ -737,6 +738,16 @@ export const DOCS = {
     t: 'Retry the CDN side',
     d: 'Makes the CDN match the tunnel again right now — the record to the current server IP, the rule to the current port. The panel also retries by itself every 15 minutes. The answer carries the new cdn state of the tunnel.',
     p: [['id', 1, S, 'tunnel id']],
+  },
+  'cdn-edge': {
+    t: 'Private-CDN edges',
+    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, routes (the enabled tunnels on it), online, front (whether the edge process is running) and hidden (the node is hidden from the tunnel lists). on and off answer with the same edges, plus msg when the node itself could not be updated.",
+    p: [
+      ['act', 0, S, 'state (default), on (turn on, or save a new port or decoy) or off'],
+      ['id', 0, S, 'node id — needed for on and off'],
+      ['port', 0, N, 'on: TCP port to listen on, default 443; refused when the agent, a tunnel or a port forward holds it on that node (edge_port_agent, edge_port_held)'],
+      ['decoy', 0, S, 'on: the public name sent in clear, default www.google.com; a new decoy makes a new ECH key. Port and decoy cannot change, and off is refused, while tunnels use the edge (edge_in_use)'],
+    ],
   },
 
   'agent-info': {

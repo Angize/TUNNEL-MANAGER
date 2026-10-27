@@ -11,9 +11,10 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
     withToggle('toggle', async () => {
       const r = await apiPost('link-toggle', { id: link.id, enabled: next })
       const err = r.ok && r.d.ok ? '' : postError(r)
-      if (!quiet) toast(err || T(next ? 'turned_on' : 'turned_off'), err ? 'err' : 'ok')
+      const bad = err || (r.d && r.d.msg ? translateError(r.d.msg) : '')
+      if (!quiet) toast(bad || T(next ? 'turned_on' : 'turned_off'), bad ? 'err' : 'ok')
       await onReload()
-      return err
+      return bad
     })
 
   const check = async () => {

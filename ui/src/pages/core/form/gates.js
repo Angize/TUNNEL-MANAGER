@@ -63,7 +63,7 @@ export function coverOk(form) {
 }
 
 export function wssMandatory(form, pool) {
-  return form.Tr === 'ws' && (pool.pool || form.Cdn === 'grpc' || form.SelfEch)
+  return form.Tr === 'ws' && (pool.pool || form.Cdn === 'grpc' || form.SelfEch || form.EdgeOn)
 }
 
 export function rotIsDirect(form, enums) {

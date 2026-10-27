@@ -4,6 +4,7 @@ import SwapCascade from '../../../components/SwapCascade.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import RichText from '../../../components/RichText.jsx'
+import Select from '../../../components/Select.jsx'
 import { Tile, Tiles, WarnCap } from './controls.jsx'
 import WorkersSection from './WorkersSection.jsx'
 import WsPool from './WsPool.jsx'
@@ -73,27 +74,79 @@ function CdnShape(props) {
   )
 }
 
+function edgeFronts(fronts, form) {
+  return (fronts || []).filter(
+    (f) => f.id !== form.aNode && f.id !== form.bNode && ((f.online && !f.hidden) || f.id === form.edgeNode)
+  )
+}
+
+function PrivateEdge({ form, fronts, patch }) {
+  const live = edgeFronts(fronts, form)
+  const items = live.map((f) => ({ v: f.id, label: f.name, sub: f.host + ':' + f.port }))
+  const picked = live.find((f) => f.id === form.edgeNode)
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {items.length ? (
+        <Field label={T('pedge_pick_lbl')}>
+          <Select
+            items={items}
+            value={form.edgeNode}
+            placeholder={T('select')}
+            onChange={(v) => patch({ edgeNode: v })}
+          />
+          {picked ? (
+            <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
+              {T('pedge_decoy_lbl')}{' '}
+              <span className="mono" dir="ltr">
+                {picked.decoy}
+              </span>
+            </div>
+          ) : null}
+        </Field>
+      ) : (
+        <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
+          {T('pedge_none')}
+        </div>
+      )}
+      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
+        <RichText text={T('pedge_note')} />
+      </div>
+    </div>
+  )
+}
+
 function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMade, patch }) {
   const current = wsProfOf(form.Cdn)
+  const fronts = cdnKeys && cdnKeys.fronts
+
+  const cdnPathOff = {
+    WsTls: true,
+    Ech: false,
+    EchProxy: false,
+    SniSplit: false,
+    cdnOwner: '',
+    cdnZone: '',
+    poolCdn: false,
+    cdnEdgeAuto: true,
+    wsEdge: '',
+    pool: { ...form.pool, pool: false },
+  }
 
   const toggleSelfEch = () => {
     if (form.SelfEch) {
       patch({ SelfEch: false, WsTls: false })
     } else {
-      patch({
-        SelfEch: true,
-        WsTls: true,
-        Cdn: form.Cdn === 'grpc' ? 'ws' : form.Cdn,
-        Ech: false,
-        EchProxy: false,
-        SniSplit: false,
-        cdnOwner: '',
-        cdnZone: '',
-        poolCdn: false,
-        cdnEdgeAuto: true,
-        wsEdge: '',
-        pool: { ...form.pool, pool: false },
-      })
+      patch({ ...cdnPathOff, Cdn: form.Cdn === 'grpc' ? 'ws' : form.Cdn, SelfEch: true, EdgeOn: false, edgeNode: '' })
+    }
+  }
+
+  const toggleEdge = () => {
+    if (form.EdgeOn) {
+      patch({ EdgeOn: false, edgeNode: '', WsTls: false })
+    } else {
+      const first = edgeFronts(fronts, form)[0]
+      patch({ ...cdnPathOff, EdgeOn: true, edgeNode: first ? first.id : '', SelfEch: false, wsHost: '' })
     }
   }
 
@@ -144,7 +197,11 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
           </div>
         </div>
       </Reveal>
-      <Reveal show={!form.SelfEch}>
+      <SwitchRow on={form.EdgeOn} title={T('pedge_t')} note={T('pedge_d')} onToggle={toggleEdge} />
+      <Reveal show={!!form.EdgeOn}>
+        <PrivateEdge form={form} fronts={fronts} patch={patch} />
+      </Reveal>
+      <Reveal show={!form.SelfEch && !form.EdgeOn}>
         <>
           <SwitchRow
             on={form.pool.pool}
@@ -183,7 +240,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
           onChange={(e) => patch({ wsPath: e.target.value })}
         />
       </Field>
-      <Reveal show={!cdnAuto(form) && !form.SelfEch}>
+      <Reveal show={!cdnAuto(form) && !form.SelfEch && !form.EdgeOn}>
         <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 7 }}>
           <RichText text={T('ws_note')} />
         </div>
