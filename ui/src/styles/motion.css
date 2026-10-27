@@ -136,8 +136,7 @@ body.reord-on .flist {
 .msbtn:active,
 .bsheet .bcancel:active,
 .tagnone:active,
-.rbrow:active,
-.delopt:active:not(:disabled) {
+.rbrow:active {
   transform: scale(.985);
 }
 
@@ -172,10 +171,6 @@ body.reord-on .flist {
 .logmore:active {
   transform: scale(.98);
   opacity: 1;
-}
-
-.delopt {
-  transition: border-color .14s var(--ease-out), background-color .14s var(--ease-out), transform .12s var(--ease-out);
 }
 
 .secbtn {
@@ -375,10 +370,6 @@ body.reord-on .rgrip {
 
 .ogood.won .ic {
   animation: dotin .16s var(--ease-out) .06s both;
-}
-
-.okn.won {
-  animation: fadeup .2s var(--ease-out);
 }
 
 .okpi .iso {

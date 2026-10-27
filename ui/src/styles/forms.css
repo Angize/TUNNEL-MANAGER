@@ -91,6 +91,12 @@ textarea:focus {
   transform: scale(.98);
 }
 
+.primary.danger {
+  background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
+  color: #fff;
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
 .ghost {
   margin-top: 18px;
   margin-inline-start: 8px;
@@ -238,13 +244,16 @@ textarea:focus {
   -webkit-tap-highlight-color: transparent;
 }
 
-.swrow:hover {
+.swrow:not(.dis):hover {
   border-color: color-mix(in srgb, var(--acc) 35%, var(--edge));
 }
 
 .swrow.dis {
-  opacity: .45;
   cursor: default;
+}
+
+.swrow.dis .tglsw {
+  opacity: .5;
 }
 
 .swtx {

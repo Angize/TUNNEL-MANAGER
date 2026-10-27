@@ -114,12 +114,6 @@
   margin: 0;
 }
 
-.mbtns .primary.danger {
-  background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
-  color: #fff;
-  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
-}
-
 .msticky {
   flex: 0 0 auto;
   padding: 15px 18px 12px;
