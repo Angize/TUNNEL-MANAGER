@@ -1301,6 +1301,11 @@ input.phrtl:placeholder-shown {
   from { opacity: 0; transform: translateY(6px) }
 }
 
+.brhd:focus-visible,
+.bprow:focus-visible {
+  outline-offset: -2px;
+}
+
 .brhd {
   display: flex;
   align-items: center;
