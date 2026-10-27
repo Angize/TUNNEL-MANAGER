@@ -193,10 +193,11 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
       const resting = Math.abs(el.scrollLeft - target(indexRef.current, width)) < 2
       width = el.clientWidth
       slide(el, target(indexRef.current), !resting)
+      paint(position())
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [target])
+  }, [paint, position, target])
 
   useEffect(() => {
     const onResize = () => {

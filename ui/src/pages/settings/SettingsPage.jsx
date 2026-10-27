@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import TabPager from '../../components/TabPager.jsx'
 import { SettingsFormProvider } from './SettingsForm.jsx'
 import ValuesTab from './ValuesTab.jsx'
@@ -6,6 +6,7 @@ import ApiTab from './ApiTab.jsx'
 import UpkeepTab from './UpkeepTab.jsx'
 import CdnTab from './CdnTab.jsx'
 import CdnEdgeTab from './CdnEdgeTab.jsx'
+import { getLS, setLS } from '../../lib/storage.js'
 import './settings.css'
 
 const CDN_PAGES = [
@@ -13,9 +14,18 @@ const CDN_PAGES = [
   { id: 'cdn-edge', labelKey: 'cdn_pg_edge', Page: CdnEdgeTab },
 ]
 
+const CDN_PAGE_KEY = 'tnl_kind_cdn'
+
 function CdnPages({ active, onNavigate }) {
-  const [page, setPage] = useState(CDN_PAGES[0].id)
-  return <TabPager nested kinds={CDN_PAGES} kind={page} onKind={setPage} active={active} onNavigate={onNavigate} />
+  const [page, setPage] = useState(() => {
+    const saved = getLS(CDN_PAGE_KEY)
+    return CDN_PAGES.some((p) => p.id === saved) ? saved : CDN_PAGES[0].id
+  })
+  const pick = useCallback((id) => {
+    setPage(id)
+    setLS(CDN_PAGE_KEY, id)
+  }, [])
+  return <TabPager nested kinds={CDN_PAGES} kind={page} onKind={pick} active={active} onNavigate={onNavigate} />
 }
 
 export const SETTINGS_KINDS = [
