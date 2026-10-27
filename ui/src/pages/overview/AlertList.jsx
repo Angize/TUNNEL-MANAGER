@@ -18,18 +18,12 @@ const PAGE_LABEL = {
   'set-upkeep': 'set_tab_upkeep',
 }
 
-const EMPTY_STYLE = {
-  textAlign: 'center',
-  padding: '10px 0',
-  fontSize: 12.5,
-  color: 'var(--ok-tx)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 7,
-}
-
 const EXIT_MS = 260
+const LIMIT = 10
+
+function strayKey(stray) {
+  return stray.node + ':' + stray.name
+}
 
 function alertKey(alert) {
   const who =
@@ -38,11 +32,15 @@ function alertKey(alert) {
       : alert.node != null
         ? alert.node
         : alert.stray
-          ? alert.stray.node + ':' + alert.stray.name
+          ? strayKey(alert.stray)
           : alert.kind === 'store'
             ? alert.msg
             : ''
   return alert.kind + ':' + alert.level + ':' + who
+}
+
+function visible(alerts, all) {
+  return all ? alerts : alerts.slice(0, LIMIT)
 }
 
 function merge(prev, alerts) {
@@ -63,24 +61,18 @@ function merge(prev, alerts) {
   return next.map((row) => (had.has(row.key) ? row : { ...row, fresh: true }))
 }
 
-function onKey(fn) {
-  return (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      fn()
-    }
-  }
-}
-
-export default function AlertList({ alerts, total, onNavigate }) {
+export default function AlertList({ alerts, onNavigate }) {
   const [busy, setBusy] = useState('')
-  const [rows, setRows] = useState(() => merge([], alerts).map((row) => ({ ...row, fresh: false })))
-  const [from, setFrom] = useState(alerts)
+  const [all, setAll] = useState(false)
+  const [rows, setRows] = useState(() =>
+    merge([], visible(alerts, false)).map((row) => ({ ...row, fresh: false }))
+  )
+  const [from, setFrom] = useState({ alerts, all })
   const [won, setWon] = useState(false)
 
-  if (alerts !== from) {
-    setFrom(alerts)
-    setRows(merge(rows, alerts))
+  if (alerts !== from.alerts || all !== from.all) {
+    setFrom({ alerts, all })
+    setRows(merge(rows, visible(alerts, all)))
     if (alerts.length) setWon(false)
   }
 
@@ -96,7 +88,7 @@ export default function AlertList({ alerts, total, onNavigate }) {
 
   const dropStray = async (stray) => {
     if (busy || !(await confirmBox(TF('ov_stray_del_q', { name: stray.name }), T('ov_stray_del')))) return
-    setBusy(stray.node + ':' + stray.name)
+    setBusy(strayKey(stray))
     const r = await apiPost('stray-del', stray)
     setBusy('')
     if (r.ok && r.d.ok) toast(T('ov_stray_del_ok'), 'ok')
@@ -106,7 +98,7 @@ export default function AlertList({ alerts, total, onNavigate }) {
   if (!rows.length) {
     return (
       <div className={'card ogood' + (won ? ' won' : '')}>
-        <div style={EMPTY_STYLE}>
+        <div className="ogm">
           <Icon name="okc" color="var(--ok-tx)" />
           {T('ov_noalert')}
         </div>
@@ -118,38 +110,40 @@ export default function AlertList({ alerts, total, onNavigate }) {
     <div className="card oalerts">
       {rows.map(({ key, alert, out, fresh }) => {
         const page = alert.tab || 'nodes'
-        const jump = () => {
-          setPageQuery(page, '')
-          onNavigate(page)
-        }
+        const jump = () => onNavigate(page, () => setPageQuery(page, alert.q ? '"' + alert.q + '"' : ''))
         const color = alert.level === 'bad' ? cssVar('--bad') : cssVar('--gold')
+        const deleting = alert.stray ? busy === strayKey(alert.stray) : false
         return (
           <Reveal key={key} show={!out} appear={fresh}>
             <div className="oalert">
               <span className="dot" style={{ background: color }} />
               <span className="msg">{alert.msg}</span>
               {alert.stray ? (
-                <span
+                <button
+                  type="button"
                   className="go del"
-                  role="button"
-                  tabIndex={0}
-                  aria-disabled={busy === alert.stray.node + ':' + alert.stray.name}
+                  disabled={!!busy}
+                  aria-busy={deleting}
                   onClick={() => dropStray(alert.stray)}
-                  onKeyDown={onKey(() => dropStray(alert.stray))}
                 >
-                  {T('ov_stray_del')}
-                </span>
+                  <span className="gol">{T('ov_stray_del')}</span>
+                  {deleting ? <span className="bspin ink sm" /> : null}
+                </button>
               ) : null}
-              <span className="go" role="button" tabIndex={0} onClick={jump} onKeyDown={onKey(jump)}>
-                {T(PAGE_LABEL[page])} →
-              </span>
+              <button type="button" className="go" onClick={jump}>
+                {T(PAGE_LABEL[page])}
+                <span aria-hidden="true">←</span>
+              </button>
             </div>
           </Reveal>
         )
       })}
-      {total > alerts.length ? (
-        <div className="oalert">
-          <span className="msg muted">{TF('ov_more_alerts', { n: total - alerts.length })}</span>
+      {alerts.length > LIMIT ? (
+        <div className="oalert omore">
+          <button type="button" className="go" aria-expanded={all} onClick={() => setAll(!all)}>
+            {all ? T('ov_less_alerts') : TF('ov_more_alerts', { n: alerts.length - LIMIT })}
+            <Icon name="chev" />
+          </button>
         </div>
       ) : null}
     </div>

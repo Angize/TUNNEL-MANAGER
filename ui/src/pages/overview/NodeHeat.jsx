@@ -1,12 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
 import { T, TF } from '../../i18n/fa.js'
-import { usageColor } from '../../lib/health.js'
+import { usageColor, usageLevel } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
+import { setPageQuery } from '../../lib/pageQuery.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
-import usePresence from '../../lib/usePresence.js'
-
-const TIP_MS = 2400
-const TIP_OUT_MS = 120
 
 const STATES = {
   online: { word: 'online', color: 'var(--ok-tx)' },
@@ -22,57 +18,32 @@ function nodeState(node) {
   return 'offline'
 }
 
-function NodeTile({ node, crit, tip, instant, onTip }) {
-  const shown = usePresence(tip, TIP_OUT_MS)
+function NodeTile({ node, crit, onOpen }) {
   const state = nodeState(node)
   const { word, color } = STATES[state]
   const pct = num(node.pct)
-  const metricColor = node.online ? usageColor(pct, crit) : undefined
-  const metric = node.online ? pct + T('pct') : null
 
   return (
-    <button
-      type="button"
-      className={'otile' + (state === 'disabled' ? ' off' : '')}
-      onClick={(e) => onTip(e, node.name)}
-    >
+    <button type="button" className={'otile' + (state === 'disabled' ? ' off' : '')} onClick={onOpen}>
       <span className="otn">{node.name}</span>
       <span className="ots">
         <span className="otw" style={{ color }}>
           <i className="dot" style={{ background: color }} />
           {T(word)}
         </span>
-        <b className="otp" style={{ color: metricColor }}>
-          {metric || '—'}
+        <b className="otp" style={{ color: node.online ? usageColor(pct, crit) : undefined }}>
+          {node.online ? pct + T('pct') : '—'}
         </b>
       </span>
       <span className="otb">
-        {node.online ? <i style={{ width: pct + '%', background: metricColor }} /> : null}
+        {node.online ? <i className={usageLevel(pct, crit)} style={{ width: pct + '%' }} /> : null}
       </span>
-      {shown ? (
-        <span className={'htip' + (tip ? (instant ? ' instant' : '') : ' out')} aria-hidden="true">
-          <span>{node.name}</span> {metric || T(word)}
-        </span>
-      ) : null}
     </button>
   )
 }
 
-export default function NodeHeat({ heat }) {
+export default function NodeHeat({ heat, onNavigate }) {
   const crit = num(useUiConfig().usage_crit_pct)
-  const [tip, setTip] = useState(null)
-  const [instant, setInstant] = useState(false)
-  const timer = useRef(0)
-
-  useEffect(() => () => clearTimeout(timer.current), [])
-
-  const showTip = (event, name) => {
-    event.stopPropagation()
-    setInstant(tip !== null || !event.detail)
-    setTip(name)
-    clearTimeout(timer.current)
-    timer.current = setTimeout(() => setTip(null), TIP_MS)
-  }
 
   if (!heat.length) {
     return (
@@ -90,9 +61,7 @@ export default function NodeHeat({ heat }) {
             key={node.name}
             node={node}
             crit={crit}
-            tip={tip === node.name}
-            instant={instant}
-            onTip={showTip}
+            onOpen={() => onNavigate('nodes', () => setPageQuery('nodes', '"' + node.name + '"'))}
           />
         ))}
       </div>
@@ -107,7 +76,7 @@ export default function NodeHeat({ heat }) {
         </span>
         <span>
           <i style={{ background: 'var(--bad)' }} />
-          {T('st_crit')}
+          {TF('st_crit', { n: crit })}
         </span>
       </div>
       <div className="muted otnote">{TF('ov_tiles_note', { n: heat.length })}</div>

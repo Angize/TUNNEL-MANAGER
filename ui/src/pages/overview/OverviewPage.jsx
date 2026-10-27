@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
@@ -10,7 +10,7 @@ import TunnelBreakdown from './TunnelBreakdown.jsx'
 import Sparkline from './Sparkline.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
-import { scoreColor, usageColor } from '../../lib/health.js'
+import { scoreColor, usageColor, usageLevel } from '../../lib/health.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -31,12 +31,6 @@ function Section({ icon, titleKey, extra, children }) {
 }
 
 function Kpi({ label, value, total, color, note }) {
-  const [lastNote, setLastNote] = useState(note)
-  const [fresh, setFresh] = useState(false)
-  if (note !== lastNote) {
-    setLastNote(note)
-    setFresh(!!note && !lastNote)
-  }
   return (
     <div className="card okpi">
       <div className="okl">{label}</div>
@@ -46,7 +40,7 @@ function Kpi({ label, value, total, color, note }) {
           {total != null ? <span className="okt">/{total}</span> : null}
         </span>
       </div>
-      {note ? <div className={'okn' + (fresh ? ' won' : '')}>{note}</div> : null}
+      {note ? <div className="okn">{note}</div> : null}
     </div>
   )
 }
@@ -54,19 +48,25 @@ function Kpi({ label, value, total, color, note }) {
 function WorstRow({ label, entry, crit }) {
   if (!entry) return null
   const pct = num(entry.pct)
-  const color = usageColor(pct, crit)
   return (
     <div className="wrow">
       <span className="wk">{label}</span>
-      <span className="wnm">{entry.name}</span>
-      <span className="wbar">
-        <i style={{ width: pct + '%', background: color }} />
+      <span className="wnm" dir="auto" title={entry.name}>
+        {entry.name}
       </span>
-      <span className="wpc" style={{ color }}>
+      <span className="wbar">
+        <i className={usageLevel(pct, crit)} style={{ width: pct + '%' }} />
+      </span>
+      <span className="wpc" style={{ color: usageColor(pct, crit) }}>
         {pct + T('pct')}
       </span>
     </div>
   )
+}
+
+function gb(mb) {
+  const v = num(mb) / 1024
+  return v < 10 ? v.toFixed(1) : Math.round(v)
 }
 
 export default function OverviewPage({ onNavigate }) {
@@ -100,7 +100,14 @@ export default function OverviewPage({ onNavigate }) {
   const central = summary.central || {}
   const load1 = (central.load || [])[0]
   const worst = summary.worst || {}
-  const linksOn = num(summary.link_total) - num(summary.link_off)
+  const linksUp = num(summary.link_up)
+  const linksOff = num(summary.link_off)
+  const linksOn = num(summary.link_total) - linksOff
+  const tunNote = !num(summary.link_total)
+    ? T('ov_no_tunnel')
+    : linksOff
+      ? TF('ov_kpi_tun_off', { n: linksOff })
+      : null
   const uptimeWindow = num(summary.uptime_window) || 1
 
   return (
@@ -119,22 +126,21 @@ export default function OverviewPage({ onNavigate }) {
           />
           <Kpi
             label={T('ov_kpi_tunnels')}
-            value={num(summary.link_up)}
+            value={linksUp}
             total={linksOn}
-            color="var(--ok-tx)"
-            note={TF('ov_kpi_tun_total', { n: num(summary.link_total) })}
+            color={linksUp === linksOn ? 'var(--ok-tx)' : linksUp ? 'var(--gold-tx)' : 'var(--bad-tx)'}
+            note={tunNote}
           />
           <Kpi
             label={T('ov_kpi_alerts')}
             value={alertCount}
             color={alertCount ? 'var(--bad-tx)' : 'var(--ok-tx)'}
-            note={alertCount ? null : T('ov_chip_noalert')}
           />
         </div>
 
         <div className="ogrid oduo">
           <Section icon="warn" titleKey="ov_attention">
-            <AlertList alerts={alerts} total={alertCount} onNavigate={onNavigate} />
+            <AlertList alerts={alerts} onNavigate={onNavigate} />
           </Section>
 
           <Section
@@ -174,12 +180,12 @@ export default function OverviewPage({ onNavigate }) {
         </div>
 
         <Section icon="grid" titleKey="ov_allnodes">
-          <NodeHeat heat={summary.heat || []} />
+          <NodeHeat heat={summary.heat || []} onNavigate={onNavigate} />
         </Section>
 
         <div className="ogrid">
           <Section icon="server" titleKey="ov_central">
-            <div className="card">
+            <div className="card ocentral">
               <div className="gauges">
                 <Gauge
                   label="CPU"
@@ -199,7 +205,7 @@ export default function OverviewPage({ onNavigate }) {
                   pct={central.ram_pct}
                   sub={
                     central.mem_used_mb != null
-                      ? num(central.mem_used_mb) + ' / ' + num(central.mem_total_mb) + ' ' + T('unit_mb')
+                      ? gb(central.mem_used_mb) + ' / ' + gb(central.mem_total_mb) + ' ' + T('unit_gb')
                       : '—'
                   }
                 />
@@ -208,11 +214,7 @@ export default function OverviewPage({ onNavigate }) {
                   pct={central.disk_pct}
                   sub={
                     central.disk_used_mb != null
-                      ? Math.round(num(central.disk_used_mb) / 1024) +
-                        ' / ' +
-                        Math.round(num(central.disk_total_mb) / 1024) +
-                        ' ' +
-                        T('unit_gb')
+                      ? gb(central.disk_used_mb) + ' / ' + gb(central.disk_total_mb) + ' ' + T('unit_gb')
                       : '—'
                   }
                 />
@@ -223,11 +225,11 @@ export default function OverviewPage({ onNavigate }) {
           <Section icon="activity" titleKey="ov_worst">
             <div className="card">
               {worst.disk || worst.ram || worst.cpu ? (
-                <>
+                <div className="owst">
                   <WorstRow label={T('disk')} entry={worst.disk} crit={crit} />
                   <WorstRow label={T('ram')} entry={worst.ram} crit={crit} />
                   <WorstRow label="CPU" entry={worst.cpu} crit={crit} />
-                </>
+                </div>
               ) : (
                 <div
                   className="muted"

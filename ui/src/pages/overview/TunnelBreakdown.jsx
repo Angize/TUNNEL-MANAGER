@@ -24,14 +24,14 @@ function StateTile({ value, label, color }) {
   )
 }
 
-function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
+function WorstTunnelNote({ worst, fleetPing, trouble, hard, counted }) {
   if (!worst) {
     if (!counted) return null
     return (
       <div className="onote">
         {trouble ? (
           <>
-            <Icon name="warn" color="var(--bad-tx)" /> {T('ov_trouble')}
+            <Icon name="warn" color={hard ? 'var(--bad-tx)' : 'var(--gold-tx)'} /> {T('ov_trouble')}
           </>
         ) : (
           <>
@@ -41,7 +41,9 @@ function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
         {fleetPing != null ? (
           <>
             {' · '}
-            {T('ov_fleet_ping')} <b style={{ color: 'var(--tx)' }}>{num(fleetPing)}ms</b>
+            <span className="nw">
+              {T('ov_fleet_ping')} <b>{num(fleetPing)}ms</b>
+            </span>
           </>
         ) : null}
       </div>
@@ -51,7 +53,7 @@ function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
   const loss = num(worst.loss)
   return (
     <div className="onote">
-      📡 {T('ov_worst_q')} <b>{worst.name}</b>
+      <Icon name="warn" color="var(--gold-tx)" /> {T('ov_worst_q')} <b>{worst.name}</b>
       {worst.a && worst.b ? (
         <>
           {' '}
@@ -63,13 +65,17 @@ function WorstTunnelNote({ worst, fleetPing, trouble, counted }) {
       {loss > 0 ? (
         <>
           {' · '}
-          {T('ov_loss')} <b style={{ color: 'var(--bad-tx)' }}>{Math.round(loss) + T('pct')}</b>
+          <span className="nw">
+            {T('ov_loss')} <b style={{ color: 'var(--bad-tx)' }}>{Math.round(loss) + T('pct')}</b>
+          </span>
         </>
       ) : null}
       {worst.rtt != null ? (
         <>
           {' · '}
-          {T('ov_ping')} <b>{Math.round(num(worst.rtt))}ms</b>
+          <span className="nw">
+            {T('ov_ping')} <b>{Math.round(num(worst.rtt))}ms</b>
+          </span>
         </>
       ) : null}
     </div>
@@ -90,8 +96,12 @@ export default function TunnelBreakdown({ summary }) {
   return (
     <div className="card">
       <div className="tst">
-        <StateTile value={up} label={T('tst_connected')} color="var(--ok-tx)" />
-        <StateTile value={noPing} label={T('tst_noping')} color="var(--gold-tx)" />
+        <StateTile value={up} label={T('tst_connected')} color={up ? 'var(--ok-tx)' : 'var(--tx)'} />
+        <StateTile
+          value={noPing}
+          label={T('tst_noping')}
+          color={noPing ? 'var(--gold-tx)' : 'var(--tx)'}
+        />
         <StateTile value={down} label={T('tst_down')} color={down ? 'var(--bad-tx)' : 'var(--tx)'} />
         <StateTile
           value={drift}
@@ -123,7 +133,8 @@ export default function TunnelBreakdown({ summary }) {
       <WorstTunnelNote
         worst={summary.worst_tunnel}
         fleetPing={summary.fleet_avg_ping}
-        trouble={down + drift > 0}
+        trouble={down + drift + noPing > 0}
+        hard={down > 0}
         counted={up + noPing + down + drift > 0}
       />
     </div>
