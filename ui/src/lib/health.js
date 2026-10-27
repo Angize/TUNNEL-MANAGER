@@ -20,3 +20,9 @@ export function scoreColor(score) {
   if (score >= 60) return LEVEL_COLOR.warn
   return LEVEL_COLOR.crit
 }
+
+export function uptimeColor(pct, [ok, bad]) {
+  if (pct >= ok) return LEVEL_COLOR.ok
+  if (pct >= bad) return LEVEL_COLOR.warn
+  return LEVEL_COLOR.crit
+}

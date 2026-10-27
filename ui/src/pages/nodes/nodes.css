@@ -86,6 +86,7 @@
   gap: 2px;
   height: 22px;
   direction: ltr;
+  touch-action: pan-y;
 }
 
 .upbar i {
@@ -93,10 +94,19 @@
   border-radius: 2px;
   background: var(--ok);
   min-width: 1px;
+  transition: opacity 0.12s;
+}
+
+.upbar i.w {
+  background: var(--gold);
 }
 
 .upbar i.d {
   background: var(--bad);
+}
+
+.upbar.insp i:not(.on) {
+  opacity: 0.4;
 }
 
 .upbar i.g {

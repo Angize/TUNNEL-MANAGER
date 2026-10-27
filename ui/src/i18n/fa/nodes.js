@@ -196,6 +196,8 @@ export default {
   ip_leg_tun: 'تونل‌شده',
   ip_of: 'آی‌پیِ ',
   uptime: 'آپ‌تایم',
+  up_bar: 'آپ‌تایمِ هر بازه: {ok} سالم، {warn} ناپایدار، {bad} قطع',
+  up_nodata: 'بدونِ داده',
   os: 'سیستم‌عامل',
   host: 'میزبان',
   cpu_cores: 'تعداد هسته',

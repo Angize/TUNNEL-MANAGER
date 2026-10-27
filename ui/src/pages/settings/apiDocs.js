@@ -246,7 +246,7 @@ export const DOCS = {
 
   nodes: {
     t: 'List the nodes',
-    d: 'Every node with its state, uptime, traffic, proxy, and agent and core versions.',
+    d: 'Every node with its state, uptime, traffic, proxy, and agent and core versions. uptime holds 60 availability percentages over the chart window (null = no data); the last one ends at uptime_end (unix seconds).',
     p: [['q', 0, S, 'search in the name and the address']],
   },
   'node-names': {

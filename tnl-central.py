@@ -2097,6 +2097,9 @@ _uh = {}
 _uh_lock = threading.Lock()
 UPTIME_BUCKET = 60
 UPTIME_KEEP = 1440
+UPTIME_CELLS = 60
+UPTIME_OK = 99
+UPTIME_BAD = 50
 _tomb = {}
 _tomb_lock = threading.Lock()
 _addr_gen = {}
@@ -2571,59 +2574,39 @@ def _uh_sample(nid, up, now):
     with _uh_lock:
         e = _uh.get(nid)
         if e is None:
-            _uh[nid] = {"ring": [], "bts": now, "up": 1 if up else 0, "tot": 1, "n": 0}
-            return
-        e["up"] = e.get("up", 0) + (1 if up else 0)
-        e["tot"] = e.get("tot", 0) + 1
-        if now - e["bts"] >= UPTIME_BUCKET:
-            frac = e["up"] / e["tot"] if e["tot"] else 1.0
-            missed = min(int((now - e["bts"]) / UPTIME_BUCKET), UPTIME_KEEP)
-            e["ring"].extend([frac] * missed)
-            e["n"] = e.get("n", 0) + missed
+            e = _uh[nid] = {"ring": [], "bts": now // UPTIME_BUCKET * UPTIME_BUCKET, "up": 0, "tot": 0, "n": 0}
+        gone = int((now - e["bts"]) // UPTIME_BUCKET)
+        if gone > 0:
+            frac = e["up"] / e["tot"] if e["tot"] else None
+            add = min(gone, UPTIME_KEEP)
+            e["ring"].extend([frac] * add)
+            e["n"] += add
             if len(e["ring"]) > UPTIME_KEEP:
                 e["ring"] = e["ring"][-UPTIME_KEEP:]
-            e["bts"] = now
+            e["bts"] += gone * UPTIME_BUCKET
             e["up"], e["tot"] = 0, 0
+        e["up"] += 1 if up else 0
+        e["tot"] += 1
 
 
-def _uh_cells(nid, window_hours, cells=60):
-    try:
-        wh = int(window_hours)
-    except Exception:
-        wh = 1
-    if wh not in (1, 3, 6, 8, 12, 24):
-        wh = 1
-    per = wh
-    total = cells * per
+def _uh_share(part):
+    total, n = sum(part), len(part)
+    return 100.0 if total >= n else int(total * 10000 / n + 1e-6) / 100
+
+
+def _uh_view(nid, window_hours):
+    n = window_hours * 3600 // UPTIME_BUCKET
     with _uh_lock:
         e = _uh.get(nid)
-        ring = list(e["ring"]) if e else []
-    ring = ring[-total:]
-    slots = [None] * (total - len(ring)) + ring
-    out = []
-    for i in range(cells):
+        ring, end = (e["ring"][-n:], e["bts"]) if e else ([], None)
+    per = n // UPTIME_CELLS
+    slots = [None] * (n - len(ring)) + ring
+    cells = []
+    for i in range(UPTIME_CELLS):
         chunk = [x for x in slots[i * per:(i + 1) * per] if x is not None]
-        out.append(None if not chunk else (0 if min(chunk) < 1.0 else 1))
-    return out
-
-
-def _uh_pct(nid, window_hours):
-    try:
-        wh = int(window_hours)
-    except Exception:
-        wh = 1
-    if wh not in (1, 3, 6, 8, 12, 24):
-        wh = 1
-    with _uh_lock:
-        e = _uh.get(nid)
-        ring = list(e["ring"]) if e else []
-    ring = ring[-(wh * 60):]
-    if not ring:
-        return 100.0
-    total, n = sum(ring), len(ring)
-    if total >= n:
-        return 100.0
-    return int(total / n * 10000) / 100
+        cells.append(_uh_share(chunk) if chunk else None)
+    seen = [x for x in ring if x is not None]
+    return {"uptime": cells, "uptime_pct": _uh_share(seen) if seen else 100.0, "uptime_end": end}
 
 
 def _tf_snapshot():
@@ -2640,13 +2623,14 @@ def _tf_snapshot():
 
 K_TRAFFIC = "tnl:traffic"
 K_UPTIME = "tnl:uptime:"
+K_UPTIME_AT = "tnl:uptime_at"
 K_CHECKIN = "tnl:checkin"
 _tf_flushed = {}
 _uh_flushed = {}
 
 
 def _stats_read(r):
-    tf, ck, up = {}, {}, {}
+    tf, ck, up, at = {}, {}, {}, {}
     for k, v in r.hgetall(K_TRAFFIC).items():
         try:
             d = json.loads(v)
@@ -2664,17 +2648,22 @@ def _stats_read(r):
         p.lrange(k, 0, -1)
     for k, ring in zip(ukeys, p.execute()):
         try:
-            up[k[len(K_UPTIME):]] = [max(0.0, min(1.0, float(x))) for x in ring][-UPTIME_KEEP:]
+            up[k[len(K_UPTIME):]] = [None if float(x) < 0 else min(1.0, float(x)) for x in ring][-UPTIME_KEEP:]
         except ValueError:
             log_warn("stats", "bad uptime list %s in redis skipped" % k)
-    return tf, ck, up
+    for k, v in r.hgetall(K_UPTIME_AT).items():
+        try:
+            at[k] = float(v)
+        except (TypeError, ValueError):
+            log_warn("stats", "bad uptime time %s in redis skipped" % k)
+    return tf, ck, up, at
 
 
 def _stats_boot():
     r = _redis()
     valid = {n["id"] for n in load_nodes()}
-    tf_raw, ck_raw, rings = _stats_read(r)
-    stale = [k for k in set(tf_raw) | set(ck_raw) | set(rings) if k not in valid]
+    tf_raw, ck_raw, rings, ats = _stats_read(r)
+    stale = [k for k in set(tf_raw) | set(ck_raw) | set(rings) | set(ats) if k not in valid]
     if stale:
         with _reg_lock, store_tx() as t:
             for nid in stale:
@@ -2687,9 +2676,12 @@ def _stats_boot():
             _tf_flushed[nid] = _enc(tf_raw[nid])
     with _uh_lock:
         for nid in valid & set(rings):
-            ring = rings[nid]
-            _uh[nid] = {"ring": ring, "bts": now, "up": 0, "tot": 0, "n": len(ring)}
-            _uh_flushed[nid] = len(ring)
+            at = ats.get(nid, now // UPTIME_BUCKET * UPTIME_BUCKET)
+            gap = min(max(0, int((now - at) // UPTIME_BUCKET)), UPTIME_KEEP)
+            ring = (rings[nid] + [None] * gap)[-UPTIME_KEEP:]
+            _uh[nid] = {"ring": ring, "bts": at + int((now - at) // UPTIME_BUCKET) * UPTIME_BUCKET,
+                        "up": 0, "tot": 0, "n": len(rings[nid]) + gap}
+            _uh_flushed[nid] = len(rings[nid])
     with _checkin_ctr_lock:
         for nid in valid & set(ck_raw):
             _checkin_ctr[nid] = _checkin_ctr_saved[nid] = ck_raw[nid]
@@ -2699,6 +2691,7 @@ def _stats_forget(p, nid):
     p.hdel(K_TRAFFIC, nid)
     p.hdel(K_CHECKIN, nid)
     p.delete(K_UPTIME + nid)
+    p.hdel(K_UPTIME_AT, nid)
 
 
 def _stats_drop(nid):
@@ -2724,21 +2717,22 @@ def _persist_stats():
             for nid, e in _uh.items():
                 fresh = e.get("n", 0) - _uh_flushed.get(nid, 0)
                 if fresh > 0 and nid in valid:
-                    uh_new[nid] = (e["n"], e["ring"][-min(fresh, UPTIME_KEEP):])
+                    uh_new[nid] = (e["n"], e["ring"][-min(fresh, UPTIME_KEEP):], e["bts"])
         if not tf_new and not uh_new:
             return
         p = _redis().pipeline(transaction=True)
         if tf_new:
             p.hset(K_TRAFFIC, mapping=tf_new)
-        for nid, (_n, vals) in uh_new.items():
-            if vals:
-                p.rpush(K_UPTIME + nid, *vals)
-                p.ltrim(K_UPTIME + nid, -UPTIME_KEEP, -1)
+        for nid, (_n, vals, _at) in uh_new.items():
+            p.rpush(K_UPTIME + nid, *[-1 if x is None else x for x in vals])
+            p.ltrim(K_UPTIME + nid, -UPTIME_KEEP, -1)
+        if uh_new:
+            p.hset(K_UPTIME_AT, mapping={nid: at for nid, (_n, _v, at) in uh_new.items()})
         p.execute()
     with _tf_lock:
         _tf_flushed.update(tf_new)
     with _uh_lock:
-        _uh_flushed.update({nid: n for nid, (n, _v) in uh_new.items()})
+        _uh_flushed.update({nid: n for nid, (n, _v, _a) in uh_new.items()})
 
 
 def traffic_persist_loop():
@@ -3208,7 +3202,7 @@ def _node_view(n, pend=None, pxn=None):
             "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),
             "moved_to": moved_addr(n["id"]),
             "central_want": _panel_origin_for(n),
-            "uptime": _uh_cells(n["id"], _uw), "uptime_pct": _uh_pct(n["id"], _uw),
+            **_uh_view(n["id"], _uw),
             "traffic": _tf_node_view(n["id"])}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -3426,10 +3420,10 @@ def api_summary(d):
     win = _sset.get("uptime_window", 1)
     ups, downcnt = [], 0
     for n in nodes:
-        cells = _uh_cells(n["id"], win)
-        if any(c is not None for c in cells):
-            ups.append(_uh_pct(n["id"], win))
-            if any(c == 0 for c in cells):
+        v = _uh_view(n["id"], win)
+        if any(c is not None for c in v["uptime"]):
+            ups.append(v["uptime_pct"])
+            if any(c is not None and c < UPTIME_OK for c in v["uptime"]):
                 downcnt += 1
 
     frx_bps = ftx_bps = frx = ftx = 0
@@ -12421,6 +12415,7 @@ def ui_config():
                    "install_parallel": _INSTALL_PARALLEL},
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
         "uptime_windows": list(UPTIME_WINDOWS),
+        "uptime_levels": [UPTIME_OK, UPTIME_BAD],
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,
         "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],
