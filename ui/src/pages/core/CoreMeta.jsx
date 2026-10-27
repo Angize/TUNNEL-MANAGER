@@ -10,6 +10,7 @@ import {
   carrierFamily,
   carrierLabel,
   carrierProfile,
+  edgePool,
 } from './carrier.js'
 import { poolRotateItems } from './form/presets.js'
 import { hostAddress } from '../../lib/subnet.js'
@@ -25,7 +26,7 @@ const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFracti
 
 function capabilities(link) {
   const tags = []
-  if (link.transport === 'ws' && link.ws_pool) tags.push('pool')
+  if (edgePool(link)) tags.push('pool')
   if (link.transport === 'ws' && link.ws_tls) tags.push('wss')
   if (link.sni_split) tags.push('SNI' + (link.sni_mode || 'split'))
   if (link.transport === 'ws' && link.ech) tags.push('ECH')
@@ -147,7 +148,7 @@ function rawCells(link, ported) {
 }
 
 function edgeRotation(link) {
-  const secs = num(link.ws_rotate_secs)
+  const secs = num(link.ws_pool ? link.ws_rotate_secs : link.edge_rotate)
   if (!secs) return T('rot_on_fail')
   const item = poolRotateItems().find((x) => x.v === secs)
   return item ? item.label : secs + 's'
@@ -176,7 +177,7 @@ function sharedCells(link, ported) {
     ...capCells(link),
     ...rawCells(link, ported),
   ]
-  if (link.transport === 'ws' && link.ws_pool) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
+  if (edgePool(link)) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
 }
 

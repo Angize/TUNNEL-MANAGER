@@ -7460,6 +7460,10 @@ def api_edit_link(d):
     return act_link(d, edit)
 
 
+def _pooled(L):
+    return bool(L.get("ws_pool")) or len(L.get("edge_ips") or []) > 1
+
+
 def api_edge_status(d):
     d = d or {}
     _require(d, ["id"])
@@ -7472,7 +7476,7 @@ def api_edge_status(d):
 
 
 def _edge_status_of(L, node, missing):
-    is_pool = bool(L.get("ws_pool"))
+    is_pool = _pooled(L)
     if not node:
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": missing}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
@@ -7539,10 +7543,10 @@ def api_pool_select(d):
     return {"ok": True}
 
 
-def _pool_client(d, flag, missing):
+def _pool_client(d, has, missing):
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get(flag):
+    if not L or L.get("type") != "core" or not has(L):
         raise missing
     node = _client_node(L)
     if not node:
@@ -7551,11 +7555,11 @@ def _pool_client(d, flag, missing):
 
 
 def _ws_pool_client(d):
-    return _pool_client(d, "ws_pool", Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
+    return _pool_client(d, _pooled, Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
 
 
 def _peer_pool_client(d):
-    return _pool_client(d, "ip_rotate", Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
+    return _pool_client(d, lambda L: L.get("ip_rotate"), Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
 
 
 _PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")
@@ -8723,13 +8727,14 @@ def _ev_rot(kind, code):
 _ROT_PARTNER = {"dst": "src", "src": "dst", "ip": "sni", "sni": "ip"}
 
 
-def _ev_seed_axes(lid, is_pool, active):
+def _ev_seed_axes(L, active):
     active = str(active or "")
     if not active:
         return
-    if is_pool:
+    lid = L["id"]
+    if _pooled(L):
         left, sep, right = active.partition(" · ")
-        pairs = (("ip", left.strip()), ("sni", right.strip() if sep else ""))
+        pairs = (("ip", left.strip()), ("sni", right.strip() if sep and not L.get("edge_node") else ""))
     else:
         pairs = (("dst", _ev_ip(active)),)
     for ax, v in pairs:
@@ -8845,6 +8850,21 @@ def _ev_core_text(kind, code, detail, nm):
         return ("ok", "ech-heal", tx("تونلِ «{0}»: ترمیمِ خودکارِ کلیدِ ECH", "tunnel '{0}': ECH key self-heal", nm),
                 tx_join("", rows))
     return None
+
+
+def _edge_named(L, events, name):
+    inner = (L.get("edge_route") or {}).get("inner") if L.get("edge_node") else ""
+    if not inner or not isinstance(events, list):
+        return events
+    out = []
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+        d = str(e.get("detail") or "")
+        if d.startswith("sni:"):
+            continue
+        out.append(dict(e, detail=d.replace(inner, name)) if inner in d else e)
+    return out
 
 
 def _core_event_marks(events):
@@ -9249,8 +9269,7 @@ def _events_once():
         if at is None:
             continue
         nm = L.get("name", "")
-        precise_core = L.get("type") == "core" and (
-            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
+        precise_core = L.get("type") == "core" and str(L.get("transport") or "").lower() in CORE_TRANSPORTS
         if up:
             _ev_state["coarse_hold"].pop(lid, None)
             if not precise_core or lid in _ev_state["links_coarse_down"]:
@@ -9268,7 +9287,7 @@ def _events_once():
 
     seen = set()
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
-            and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)]
+            and str(L.get("transport") or "").lower() in CORE_TRANSPORTS]
 
     srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
                and not _ev_state["rotip"].get(L["id"] + ":src")]
@@ -9297,9 +9316,7 @@ def _events_once():
     for L in links:
         if L.get("type") != "core" or not L.get("enabled", True):
             continue
-        is_pool = bool(L.get("ws_pool"))
-        tr = str(L.get("transport") or "").lower()
-        if not is_pool and tr not in CORE_TRANSPORTS:
+        if str(L.get("transport") or "").lower() not in CORE_TRANSPORTS:
             continue
         lid = L["id"]
         seen.add(lid)
@@ -9312,8 +9329,8 @@ def _events_once():
                 continue
             try:
                 if end == "cli":
-                    _ev_seed_axes(lid, is_pool, r.get("active"))
-                _ingest_core_events(lid, end, nm, r.get("events"))
+                    _ev_seed_axes(L, r.get("active"))
+                _ingest_core_events(lid, end, nm, _edge_named(L, r.get("events"), nmap.get(L.get("edge_node"), "")))
             except Exception:
                 continue
     for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:

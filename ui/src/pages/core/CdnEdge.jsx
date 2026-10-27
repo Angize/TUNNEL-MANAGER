@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import { edgeHost } from './carrier.js'
+import { edgeHost, edgePool } from './carrier.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
@@ -36,12 +36,9 @@ function edgeView(link, activeEdge) {
     return { live: true, ip: edgeHost(parts[0] || ''), domain: parts.slice(1).join(' · ') }
   }
   if (link.edge_at) {
-    const addrs = link.edge_at.addrs
-    return {
-      live: false,
-      ip: edgeHost(addrs[0]) + (addrs.length > 1 ? ' +' + (addrs.length - 1) : ''),
-      domain: link.edge_at.name,
-    }
+    if (!edgePool(link)) return { live: false, ip: edgeHost(link.edge_at.addrs[0]), domain: link.edge_at.name }
+    const live = String(activeEdge || '').split(' · ')[0]
+    return { live: !!live, ip: live ? edgeHost(live) : link.enabled === false ? '' : '…', domain: link.edge_at.name }
   }
   const ip = link.edge_ip ? edgeHost(link.edge_ip) : ''
   const domain = link.ws_host || ''
