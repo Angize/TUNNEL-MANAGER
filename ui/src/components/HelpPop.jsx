@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Icon from './Icon.jsx'
 import RichText from './RichText.jsx'
 import { T } from '../i18n/fa.js'
 import './helppop.css'
@@ -90,7 +91,7 @@ export default function HelpPop({ id, anchor, title, text, example, leaving, onC
       <div className="hphd">
         <b id={id + 't'}>{title}</b>
         <button type="button" className="hpx" aria-label={T('close')} onClick={() => closeRef.current(true)}>
-          ×
+          <Icon name="x" />
         </button>
       </div>
       <div ref={body} className="hpbd">
