@@ -1,10 +1,24 @@
 import { T } from '../../i18n/fa.js'
-import { eventLevel, formatEventTime, layoutEvent, valueClass } from './logFormat.js'
+import { eventLevel, formatEventTime, layoutEvent, nameParts, valueClass } from './logFormat.js'
+
+function Named({ text }) {
+  return nameParts(text).map((seg, i) =>
+    seg.name === undefined ? (
+      seg.text
+    ) : seg.latin ? (
+      <span key={i} className="lev-nm">
+        «<bdi>{seg.name}</bdi>»{seg.tail}
+      </span>
+    ) : (
+      '«' + seg.name + '»' + seg.tail
+    )
+  )
+}
 
 export default function LogEvent({ event, open, onToggle, born }) {
   const level = eventLevel(event)
-  const { text, lead, rest, isPair } = layoutEvent(event)
-  const foldable = rest.length > 0
+  const { text, notes, lead, rest, isPair } = layoutEvent(event)
+  const foldable = rest.length > 0 || notes.length > 0
 
   const activate = () => {
     try {
@@ -51,7 +65,9 @@ export default function LogEvent({ event, open, onToggle, born }) {
           <span className="lev-lv">{T('sod_' + level)}</span>
           <span className="lev-time">{formatEventTime(event.ts)}</span>
         </div>
-        <div className="lev-text">{text}</div>
+        <div className="lev-text">
+          <Named text={text} />
+        </div>
         {lead.length ? (
           <div className="lev-vals">
             {lead.map((row, i) => (
@@ -66,6 +82,11 @@ export default function LogEvent({ event, open, onToggle, born }) {
           <>
             <div className="lev-fold" inert={!open}>
               <div className="lev-fold-in">
+                {notes.map((note, i) => (
+                  <p className="lev-note" key={'n' + i}>
+                    <Named text={note} />
+                  </p>
+                ))}
                 {rest.map((row, i) => (
                   <div className="lev-row" key={row.k + i}>
                     <b>{row.k}</b>

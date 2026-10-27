@@ -62,6 +62,7 @@ export default function LogsPage() {
   const [born, setBorn] = useState(NO_BORN)
   const [kbFilters, setKbFilters] = useState(false)
   const [cleared, setCleared] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const newest = useRef(null)
   const listBox = useRef(null)
   const signature = useRef('')
@@ -175,34 +176,43 @@ export default function LogsPage() {
 
   const clearLogs = async () => {
     if (!(await confirmBox(T('logs_clear_confirm'), T('logs_clear')))) return
-    const r = await apiPost('events-clear', {})
-    if (!(r.ok && r.d.ok)) {
-      toast(postError(r), 'err')
-      return
-    }
-    const list = listBox.current
-    if (list && !reducedMotion()) {
-      try {
-        await list.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(8px)' }], {
-          duration: 200,
-          easing: 'cubic-bezier(.23, 1, .32, 1)',
-          fill: 'forwards',
-        }).finished
-      } catch {
-        list.getAnimations().forEach((a) => a.cancel())
+    setClearing(true)
+    try {
+      const r = await apiPost('events-clear', {})
+      if (!(r.ok && r.d.ok)) {
+        toast(postError(r), 'err')
+        return
       }
+      const list = listBox.current
+      if (list && !reducedMotion()) {
+        try {
+          await list.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(8px)' }], {
+            duration: 200,
+            easing: 'cubic-bezier(.23, 1, .32, 1)',
+            fill: 'forwards',
+          }).finished
+        } catch {
+          list.getAnimations().forEach((a) => a.cancel())
+        }
+      }
+      toast(T('logs_cleared'), 'ok')
+      setCleared(true)
+      setEvents([])
+      setHiddenOut(0)
+      refetch()
+    } finally {
+      setClearing(false)
     }
-    toast(T('logs_cleared'), 'ok')
-    setCleared(true)
-    setEvents([])
-    setHiddenOut(0)
-    refetch()
   }
 
-  const chipOrder = [['all', T('logc_all')]]
-    .concat(evGroups.map(([key, label]) => [key, label]))
-    .concat([['err', T('logc_err')]])
-    .filter(([key]) => key === 'all' || key === filter || counts[key] > 0)
+  const chipOrder = [['all', T('logc_all')], ['err', T('logc_err')], ...evGroups].filter(
+    ([key]) => key === 'all' || key === filter || counts[key] > 0
+  )
+
+  const openFilters = (e, open) => {
+    setKbFilters(!e.detail)
+    setFiltersOpen(open)
+  }
 
   const shown = visible.slice(0, show)
   const remaining = visible.length - shown.length
@@ -221,17 +231,19 @@ export default function LogsPage() {
           type="button"
           className={'ghost lgfbtn' + (filtersOpen ? ' on' : '')}
           disabled={!known}
-          onClick={(e) => {
-            setKbFilters(!e.detail)
-            setFiltersOpen(!filtersOpen)
-          }}
+          onClick={(e) => openFilters(e, !filtersOpen)}
         >
           <Icon name="cog" />
           {T('logf_btn')}
           {hiddenCount ? <span className="ct">{hiddenCount}</span> : null}
         </button>
-        <button type="button" className="ghost" onClick={clearLogs}>
-          <Icon name="trash" />
+        <button
+          type="button"
+          className="ghost tone tone-del"
+          disabled={clearing || !events || !events.length}
+          onClick={clearLogs}
+        >
+          {clearing ? <span className="bspin ink sm" /> : <Icon name="trash" />}
           {T('logs_clear')}
         </button>
       </div>
@@ -252,33 +264,29 @@ export default function LogsPage() {
 
       <LoadBar on={events === null} value={progress} />
       {events === null ? null : !events.length ? (
-        <div className={'card muted' + (cleared ? ' logempty' : '')}>{T(hiddenOut ? 'logf_empty' : 'logs_empty')}</div>
+        <div className={'card muted empty' + (hiddenOut ? ' lgfempty' : '') + (cleared ? ' logempty' : '')}>
+          {T(hiddenOut ? 'logf_empty' : 'logs_empty')}
+          {hiddenOut && !filtersOpen ? (
+            <button type="button" className="ghost" onClick={(e) => openFilters(e, true)}>
+              <Icon name="cog" />
+              {T('logf_open')}
+            </button>
+          ) : null}
+        </div>
       ) : (
         <div ref={listBox}>
-          {hiddenCount && !filtersOpen ? (
-            <div className="lgfnote">
-              <Icon name="cog" />
-              {T('logf_on').replace('{n}', hiddenCount)}
-            </div>
-          ) : null}
           <div className="logchips">
             {chipOrder.map(([key, label]) => (
-              <div
+              <button
                 key={key}
+                type="button"
                 className={'fchip' + (filter === key ? ' on' : '')}
-                role="button"
-                tabIndex={0}
+                aria-pressed={filter === key}
                 onClick={() => setFilter(key)}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault()
-                    setFilter(key)
-                  }
-                }}
               >
                 {label}
                 <span className="ct">{counts[key] || 0}</span>
-              </div>
+              </button>
             ))}
           </div>
 

@@ -3,6 +3,9 @@ const INLINE_MAX = 34
 const PAIR_KEYS = { 'از': true, 'به': true }
 const KEY_MAX = 16
 const KEY_FORBIDDEN = /[،؛؟.!?()«»—]/
+const NOTE_MAX = 110
+const NOTE_HEAD_MIN = 24
+const NOTE_CUTS = [' — ', '. ', '؛ ']
 
 export function valueClass(value) {
   return /[\u0600-\u06FF]/.test(String(value)) ? ' fa' : ''
@@ -46,8 +49,44 @@ function sentence(title, notes) {
   return out
 }
 
+function cutNote(note) {
+  if (note.length <= NOTE_MAX) return [note, '']
+  let at = -1
+  let cut = ''
+  for (const sep of NOTE_CUTS) {
+    const i = note.indexOf(sep, NOTE_HEAD_MIN)
+    if (i > 0 && (at < 0 || i < at)) {
+      at = i
+      cut = sep
+    }
+  }
+  if (at < 0) return [note, '']
+  const head = note.slice(0, cut === '. ' ? at + 1 : at)
+  return [head, note.slice(at + cut.length).trim()]
+}
+
+function foldNotes(notes) {
+  const lines = notes.map((note) => String(note || '').trim()).filter(Boolean)
+  if (!lines.length) return { inline: [], folded: [] }
+  const [head, tail] = cutNote(lines[0])
+  return { inline: [head], folded: (tail ? [tail] : []).concat(lines.slice(1)) }
+}
+
+export function nameParts(text) {
+  const bits = String(text || '').split(/«([^»]+)»([^\s«]*)/)
+  const out = []
+  for (let i = 0; i < bits.length; i += 3) {
+    if (bits[i]) out.push({ text: bits[i] })
+    if (i + 1 < bits.length) {
+      out.push({ name: bits[i + 1], tail: bits[i + 2] || '', latin: !/[\u0600-\u06FF]/.test(bits[i + 1]) })
+    }
+  }
+  return out
+}
+
 export function layoutEvent(event) {
   const { rows, notes } = splitDetail(event.detail || '')
+  const { inline, folded } = foldNotes(notes)
   const lead = []
   const rest = []
   const repeated = new Set(rows.map((row) => row.k)).size < rows.length
@@ -62,7 +101,7 @@ export function layoutEvent(event) {
       rest.push(row)
     }
   }
-  return { text: sentence(event.text || '', notes), lead, rest, isPair: (k) => !!PAIR_KEYS[k] }
+  return { text: sentence(event.text || '', inline), notes: folded, lead, rest, isPair: (k) => !!PAIR_KEYS[k] }
 }
 
 export function formatEventTime(ts) {
