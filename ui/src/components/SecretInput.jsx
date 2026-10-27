@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LTR_TEXT } from '../lib/form.js'
 import { T } from '../i18n/fa.js'
+import './secret.css'
 
 export default function SecretInput({ value, onChange, className, ...rest }) {
   const [shown, setShown] = useState(false)
@@ -21,7 +22,8 @@ export default function SecretInput({ value, onChange, className, ...rest }) {
         aria-pressed={shown ? 'true' : 'false'}
         onClick={() => setShown(!shown)}
       >
-        {T('sec_show')}
+        <span>{T(shown ? 'sec_hide' : 'sec_show')}</span>
+        <span aria-hidden="true">{T(shown ? 'sec_show' : 'sec_hide')}</span>
       </button>
     </div>
   )

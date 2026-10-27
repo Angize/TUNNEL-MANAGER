@@ -3,6 +3,7 @@ export default {
   set_cdn_sub: 'کلیدهای کلودفلر و ابرآروان، و لبه روی نودهای خودت',
   cdn_pg_cloud: 'CDNِ عمومی',
   cdn_pg_edge: 'CDNِ اختصاصی',
+  cdn_load_failed: 'تنظیماتِ CDN از پنل خوانده نشد:',
 
   cdn_p_cf: 'کلودفلر',
   cdn_p_ar: 'ابرآروان',
@@ -14,12 +15,14 @@ export default {
   cdn_chip_err: 'خطا',
   cdn_chip_nozone: 'بی‌دسترسی',
   cdn_chip_on: 'وصل',
+  cdn_chip_untested: 'آزمایش‌نشده',
+  cdn_chip_partial: 'دسترسیِ ناقص',
   cdn_zones_seen: '{n} دامنه دیده شد',
   cdn_zones_usable: '{n} تا قابلِ استفاده',
   cdn_via_proxy: 'از راهِ پروکسی',
   cdn_via_direct: 'مستقیم',
   cdn_ar_policy:
-    'کلید درست است ولی هیچ دامنه‌ای برنگشت. معمولاً یعنی Machine User هنوز Access Policy ندارد؛ در پنلِ آروان یک دسترسی روی دامنه‌ها بده و دوباره آزمایش کن.',
+    'کلید درست است ولی Machine User احتمالاً هنوز Access Policy ندارد؛ در پنلِ آروان روی دامنه‌ها دسترسی بده و دوباره آزمایش کن.',
   cdn_chk_dns: 'رکوردهای DNS',
   cdn_chk_config: 'قانون‌های تنظیمات (Config Rules)',
   cdn_chk_settings: 'تنظیماتِ دامنه (SSL)',
@@ -48,7 +51,6 @@ export default {
   cdn_save_test: 'ذخیره و آزمایش',
   cdn_route_lbl_cf: 'مسیرِ اتصال به api.cloudflare.com',
   cdn_route_lbl_ar: 'مسیرِ اتصال به napi.arvancloud.ir',
-  cdn_key_note: 'کلید فقط وقتی کامل از پنل خوانده می‌شود که رویش بزنی تا کپی شود؛ این‌جا فقط چهار حرفِ آخرش دیده می‌شود.',
   cdn_key_copy: 'کپیِ کلیدِ {p}',
 
   cdn_zone_on: 'فعال',
@@ -83,7 +85,7 @@ export default {
   cdn_ssl_mode_zone: 'کلِ دامنه',
   cdn_ssl_mode_zone_d: 'SSL دامنه روی Flexible',
   cdn_ssl_mode_zone_note:
-    'پنل SSL کلِ دامنه را Flexible و «SSL خودکار» را خاموش می‌کند؛ هر سایتِ دیگری روی همان دامنه هم Flexible می‌شود. تونل‌های فعلی تا ویرایش یا بازسازیِ بعدی روی حالتِ قبلی می‌مانند.',
+    'SSL کلِ دامنه، با سایت‌های دیگرش، روی Flexible می‌رود و «SSL خودکار» خاموش می‌شود. تونل‌های فعلی تا ویرایش یا بازسازیِ بعدی همان‌طور می‌مانند.',
   cdn_ssl_mode_saved: 'حالتِ SSL ذخیره شد',
 
   cdn_make_open: 'ساخت در CDN',
@@ -152,7 +154,7 @@ export default {
   edge_pool_all: 'همهٔ آی‌پی‌های تمیزِ مناسب در استخر هستند.',
   edge_list_empty: 'فهرستِ آی‌پی‌های تمیز خالی است؛ در تنظیمات › CDN اضافه‌شان کن.',
   edge_bad_ip: 'یک IPv4 بنویس، مثلاً 104.16.0.1 یا 104.16.0.1:443',
-  edge_bad_port: 'پورت باید یکی از پورت‌های لبهٔ CDN باشد: 443، 2053، 2083، 2087، 2096، 8443 یا 80، 8080، 8880، 2052، 2082، 2086، 2095',
+  edge_bad_port: 'این پورت روی لبهٔ CDN باز نیست؛ مثلاً 443، 8443 یا 80',
   edges_t: 'آی‌پی‌های تمیزِ لبه',
   edges_d: 'فرمِ تونل و استخرِ لبه آی‌پیِ لبه را از این فهرست انتخاب می‌کنند',
   edges_n: '{n} آی‌پی',
@@ -161,6 +163,7 @@ export default {
   edges_none: 'هنوز آی‌پی‌ای نیست؛ آی‌پی‌هایی را که از ایران تمیز جواب می‌دهند این‌جا اضافه کن.',
   edges_add_ph: 'آی‌پیِ لبهٔ تازه',
   edges_add: 'افزودن',
+  sec_hide: 'پنهان',
 
   cdn_hosts_t: 'زیردامنه‌های بی‌تونل',
   cdn_hosts_d: 'ساختِ پنل‌اند ولی هیچ تونلی از آن‌ها استفاده نمی‌کند',
