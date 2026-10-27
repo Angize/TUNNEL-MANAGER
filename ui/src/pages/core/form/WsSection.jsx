@@ -211,12 +211,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
       </Tiles>
       <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
-      <SwitchRow
-        on={form.SelfEch}
-        title={T('selfech_t')}
-        note={T('selfech_d')}
-        onToggle={toggleSelfEch}
-      />
+      <SwitchRow on={form.SelfEch} title={T('selfech_t')} onToggle={toggleSelfEch} />
       <Reveal show={!!form.SelfEch}>
         <div style={{ marginTop: 8 }}>
           <Field label={T('selfech_inner_lbl')}>
@@ -240,7 +235,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
           </div>
         </div>
       </Reveal>
-      <SwitchRow on={form.EdgeOn} title={T('pedge_t')} note={T('pedge_d')} onToggle={toggleEdge} />
+      <SwitchRow on={form.EdgeOn} title={T('pedge_t')} onToggle={toggleEdge} />
       <Reveal show={!!form.EdgeOn}>
         <PrivateEdge form={form} fronts={fronts} patch={patch} />
       </Reveal>
@@ -249,7 +244,6 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
           <SwitchRow
             on={form.pool.pool}
             title={T('ws_pool_t')}
-            note={T('ws_pool_d')}
             onToggle={() => patch({ pool: { ...form.pool, pool: !form.pool.pool } })}
           />
           <SwapCascade value={!!form.pool.pool}>

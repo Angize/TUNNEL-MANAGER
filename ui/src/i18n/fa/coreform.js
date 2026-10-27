@@ -115,8 +115,7 @@ export default {
   cdn_need_wss:
     'gRPC نیازمندِ wss است — اول wss (TLS به CDN) را روشن کن یا حاملِ HTTP را انتخاب کن',
 
-  ws_pool_t: 'استخرِ لبه (چرخش + بلک‌لیست)',
-  ws_pool_d: 'چند IP و دامنه؛ سوخته‌ها کنار می‌روند',
+  ws_pool_t: 'استخرِ لبه — چرخش و بلک‌لیست',
   ws_host_lbl: 'دامنهٔ فرانت (Host / SNI)',
   ph_cdn_domain: 'مثلاً cdn.example.com',
   ws_edge_lbl: 'آی‌پیِ لبهٔ CDN (اختیاری)',
@@ -184,8 +183,7 @@ export default {
   echpx_t: 'پروکسی برای دریافتِ کلیدِ ECH',
   echpx_d: 'فقط کلیدِ ECH از این پروکسی گرفته می‌شود',
 
-  selfech_t: 'ECHِ خودمیزبان — SNI را روی سرورِ خودت رمز کن',
-  selfech_d: 'بدونِ کلاودفلر؛ نامِ طعمه آشکار روی سیم، نامِ واقعی رمز · نیازمندِ wss',
+  selfech_t: 'ECHِ خودمیزبان — بدونِ کلاودفلر',
   selfech_inner_lbl: 'نامِ داخلی (روی گواهیِ سرور، رمز می‌شود)',
   selfech_inner_ph: 'cdn2.example.ir',
   selfech_public_lbl: 'نامِ بیرونیِ طعمه (آشکار روی سیم)',
@@ -197,8 +195,7 @@ export default {
   selfech_decoy_eq: 'نامِ طعمه و نامِ داخلی باید فرق کنند',
   selfech_grpc_alert: 'ECHِ خودمیزبان فعلاً فقط ws و http را می‌بندد؛ grpc هنوز نه.',
 
-  pedge_t: 'لبهٔ اختصاصی — از CDNِ خودت رد شو',
-  pedge_d: 'کلاینت به نودِ لبه وصل می‌شود، نه به سرور؛ لبه TLS و ECH را باز می‌کند · نیازمندِ wss',
+  pedge_t: 'لبهٔ اختصاصی — از CDNِ خودت',
   pedge_pick_lbl: 'نودِ لبه',
   pedge_decoy_lbl: 'روی سیم فقط این نام دیده می‌شود:',
   pedge_none:
