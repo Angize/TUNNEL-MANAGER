@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
+import Field from '../../components/Field.jsx'
 import { ActionButton } from '../core/form/HealthRow.jsx'
 import useFlipList from '../../lib/useFlipList.js'
 import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { LTR_TEXT } from '../../lib/form.js'
+import { latinDigits } from '../../lib/num.js'
 import { edgeError, edgePort } from '../../lib/cdn.js'
 import { T, TF } from '../../i18n/fa.js'
 import '../core/coreform.css'
@@ -39,7 +41,7 @@ export default function CdnEdges({ edges, onStatus }) {
       return
     }
     if (rows.includes(v)) {
-      setDraft('')
+      setError(T('edges_dup'))
       return
     }
     if (await save(rows.concat(v), '+')) {
@@ -59,14 +61,14 @@ export default function CdnEdges({ edges, onStatus }) {
           <small>{T('edges_d')}</small>
         </div>
         <span className={'cdnchip ' + (rows.length ? 'ok' : 'off')}>
-          {rows.length ? TF('edges_n', { n: rows.length }) : T('cdn_hosts_zero')}
+          {rows.length ? TF('edges_n', { n: rows.length }) : T('edges_zero')}
         </span>
       </div>
       <div className="cdnhostl" ref={list}>
         {rows.map((e) => (
-          <div key={e} className="erow ok">
-            <span className="estat ok">
-              <Icon name="okc" />
+          <div key={e} className="erow">
+            <span className="estat">
+              <Icon name="cloud" />
             </span>
             <span className="cdnhostc">
               <span className="eip" dir="ltr">
@@ -78,7 +80,7 @@ export default function CdnEdges({ edges, onStatus }) {
               <ActionButton
                 icon="trash"
                 tone="del"
-                title={T('tip_delete')}
+                title={TF('edges_del', { ip: e })}
                 spinning={busy === e}
                 disabled={!!busy}
                 onClick={() => save(rows.filter((x) => x !== e), e)}
@@ -88,7 +90,7 @@ export default function CdnEdges({ edges, onStatus }) {
         ))}
       </div>
       {rows.length ? null : <div className="cdnempty">{T('edges_none')}</div>}
-      <div className="cdnsni">
+      <Field error={error} className="cdnedgeadd">
         <input
           {...LTR_TEXT}
           className="mono"
@@ -96,18 +98,24 @@ export default function CdnEdges({ edges, onStatus }) {
           placeholder="104.16.0.1:443"
           value={draft}
           onChange={(e) => {
-            setDraft(e.target.value)
+            setDraft(latinDigits(e.target.value).replace(/٫/g, '.'))
             setError('')
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') add()
           }}
         />
-        <button type="button" className="padd" aria-label={T('edges_add')} disabled={!!busy} onClick={add}>
-          {busy === '+' ? <span className="bspin sm" /> : '+'}
+        <button
+          type="button"
+          className="padd"
+          aria-label={T('edges_add')}
+          title={T('edges_add')}
+          disabled={!!busy || !draft.trim()}
+          onClick={add}
+        >
+          {busy === '+' ? <span className="bspin sm" /> : <Icon name="plus" />}
         </button>
-      </div>
-      {error ? <div className="cdnedgeerr">{error}</div> : null}
+      </Field>
     </div>
   )
 }

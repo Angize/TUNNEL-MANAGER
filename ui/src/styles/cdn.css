@@ -16,6 +16,11 @@
   margin: 0;
 }
 
+.cdnedit {
+  display: grid;
+  gap: 10px;
+}
+
 .cdnchip {
   flex: none;
   font-size: 10.5px;
@@ -52,6 +57,12 @@
   border-color: color-mix(in srgb, var(--acc) 26%, transparent);
 }
 
+.cdnchip.set {
+  background: transparent;
+  color: var(--acc-tx);
+  border-color: color-mix(in srgb, var(--acc) 34%, transparent);
+}
+
 .warncap.gold {
   background: var(--goldw);
   color: var(--gold-tx);
@@ -68,12 +79,21 @@
   gap: 8px;
 }
 
+.cdnstale {
+  opacity: .45;
+  transition: opacity .2s var(--ease-out);
+}
+
 .cdnresh {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
   color: var(--ok-tx);
+}
+
+.cdnresh.warn {
+  color: var(--gold-tx);
 }
 
 .cdnresh .ic {
@@ -88,6 +108,7 @@
 .cdnperm {
   display: grid;
   gap: 4px;
+  max-width: 420px;
   padding: 8px 10px;
   border-radius: 10px;
   background: var(--field);
@@ -96,8 +117,10 @@
 
 .cdnpermr {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  column-gap: 7px;
+  row-gap: 1px;
   font-size: 11px;
   min-width: 0;
 }
@@ -113,6 +136,15 @@
   color: var(--bad-tx);
 }
 
+.cdnpermr.off .ic {
+  color: var(--sub);
+}
+
+.cdnpermr > .ic + span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .cdnpermr .mono {
   font-size: 11px;
 }
@@ -121,21 +153,15 @@
   margin-inline-start: auto;
   color: var(--sub);
   font-size: 10.5px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-.cdnkeynote {
-  display: flex;
-  gap: 7px;
-  align-items: flex-start;
-  padding: 0 4px;
-}
-
-.cdnkeynote .ic {
-  flex: none;
-  width: 13px;
-  height: 13px;
-  margin-top: 4px;
+.cdnpermr.bad small,
+.cdnpermr.off small {
+  flex: 1 1 100%;
+  margin-inline-start: 0;
+  padding-inline-start: 20px;
+  line-height: 1.7;
 }
 
 .cdngrid {
@@ -309,9 +335,8 @@
   margin-top: 6px;
 }
 
-.cdnsslmode .cdnused {
+.cdnsslmode .warncap {
   margin-top: 8px;
-  line-height: 1.8;
 }
 
 .cdnused {
@@ -333,8 +358,9 @@
   height: 14px;
 }
 
-.cdnprov button:disabled,
-.cdnedge button:disabled {
+.cdnprov button:disabled:not(:has(.bspin)),
+.cdnedges button:disabled:not(:has(.bspin)),
+.cdnedge button:disabled:not(:has(.bspin)) {
   opacity: .45;
   cursor: not-allowed;
 }
@@ -944,6 +970,10 @@
   gap: 10px;
 }
 
+.cdnhosts > .cdnused {
+  margin-top: 0;
+}
+
 .cdnhosts .sgt.cdnhostsi {
   --scbg: var(--goldw);
   --sc: var(--gold-tx);
@@ -954,6 +984,10 @@
   flex-direction: column;
   gap: 6px;
   position: relative;
+}
+
+.cdnhostl:empty {
+  display: none;
 }
 
 .cdnhostl .erow {
@@ -970,9 +1004,8 @@
 
 .cdnhostc .eip {
   flex: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .cdnhostm {
@@ -995,10 +1028,28 @@
   --sc: var(--ok-tx);
 }
 
-.cdnedgeerr {
-  font-size: 11.5px;
-  line-height: 1.8;
-  color: var(--bad-tx);
+.cdnedges .estat {
+  color: var(--sub);
+}
+
+.cdnedges .erow {
+  border-inline-start-width: 1px;
+}
+
+.cdnedgeadd {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.cdnedgeadd input {
+  min-width: 0;
+  text-align: left;
+}
+
+.cdnedgeadd .flderr {
+  grid-column: 1 / -1;
 }
 
 .cdnnames {

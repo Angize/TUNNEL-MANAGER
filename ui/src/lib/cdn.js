@@ -104,7 +104,8 @@ export function edgeError(value) {
   const host = at >= 0 ? value.slice(0, at) : value
   const port = at >= 0 ? value.slice(at + 1) : ''
   if (!/^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(host)) return T('edge_bad_ip')
-  if (at >= 0 && !(/^\d+$/.test(port) && EDGE_TLS_PORTS.concat(EDGE_PLAIN_PORTS).includes(+port))) return T('edge_bad_port')
+  if (at >= 0 && !(/^\d+$/.test(port) && EDGE_TLS_PORTS.concat(EDGE_PLAIN_PORTS).includes(+port)))
+    return TF('edge_bad_port', { tls: EDGE_TLS_PORTS.join('، '), plain: EDGE_PLAIN_PORTS.join('، ') })
   return ''
 }
 

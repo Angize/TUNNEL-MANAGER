@@ -5,6 +5,7 @@ import Select from '../../components/Select.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { Seg2, SegOpt, WarnCap } from '../core/form/controls.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
@@ -24,21 +25,42 @@ function Chip({ tone, text }) {
   return <span className={'cdnchip ' + tone}>{text}</span>
 }
 
-function headChip(status, phase, result) {
-  if (phase === 'testing' || phase === 'saving') return <Chip tone="run" text={T('cdn_testing')} />
-  if (!status.set) return <Chip tone="off" text={T('cdn_no_key_chip')} />
-  if (result && result.error) return <Chip tone="bad" text={T('cdn_chip_err')} />
-  if (result && !result.zones) return <Chip tone="warn" text={T('cdn_chip_nozone')} />
-  return <Chip tone="ok" text={T('cdn_chip_on')} />
+const VERDICT_TONE = { err: 'bad', nozone: 'warn', inactive: 'warn', partial: 'warn', on: 'ok' }
+
+function unused(check, mode) {
+  return check.k === 'config' && mode === 'zone'
 }
 
-function TestResult({ provider, result }) {
+function verdict(result, mode) {
+  if (result.error) return 'err'
+  if (!result.zones) return 'nozone'
+  if (!result.usable) return 'inactive'
+  if ((result.checks || []).some((c) => !c.ok && !unused(c, mode))) return 'partial'
+  return 'on'
+}
+
+function headChip(status, phase, result, mode) {
+  if (phase === 'testing' || phase === 'saving') return <Chip tone="run" text={T('cdn_testing')} />
+  if (!status.set) return <Chip tone="off" text={T('cdn_no_key_chip')} />
+  if (!result) return <Chip tone="set" text={T('cdn_chip_untested')} />
+  const v = verdict(result, mode)
+  return <Chip tone={VERDICT_TONE[v]} text={T('cdn_chip_' + v)} />
+}
+
+function checkNote(c, tone) {
+  if (tone === 'ok') return T('cdn_chk_read')
+  if (tone === 'off') return T('cdn_chk_unused')
+  return c.why || T('cdn_chk_no')
+}
+
+function TestResult({ provider, result, mode }) {
   if (result.error) return <WarnCap text={result.error} />
   const checks = result.checks || []
+  const warn = verdict(result, mode) !== 'on'
   return (
     <div className="cdnres">
-      <div className="cdnresh">
-        <Icon name="okc" />
+      <div className={'cdnresh' + (warn ? ' warn' : '')}>
+        <Icon name={warn ? 'warn' : 'okc'} />
         <b>{TF('cdn_zones_seen', { n: result.zones })}</b>
         <span className="muted">
           {' · '}
@@ -47,16 +69,22 @@ function TestResult({ provider, result }) {
           {T(result.via === 'proxy' ? 'cdn_via_proxy' : 'cdn_via_direct')}
         </span>
       </div>
-      {provider === 'ar' && !result.zones ? <WarnCap text={T('cdn_ar_policy')} /> : null}
+      {provider === 'ar' && !result.zones ? <WarnCap tone="gold" text={T('cdn_ar_policy')} /> : null}
+      {result.zones > 0 && !result.usable ? (
+        <WarnCap tone="gold" text={TF('cdn_inactive_note', { p: providerName(provider) })} />
+      ) : null}
       {checks.length ? (
         <div className="cdnperm">
-          {checks.map((c) => (
-            <div key={c.k} className={'cdnpermr ' + (c.ok ? 'ok' : 'bad')}>
-              <Icon name={c.ok ? 'check' : 'x'} />
-              <span>{T('cdn_chk_' + c.k)}</span>
-              <small>{c.ok ? T('cdn_chk_read') : c.why || T('cdn_chk_no')}</small>
-            </div>
-          ))}
+          {checks.map((c) => {
+            const tone = c.ok ? 'ok' : unused(c, mode) ? 'off' : 'bad'
+            return (
+              <div key={c.k} className={'cdnpermr ' + tone}>
+                <Icon name={c.ok ? 'check' : 'x'} />
+                <span>{T('cdn_chk_' + c.k)}</span>
+                <small>{checkNote(c, tone)}</small>
+              </div>
+            )
+          })}
           <div className="cdnpermn">
             {result.zone ? TF('cdn_chk_zone', { z: result.zone }) + ' · ' : ''}
             {T('cdn_chk_write_later')}
@@ -72,6 +100,9 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
   const [draft, setDraft] = useState('')
   const [result, setResult] = useState(null)
   const [copying, setCopying] = useState(false)
+  const [pend, setPend] = useState(null)
+  const now = { ...status, ...pend }
+  const sslNow = now.ssl_mode || 'host'
 
   const copyKey = async () => {
     setCopying(true)
@@ -113,25 +144,26 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
     onStatus(r.d.cdn)
   }
 
-  const sslMode = async (mode) => {
-    if (mode === (status.ssl_mode || 'host')) return
-    const r = await apiPost('cdn-set', { provider, ssl_mode: mode })
+  const put = async (body, okKey) => {
+    if (pend) return
+    setPend(body)
+    const r = await apiPost('cdn-set', { provider, ...body })
+    setPend(null)
     if (!(r.ok && r.d.ok)) {
       toast(postError(r), 'err')
       return
     }
     onStatus(r.d.cdn)
-    toast(T('cdn_ssl_mode_saved'), 'ok')
+    toast(T(okKey), 'ok')
   }
 
-  const route = async (id) => {
-    const r = await apiPost('cdn-set', { provider, proxy_id: id === 'direct' ? '' : id })
-    if (!(r.ok && r.d.ok)) {
-      toast(postError(r), 'err')
-      return
-    }
-    onStatus(r.d.cdn)
-    toast(T('cdn_route_saved'), 'ok')
+  const sslMode = (mode) => {
+    if (mode !== sslNow) put({ ssl_mode: mode }, 'cdn_ssl_mode_saved')
+  }
+
+  const route = (id) => {
+    const proxy = id === 'direct' ? '' : id
+    if (proxy !== (now.proxy_id || '')) put({ proxy_id: proxy }, 'cdn_route_saved')
   }
 
   const busy = phase === 'testing' || phase === 'saving'
@@ -150,7 +182,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
           <b>{providerName(provider)}</b>
           <small>{T('cdn_' + provider + '_sub')}</small>
         </div>
-        {headChip(status, phase, result)}
+        {headChip(status, phase, result, sslNow)}
       </div>
 
       <Reveal show={status.set && !editing}>
@@ -172,7 +204,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
             </span>
           </button>
           <button type="button" className="ghost tone tone-renew opfit" onClick={test} disabled={busy}>
-            <Icon name="redo" />
+            {phase === 'testing' ? <span className="bspin ink sm" /> : <Icon name="redo" />}
             {T('cdn_test')}
           </button>
           <button type="button" className="ghost opfit" onClick={() => setPhase('edit')} disabled={busy}>
@@ -198,7 +230,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
       </Reveal>
 
       <Reveal show={editing}>
-        <div>
+        <div className="cdnedit">
           <Field label={T('cdn_key_lbl_' + provider)} hint={T('cdn_key_hint_' + provider)}>
             <SecretInput
               value={draft}
@@ -208,7 +240,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
           </Field>
           <div className="oprow">
             <button type="button" className="primary" disabled={!draft.trim() || busy} onClick={save}>
-              {T('cdn_save_test')}
+              <SaveLabel busy={phase === 'saving'}>{T('cdn_save_test')}</SaveLabel>
             </button>
             {status.set ? (
               <button type="button" className="ghost opfit" disabled={busy} onClick={() => setPhase('view')}>
@@ -219,12 +251,14 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
         </div>
       </Reveal>
 
-      <Reveal show={!!result && !busy}>
-        {result ? <TestResult provider={provider} result={result} /> : null}
+      <Reveal show={!!result}>
+        <div className={busy ? 'cdnstale' : undefined} aria-busy={busy || undefined}>
+          {result ? <TestResult provider={provider} result={result} mode={sslNow} /> : null}
+        </div>
       </Reveal>
 
       <Field label={T('cdn_route_lbl_' + provider)}>
-        <Select items={routes} value={status.proxy_id || 'direct'} onChange={route} />
+        <Select items={routes} value={now.proxy_id || 'direct'} onChange={route} />
       </Field>
 
       {provider === 'cf' && status.set ? (
@@ -232,19 +266,19 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
           <label>{T('cdn_ssl_mode_lbl')}</label>
           <Seg2 label={T('cdn_ssl_mode_lbl')}>
             <SegOpt
-              on={(status.ssl_mode || 'host') === 'host'}
+              on={sslNow === 'host'}
               title={T('cdn_ssl_mode_host')}
               sub={T('cdn_ssl_mode_host_d')}
               onClick={() => sslMode('host')}
             />
             <SegOpt
-              on={status.ssl_mode === 'zone'}
+              on={sslNow === 'zone'}
               title={T('cdn_ssl_mode_zone')}
               sub={T('cdn_ssl_mode_zone_d')}
               onClick={() => sslMode('zone')}
             />
           </Seg2>
-          {status.ssl_mode === 'zone' ? <div className="cdnused">{T('cdn_ssl_mode_zone_note')}</div> : null}
+          {sslNow === 'zone' ? <WarnCap tone="gold" text={T('cdn_ssl_mode_zone_note')} /> : null}
         </div>
       ) : null}
     </div>
@@ -253,11 +287,20 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
 
 export default function CdnTab() {
   const [cdn, setCdn] = useState(null)
+  const [err, setErr] = useState('')
   const [proxies, setProxies] = useState([])
   const [progress, setProgress] = useState(0)
   const box = useRef(null)
 
   useRiseIn(box, !!cdn)
+
+  const load = () => {
+    setErr('')
+    setProgress(0)
+    return apiGet('cdn', setProgress)
+      .then((r) => setCdn(r.cdn))
+      .catch((e) => setErr(readError(e)))
+  }
 
   const reload = () =>
     apiGet('cdn')
@@ -266,9 +309,7 @@ export default function CdnTab() {
 
   useEffect(() => {
     let alive = true
-    apiGet('cdn', setProgress)
-      .then((r) => alive && setCdn(r.cdn))
-      .catch((e) => alive && toast(readError(e), 'err'))
+    load()
     apiGet('proxies')
       .then((r) => alive && setProxies(r.proxies || []))
       .catch(() => {})
@@ -279,7 +320,16 @@ export default function CdnTab() {
 
   return (
     <div className="stpage cdnset" ref={box}>
-      <LoadBar on={!cdn} value={progress} />
+      <LoadBar on={!cdn && !err} value={progress} />
+      {!cdn && err ? (
+        <div className="card loadfail">
+          <span>{T('cdn_load_failed') + ' ' + err}</span>
+          <button type="button" className="ghost" onClick={load}>
+            <Icon name="redo" />
+            {T('retry')}
+          </button>
+        </div>
+      ) : null}
       {cdn
         ? CDN_PROVIDERS.map((p) => (
             <ProviderCard
@@ -294,12 +344,6 @@ export default function CdnTab() {
         : null}
       {cdn ? <CdnEdges edges={cdn.edges} onStatus={reload} /> : null}
       {cdn ? <CdnHosts hosts={cdn.hosts} onStatus={reload} /> : null}
-      {cdn ? (
-        <div className="stnote cdnkeynote">
-          <Icon name="lock" />
-          <span>{T('cdn_key_note')}</span>
-        </div>
-      ) : null}
     </div>
   )
 }
