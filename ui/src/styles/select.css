@@ -16,7 +16,7 @@
 }
 
 .msbtn.ph {
-  color: var(--sub);
+  color: var(--ph);
 }
 
 .msbtn .cv {
@@ -229,7 +229,7 @@
 }
 
 .search::placeholder {
-  color: var(--sub);
+  color: var(--ph);
 }
 
 .search:focus {

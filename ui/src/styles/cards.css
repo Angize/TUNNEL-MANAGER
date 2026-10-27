@@ -733,9 +733,16 @@ button.act.info:hover {
 
 button.act:disabled,
 button.act:disabled:hover {
-  opacity: .55;
-  cursor: progress;
+  cursor: not-allowed;
   transform: none;
   background: var(--card);
   box-shadow: var(--dsh);
+}
+
+button.act:disabled:not(:has(.bspin)) {
+  opacity: .5;
+}
+
+button.act:disabled:has(.bspin) {
+  cursor: progress;
 }

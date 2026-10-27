@@ -21,7 +21,7 @@ select {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--sub);
+  color: var(--ph);
   opacity: 1;
 }
 
@@ -95,6 +95,12 @@ textarea:focus {
   background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
   color: #fff;
   box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .primary.danger:not(:disabled):hover {
+    box-shadow: 0 14px 28px -12px color-mix(in srgb, var(--bad) 65%, transparent);
+  }
 }
 
 .ghost {
@@ -254,6 +260,7 @@ textarea:focus {
 
 .swrow.dis .tglsw {
   opacity: .5;
+  cursor: inherit;
 }
 
 .swtx {

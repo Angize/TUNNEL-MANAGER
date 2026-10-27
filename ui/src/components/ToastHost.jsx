@@ -21,23 +21,31 @@ function stack(root, open) {
   return open ? above - GAP : list[0].offsetHeight + PEEK * (Math.min(list.length, DEPTH) - 1)
 }
 
-function fitFoot(root, height) {
-  if (!height) return
-  root.style.bottom = ''
+function restTop(el) {
+  const veil = el.closest('.modalov')
+  let top = veil.getBoundingClientRect().top + veil.clientTop
+  for (let p = el; p && p !== veil; p = p.offsetParent) top += p.offsetTop + (p === el ? 0 : p.clientTop)
+  return top
+}
+
+function fitFoot(root, height, glide) {
   const feet = document.querySelectorAll('.modalov:not(.leaving) .mfoot')
-  const foot = feet[feet.length - 1]
-  root.classList.toggle('fitted', !!foot)
-  if (!foot) return
-  const base = innerHeight - parseFloat(getComputedStyle(root).bottom)
-  const r = foot.getBoundingClientRect()
-  if (r.top >= base || r.bottom <= base - height) return
-  root.style.bottom = innerHeight - r.top + GAP + 'px'
+  const foot = height ? feet[feet.length - 1] : null
+  let lift = 0
+  if (foot) {
+    const base = innerHeight - parseFloat(getComputedStyle(root).bottom)
+    const top = restTop(foot)
+    if (top < base && top + foot.offsetHeight > base - height) lift = base - top + GAP
+  }
+  root.classList.toggle('glide', glide)
+  root.style.transform = lift ? 'translateY(' + -lift + 'px)' : ''
 }
 
 export default function ToastHost() {
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
   const box = useRef(null)
+  const shown = useRef(0)
 
   useEffect(() => subscribeToasts(setItems), [])
 
@@ -45,7 +53,9 @@ export default function ToastHost() {
   if (open && live < 2) setOpen(false)
 
   useLayoutEffect(() => {
-    fitFoot(box.current, stack(box.current, open))
+    const height = stack(box.current, open)
+    fitFoot(box.current, height, shown.current > 0 && height > 0)
+    shown.current = height
   }, [items, open])
 
   return (

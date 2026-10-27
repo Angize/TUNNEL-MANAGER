@@ -162,10 +162,13 @@
   cursor: pointer;
   display: grid;
   place-items: center;
-  font-size: 16px;
-  line-height: 1;
+  padding: 0;
   flex: 0 0 auto;
-  font-family: inherit;
+}
+
+.msticky .mx .ic {
+  width: 16px;
+  height: 16px;
 }
 
 .msticky .mx:hover {

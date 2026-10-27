@@ -223,12 +223,12 @@ body.reord-on .flist {
 }
 
 .swrow:active:not(.dis) .tglsw::after,
-.tglsw:active::after {
+:not(.swrow) > .tglsw:active::after {
   width: 24px;
 }
 
 .swrow:active:not(.dis) .tglsw.on::after,
-.tglsw.on:active::after {
+:not(.swrow) > .tglsw.on:active::after {
   inset-inline-start: 16px;
 }
 

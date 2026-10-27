@@ -8,6 +8,10 @@
   pointer-events: none;
 }
 
+.toasts.glide {
+  transition: transform .3s var(--ease-out);
+}
+
 .toast {
   --y: 0px;
   --s: 1;
@@ -44,10 +48,6 @@
 
 .toast.show.deep {
   opacity: 0;
-  pointer-events: none;
-}
-
-body:has(.modalov:not(.leaving) .mfoot) .toasts:not(.fitted) .toast.show {
   pointer-events: none;
 }
 
