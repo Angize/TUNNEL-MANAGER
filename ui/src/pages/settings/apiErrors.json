@@ -1136,11 +1136,6 @@
    ],
    [
     400,
-    "edge_no_grpc",
-    "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge"
-   ],
-   [
-    400,
     "edge_node_missing",
     "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel"
    ],
@@ -1964,11 +1959,6 @@
     400,
     "edge_is_end",
     "the private-CDN edge must be a third node, not one of this tunnel's two ends"
-   ],
-   [
-    400,
-    "edge_no_grpc",
-    "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge"
    ],
    [
     400,

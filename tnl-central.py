@@ -6469,11 +6469,6 @@ def _edge_fields(d, cur, out):
         raise Bad("edge_vs_edge_ip",
                   "با لبهٔ اختصاصی «آی‌پیِ لبه» را خالی بگذار — پنل خودش آی‌پی و پورتِ نودِ لبه را می‌گذارد",
                   "with a private-CDN edge leave the edge IP empty — the panel sets the edge node's IP and port itself")
-    cdn = _cdn_carrier(d, cur)
-    if cdn == "grpc":
-        raise Bad("edge_no_grpc",
-                  "لبهٔ اختصاصی فعلاً فقط ws و http را می‌برد؛ grpc (HTTP/2) روی لبه باز نمی‌شود",
-                  "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge")
     r = cur.get("edge_route")
     if not r:
         inner = "t%s.internal" % secrets.token_hex(6)
@@ -6481,7 +6476,7 @@ def _edge_fields(d, cur, out):
     out["edge_node"] = _edge_pick(d, cur)
     out["edge_route"] = {"inner": r["inner"], "cert": r["cert"], "key": r["key"]}
     out["ws_host"] = r["inner"]
-    _own_tls_into(out, d, cur, cdn)
+    _own_tls_into(out, d, cur, _cdn_carrier(d, cur))
     return out
 
 

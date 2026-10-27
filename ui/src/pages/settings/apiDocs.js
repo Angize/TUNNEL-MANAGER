@@ -186,7 +186,7 @@ const TUNNEL_FIELDS = [
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
-  ['edge_node', 0, S, "id of a node that is a live private-CDN edge (cdn-edge): the client dials that node, which ends TLS and ECH and forwards to the server by a hidden inner name the panel makes, so the client never learns the server IP. cdn_carrier ws or http only; not with ws_pool, ech, self_ech, edge_ip or cdn; not one of the tunnel's two ends. On an edit empty = take the tunnel off its edge. Only from inside the panel: with a token a non-empty edge_node gets 403 token_cdn"],
+  ['edge_node', 0, S, "id of a node that is a live private-CDN edge (cdn-edge): the client dials that node, which ends TLS and ECH and forwards to the server by a hidden inner name the panel makes, so the client never learns the server IP. any cdn_carrier (ws, http or grpc); not with ws_pool, ech, self_ech, edge_ip or cdn; not one of the tunnel's two ends. On an edit empty = take the tunnel off its edge. Only from inside the panel: with a token a non-empty edge_node gets 403 token_cdn"],
 ]
 
 const CDN_PARAM =

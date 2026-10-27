@@ -77,7 +77,6 @@ function selfEchCollect(form, enums, body) {
 }
 
 function edgeCollect(form, enums, body) {
-  if (form.Cdn === 'grpc') return T('pedge_grpc_alert')
   if (!form.edgeNode) return T('pedge_need_pick')
   if (form.edgeNode === form.aNode || form.edgeNode === form.bNode) return T('pedge_is_end')
   body.ech = false

@@ -122,7 +122,6 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
 
   const cdnPathOff = {
     WsTls: true,
-    Cdn: form.Cdn === 'grpc' ? 'ws' : form.Cdn,
     Ech: false,
     EchProxy: false,
     SniSplit: false,
@@ -138,7 +137,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
     if (form.SelfEch) {
       patch({ SelfEch: false, WsTls: false })
     } else {
-      patch({ ...cdnPathOff, SelfEch: true, EdgeOn: false, edgeNode: '' })
+      patch({ ...cdnPathOff, Cdn: form.Cdn === 'grpc' ? 'ws' : form.Cdn, SelfEch: true, EdgeOn: false, edgeNode: '' })
     }
   }
 
@@ -156,7 +155,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
       <label>{T('ws_prof_lbl')}</label>
       <Tiles p3 label={T('ws_prof_lbl')}>
         {wsProfiles()
-          .filter((profile) => !(form.SelfEch || form.EdgeOn) || profile.v !== 'grpc')
+          .filter((profile) => !form.SelfEch || profile.v !== 'grpc')
           .map((profile) => (
             <Tile
               key={profile.v}
