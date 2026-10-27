@@ -3,7 +3,7 @@ import { WARN_PCT, usageLevel } from '../../lib/health.js'
 import { num } from '../../lib/num.js'
 import { setPageQuery } from '../../lib/pageQuery.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
-import StatusGroups from './StatusGroups.jsx'
+import StatusGroups, { byName } from './StatusGroups.jsx'
 
 const METRIC = { cpu: () => 'CPU', ram: () => T('ram'), disk: () => T('disk') }
 
@@ -27,7 +27,7 @@ export default function NodeGroups({ heat, onNavigate }) {
 
   const by = { crit: [], off: [], warn: [], wait: [], ok: [], dis: [] }
   for (const node of heat) by[nodeGroup(node, crit)].push(node)
-  for (const list of Object.values(by)) list.sort((a, b) => num(b.pct) - num(a.pct))
+  for (const list of Object.values(by)) list.sort(byName)
 
   const row = (node) => {
     const level = node.online ? usageLevel(num(node.pct), crit) : ''
@@ -56,7 +56,8 @@ export default function NodeGroups({ heat, onNavigate }) {
     )
   }
 
-  const top = by.ok
+  const top = [...by.ok]
+    .sort((a, b) => num(b.pct) - num(a.pct))
     .slice(0, 3)
     .map((n) => (
       <span key={n.name}>

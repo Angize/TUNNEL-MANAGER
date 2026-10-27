@@ -1,6 +1,10 @@
 import { useId, useState } from 'react'
 import Reveal from '../../components/Reveal.jsx'
 
+export function byName(a, b) {
+  return String(a.name).localeCompare(String(b.name), 'en', { numeric: true })
+}
+
 function Chevron() {
   return (
     <svg className="sgc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
