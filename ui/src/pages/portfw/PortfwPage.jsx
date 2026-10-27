@@ -79,11 +79,6 @@ export default function PortfwPage({ active }) {
         </button>
       </div>
 
-      <div className="sec">
-        <Icon name="activity" color="var(--acc-tx)" />
-        {T('pf_active')}
-      </div>
-
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
       <LoadBar on={list === null} value={progress} />

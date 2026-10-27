@@ -59,14 +59,6 @@ function sideOrder(link) {
 
 function SideStatus({ link, side }) {
   const state = linkSideState(link, side)
-  if (state.off) {
-    return (
-      <>
-        <span className="stw na">{state.word}</span>
-        <span className="sdot na" />
-      </>
-    )
-  }
   return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
 }
 
@@ -77,7 +69,7 @@ function SideBox({ link, side, activeIp, rotating }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title}>
       <div className="tnhead">
-        <span className="tnn">{link[side + '_name']}</span>
+        <span className="tnn" dir="auto">{link[side + '_name']}</span>
         <span className="tnend">
           <span className={'rl ' + (isServer ? 'srv' : 'cli')}>
             {isServer ? T('server') : T('client')}
@@ -247,7 +239,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
           className="chead"
           {...(sel
             ? pressable(() => sel.pick(link.id))
-            : { ...hold, ...pressable(() => toggleCard(link.id), () => setPicking(true)) })}
+            : { ...hold, ...pressable(() => toggleCard(link.id), () => setPicking(true)), 'aria-expanded': open })}
         >
           <Grip />
           {sel ? (
@@ -264,11 +256,6 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             <div className="hrow1">
               <span className="hname">{link.name}</span>
               <span className={'ctag c-' + carrierFamily(link)}>{carrierLabel(link)}</span>
-              {enabled ? null : (
-                <span className="offtxt" style={{ fontSize: 11 }}>
-                  {T('st_off')}
-                </span>
-              )}
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side={first} />
                 <span className="pn">{link[first + '_name']}</span>
@@ -307,7 +294,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
 
           {link.enabled === false ? (
             <div className="offbadge">
-              <Icon name="warn" color="var(--bad-tx)" />
+              <Icon name="plugoff" />
               <span>{T('tun_off_note')}</span>
             </div>
           ) : (

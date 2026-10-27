@@ -62,7 +62,7 @@ function Bar({ bulk }) {
 
   return createPortal(
     <div ref={box} className="bulkbar">
-      <button type="button" className="x" title={T('bulk_exit')} onClick={bulk.exit}>
+      <button type="button" className="x" title={T('bulk_exit')} aria-label={T('bulk_exit')} onClick={bulk.exit}>
         <Icon name="x" />
       </button>
       <span className="cnt">{k + ' ' + T('bulk_of') + ' ' + bulk.count}</span>

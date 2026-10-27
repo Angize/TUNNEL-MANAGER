@@ -35,15 +35,15 @@
 }
 
 .tninfo > .tnnode:last-child.st-ok {
-  box-shadow: inset -3px 0 0 var(--ok);
+  box-shadow: var(--dsh), inset -3px 0 0 var(--ok);
 }
 
 .tninfo > .tnnode:last-child.st-bad {
-  box-shadow: inset -3px 0 0 var(--bad);
+  box-shadow: var(--dsh), inset -3px 0 0 var(--bad);
 }
 
 .tninfo > .tnnode:last-child.st-na {
-  box-shadow: inset -3px 0 0 var(--sub);
+  box-shadow: var(--dsh), inset -3px 0 0 var(--sub);
 }
 
 .tnhead {
@@ -235,19 +235,18 @@
   height: 12px;
 }
 
-.offtxt {
-  color: var(--bad-tx);
-  font-weight: 700;
-}
-
 .offbadge {
   margin-top: 11px;
   font-size: 11.5px;
-  color: var(--bad-tx);
+  color: var(--sub);
   display: flex;
   gap: 7px;
   align-items: flex-start;
   line-height: 1.6;
+}
+
+.offbadge .ic {
+  margin-top: 2px;
 }
 
 .card.tagd {

@@ -158,12 +158,9 @@ function sharedCells(link, ported) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
-    cell(
-      T('ttype'),
-      <span className={'ctag c-' + carrierFamily(link)}>
-        {carrierLabel(link) + (profile ? ' · ' + profile : '')}
-      </span>
-    ),
+    ...(profile
+      ? [cell(T('ttype'), <span className={'ctag c-' + carrierFamily(link)}>{carrierLabel(link) + ' · ' + profile}</span>)]
+      : []),
     cell(
       T('enc_short'),
       cipher ? (

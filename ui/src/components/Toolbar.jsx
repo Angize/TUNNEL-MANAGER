@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { GripIcon } from './Grip.jsx'
-import { toggleReorder } from '../lib/reorder.js'
+import { reorderMode, subscribeReorder, toggleReorder } from '../lib/reorder.js'
 import { T } from '../i18n/fa.js'
 
 const DEBOUNCE = 280
@@ -9,6 +9,7 @@ export default function Toolbar({ value, placeholder, reorder, onSearch }) {
   const [text, setText] = useState(value || '')
   const timer = useRef(0)
   const lastValue = useRef(value)
+  const sorting = useSyncExternalStore(subscribeReorder, reorderMode)
 
   if (lastValue.current !== value) {
     lastValue.current = value
@@ -33,7 +34,13 @@ export default function Toolbar({ value, placeholder, reorder, onSearch }) {
         onChange={(e) => change(e.target.value)}
       />
       {reorder ? (
-        <button className="reordbtn" title={T('reord_t')} onClick={toggleReorder}>
+        <button
+          className="reordbtn"
+          title={T('reord_t')}
+          aria-label={T('reord_t')}
+          aria-pressed={sorting}
+          onClick={toggleReorder}
+        >
           <GripIcon />
         </button>
       ) : null}

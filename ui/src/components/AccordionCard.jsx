@@ -36,7 +36,7 @@ export default function AccordionCard({ id, kind, className, head, beforeBody, c
       data-rid={id}
       data-rk={kind}
     >
-      <div className="chead" {...pressable(() => toggleCard(id))}>
+      <div className="chead" aria-expanded={open} {...pressable(() => toggleCard(id))}>
         {kind ? <Grip /> : null}
         {head}
         <Chevron />

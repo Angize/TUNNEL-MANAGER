@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import AccordionCard from '../../components/AccordionCard.jsx'
 import Icon from '../../components/Icon.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
+import { WarnCap } from '../core/form/controls.jsx'
 import { useActionBusy } from '../../lib/useBusy.js'
 import { copyText } from '../../components/CopyValue.jsx'
 import { T, TF } from '../../i18n/fa.js'
@@ -17,6 +18,8 @@ const PORTFW_TAG_STYLE = {
   background: 'color-mix(in srgb, var(--h-orange) 15%, transparent)',
 }
 
+const LIP_NOTE_STYLE = { margin: '0 0 10px' }
+
 const ROTATE_BTN_STYLE = {
   color: 'var(--h-orange)',
   borderColor: 'color-mix(in srgb, var(--h-orange) 46%, transparent)',
@@ -26,7 +29,7 @@ function rotateLabel(minutes) {
   return minutes % 60 ? minutes + ' ' + T('fmt_min') : minutes / 60 + ' ' + T('fmt_hr')
 }
 
-const OFF = { kind: 'na', word: T('st_off'), title: T('st_off') }
+const OFF = { kind: 'na', word: '', title: T('st_off') }
 
 function nodeState(item, health) {
   if (item.enabled === false) return OFF
@@ -49,7 +52,7 @@ function Box({ name, state, text, copy, rotating }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title || undefined}>
       <div className="tnhead">
-        <span className="tnn">{name}</span>
+        <span className="tnn" dir="auto">{name}</span>
         <span className="tnend">
           <span className="cprot">
             {rotating ? (
@@ -161,11 +164,6 @@ function PortfwCard({ item, onEdit, onChanged }) {
           <span className="ctag" style={PORTFW_TAG_STYLE}>
             PORTFW
           </span>
-          {enabled ? null : (
-            <span className="offtxt" style={{ fontSize: 11 }}>
-              {T('st_off')}
-            </span>
-          )}
           <span className="hpeers" dir="ltr">
             <span className={'sdot ' + node.kind} title={node.title || undefined} />
             <span className="pn">{item.node}</span>
@@ -181,10 +179,7 @@ function PortfwCard({ item, onEdit, onChanged }) {
   return (
     <AccordionCard id={item.node_id + item.name} kind="portfw" className={'acc' + (enabled ? '' : ' off')} head={head}>
       {enabled && item.lip_gone ? (
-        <div className="msg err" style={{ margin: '0 0 9px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="warn" color="var(--bad-tx)" />
-          <span>{TF('pf_lip_gone_note', { ip: item.listen_ip })}</span>
-        </div>
+        <WarnCap text={TF('pf_lip_gone_note', { ip: item.listen_ip })} style={LIP_NOTE_STYLE} />
       ) : null}
       <div className="tninfo">
         <Box name={item.node} state={node} text={listenIp || T('pf_lip_all')} copy={!!listenIp} />
@@ -248,7 +243,7 @@ function PortfwCard({ item, onEdit, onChanged }) {
         </div>
       ) : (
         <div className="offbadge">
-          <Icon name="warn" color="var(--bad-tx)" />
+          <Icon name="plugoff" />
           <span>{T('pf_off_note')}</span>
         </div>
       )}

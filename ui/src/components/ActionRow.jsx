@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import Icon from './Icon.jsx'
 import Reveal from './Reveal.jsx'
 import { T } from '../i18n/fa.js'
 import { actAge, actBarPercent, actIsSpinner, actSeen, actWords } from '../lib/acts.js'
@@ -28,12 +29,13 @@ function Row({ act, warn }) {
         ) : null
       ) : (
         <button
-          className="abtn"
+          className="abtn x"
           type="button"
           title={T('a_dismiss')}
+          aria-label={T('a_dismiss')}
           onClick={() => dismiss(actSeen(act))}
         >
-          ✕
+          <Icon name="x" />
         </button>
       )}
       {actIsSpinner(act) ? (
