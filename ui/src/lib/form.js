@@ -5,5 +5,5 @@ export const NO_AUTOFIX = { autoCapitalize: 'off', autoCorrect: 'off', spellChec
 export const LTR_TEXT = { ...NO_AUTOFIX, dir: 'ltr', autoComplete: 'off' }
 
 export function rangeLabel(label, lo, hi) {
-  return label + ' (' + lo + '–' + hi + ')'
+  return label + ' (\u2066' + lo + '–' + hi + '\u2069)'
 }
