@@ -125,7 +125,8 @@
 
 .abtn {
   flex: 0 0 auto;
-  height: 30px;
+  min-width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -63,8 +63,8 @@
 }
 
 .bulkbar .x {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
   border: 1px solid var(--edge);
   background: transparent;
@@ -91,7 +91,8 @@
   font-weight: 700;
   color: var(--acc-tx);
   white-space: nowrap;
-  padding: 6px 8px;
+  min-height: 36px;
+  padding: 6px 10px;
   border-radius: 9px;
   background: var(--accw);
 }

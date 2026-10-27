@@ -174,8 +174,7 @@ export default {
   cdn_dropped: '{h} از CDN پاک شد',
   cdn_used_hosts: '{n} زیردامنهٔ بی‌تونل با این کلید ساخته شده؛ تا وقتی هستند کلید پاک نمی‌شود.',
 
-  cdn_pill: '{p} · {s}',
-  cdn_pill_pool: '{p}، {ok} از {n} هماهنگ',
+  cdn_pill_pool: '{ok} از {n} هماهنگ',
   cdn_more: 'جزئیاتِ {p}',
   cdn_by_panel: 'ساختِ پنل',
   cdn_pool_hosts: 'زیردامنه‌های استخرِ لبه',
@@ -193,7 +192,7 @@ export default {
   cdn_own_ip: 'رکورد',
   cdn_own_port: 'پورت',
   cdn_own_live: 'الان رکورد در CDN به {ip} اشاره می‌کند.',
-  cdn_own_auto: 'پنل هر ۱۵ دقیقه خودش دوباره تلاش می‌کند.',
+  cdn_own_auto: 'پنل هر 15 دقیقه خودش دوباره تلاش می‌کند.',
   cdn_retry: 'تلاشِ دوباره',
   cdn_syncing: 'در حالِ درست‌کردن…',
   cdn_synced: 'CDN هماهنگ شد',
