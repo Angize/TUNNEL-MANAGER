@@ -3,7 +3,7 @@ export default {
   ov_allnodes: 'همهٔ نودها یک‌نگاه',
   ov_attention: 'نیازمندِ توجه',
   ov_central: 'سرورِ مرکزی (این پنل)',
-  ov_down_nodes: 'نود قطعی داشته',
+  ov_down_nodes: 'نودِ ناپایدار یا قطع',
   ov_fleet_ping: 'پینگِ میانگین',
   ov_health: 'سلامتِ فلیت',
   ov_hours_recent: 'ساعتِ اخیر',

@@ -10,7 +10,7 @@ import TunnelBreakdown from './TunnelBreakdown.jsx'
 import Sparkline from './Sparkline.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
-import { scoreColor, usageColor, usageLevel } from '../../lib/health.js'
+import { scoreColor, uptimeColor, usageColor, usageLevel } from '../../lib/health.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -70,7 +70,8 @@ function gb(mb) {
 }
 
 export default function OverviewPage({ onNavigate }) {
-  const crit = num(useUiConfig().usage_crit_pct)
+  const config = useUiConfig()
+  const crit = num(config.usage_crit_pct)
   const rxHistory = useRef([])
   const txHistory = useRef([])
 
@@ -248,7 +249,7 @@ export default function OverviewPage({ onNavigate }) {
           <Section icon="clock" titleKey="ov_uptime">
             <div className="ostat2">
               <div className="card">
-                <div className="big" style={{ color: scoreColor(num(summary.uptime_avg)) }}>
+                <div className="big" style={{ color: uptimeColor(num(summary.uptime_avg), config.uptime_levels) }}>
                   {num(summary.uptime_avg) + T('pct')}
                 </div>
                 <div className="muted ostat-l">
