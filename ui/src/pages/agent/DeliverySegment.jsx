@@ -10,12 +10,13 @@ export default function DeliverySegment({ value, onChange }) {
   return (
     <div className="minisg">
       <span>{T('dlv_lbl')}</span>
-      <div className="seg2">
+      <div className="seg2" role="group" aria-label={T('dlv_lbl')}>
         {OPTIONS.map(([key, labelKey]) => (
           <button
             key={key}
             type="button"
             className={'segopt' + (key === value ? ' on' : '')}
+            aria-pressed={key === value}
             onClick={() => onChange(key)}
           >
             <b>{T(labelKey)}</b>

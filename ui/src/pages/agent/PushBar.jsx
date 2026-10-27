@@ -60,7 +60,7 @@ export default function PushBar({ status }) {
         <span key={step} className={step !== firstStep.current ? 'sw' : undefined}>
           {pushLabel(status)}
         </span>
-        <b>{pct}%</b>
+        {status.state === 'run' || status.state === 'wait' ? <b>{pct}%</b> : null}
       </div>
     </>
   )

@@ -143,8 +143,9 @@ export default function BackupCard() {
         title={T('bk_card')}
         sub={T('bk_sub_short')}
         goIcon="download"
-        goLabel={busy === 'get' ? T('set_bk_getting') : T('set_bk_get_btn')}
+        goLabel={T('set_bk_get_btn')}
         goDisabled={!!busy}
+        goBusy={busy === 'get'}
         onGo={download}
         open={open}
         onToggle={() => setOpen((v) => !v)}
@@ -155,14 +156,21 @@ export default function BackupCard() {
             type="button"
             className="ghost tone tone-put"
             disabled={!!busy}
+            aria-busy={busy === 'put'}
             onClick={() => picker.current && picker.current.click()}
           >
-            <Icon name="upload" />
-            {busy === 'put' ? T('set_bk_reading') : T('set_bk_put')}
+            {busy === 'put' ? <span className="bspin ink sm" /> : <Icon name="upload" />}
+            {T('set_bk_put')}
           </button>
-          <button type="button" className="ghost tone tone-put" disabled={!!busy} onClick={rotate}>
-            <Icon name="lock" />
-            {busy === 'rot' ? T('bk_rot_busy') : T('bk_rot_btn')}
+          <button
+            type="button"
+            className="ghost tone tone-put"
+            disabled={!!busy}
+            aria-busy={busy === 'rot'}
+            onClick={rotate}
+          >
+            {busy === 'rot' ? <span className="bspin ink sm" /> : <Icon name="lock" />}
+            {T('bk_rot_btn')}
           </button>
         </div>
         <p className="bkhint">{T('bk_hint')}</p>

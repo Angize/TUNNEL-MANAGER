@@ -66,33 +66,32 @@ export function fieldStep(key, config) {
   return step ? step[0] : 0
 }
 
-function listViolation(values, label) {
-  return !values.length || values.some((n) => isNaN(n)) ? TF('set_list_bad', { f: label }) : ''
+function listViolation(values) {
+  return !values.length || values.some((n) => isNaN(n)) ? T('set_list_bad') : ''
 }
 
-function rangeViolation(values, [lo, hi], label, spec) {
+function rangeViolation(values, [lo, hi], spec) {
   for (const v of values) {
-    if (isNaN(v)) return TF(spec.kind === 'decimal' ? 'set_dec_bad' : 'set_num_bad', { f: label })
+    if (isNaN(v)) return T(spec.kind === 'decimal' ? 'set_dec_bad' : 'set_num_bad')
     if (spec.off && v === 0) continue
-    if (v < lo || v > hi) return TF(spec.off ? 'set_range_off_bad' : 'set_range_bad', { f: label, lo, hi, v })
+    if (v < lo || v > hi) return TF(spec.off ? 'set_range_off_bad' : 'set_range_bad', { lo, hi })
   }
   return ''
 }
 
-function stepViolation(values, step, label, scale) {
+function stepViolation(values, step, scale) {
   const bad = step ? values.find((v) => (v * scale) % step) : undefined
-  return bad === undefined ? '' : TF('set_step_bad', { f: label, s: step, v: bad })
+  return bad === undefined ? '' : TF('set_step_bad', { s: step })
 }
 
 export function formErrors(form, config) {
   const out = {}
   for (const [key, spec] of Object.entries(FIELDS)) {
-    const label = T(spec.labelKey)
     const values = fieldValues(form[key], spec.kind)
     const msg =
-      (spec.kind === 'list' && listViolation(values, label)) ||
-      rangeViolation(values, fieldRange(key, config), label, spec) ||
-      stepViolation(values, fieldStep(key, config), label, spec.minutes ? 60 : 1)
+      (spec.kind === 'list' && listViolation(values)) ||
+      rangeViolation(values, fieldRange(key, config), spec) ||
+      stepViolation(values, fieldStep(key, config), spec.minutes ? 60 : 1)
     if (msg) out[key] = msg
   }
   return out

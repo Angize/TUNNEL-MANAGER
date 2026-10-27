@@ -52,6 +52,12 @@
   align-items: stretch;
 }
 
+@media (min-width: 841px) {
+  #agList {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
 .nx {
   display: flex;
   flex-direction: column;
@@ -339,6 +345,19 @@ body.pushing .savedock:not(.docked) {
     bottom: 80px;
   }
 
+  .minisg .seg2 .segopt {
+    min-height: 38px;
+  }
+
+  .nxa .ib {
+    height: 40px;
+  }
+
+  .pfb {
+    width: 38px;
+    height: 38px;
+  }
+
   body.pushing .toasts {
     bottom: 138px;
   }
@@ -346,4 +365,27 @@ body.pushing .savedock:not(.docked) {
 
 .cn-stale {
   color: var(--gold-tx);
+}
+
+.dlpx .ophd > .tglsw {
+  transition: background .25s, border-color .25s, opacity .2s var(--ease-out);
+}
+
+.dlpx .ophd > .tglsw.dis {
+  opacity: .5;
+  cursor: progress;
+  transition-delay: 0s, 0s, .15s;
+}
+
+.dlpx .oprow > .opsel.busy {
+  pointer-events: none;
+}
+
+.dlpx .oprow > .opsel.busy:not(.off) {
+  opacity: .6;
+  transition-delay: .15s;
+}
+
+.dlpx .oprow:has(> .opsel.busy) {
+  cursor: progress;
 }

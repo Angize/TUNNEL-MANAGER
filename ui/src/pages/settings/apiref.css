@@ -19,6 +19,59 @@
   color: var(--sub);
 }
 
+.apgbox {
+  margin: 8px 0 0;
+  border: 1px solid var(--bord);
+  border-radius: 10px;
+  background: var(--glass);
+  transition: border-color .18s var(--ease-out);
+}
+
+.apgbox.open {
+  border-color: var(--edge);
+}
+
+.apgtg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .18s var(--ease-out);
+}
+
+.apgtg:active {
+  background-color: color-mix(in srgb, var(--acc) 6%, transparent);
+}
+
+.apgtg > .ic {
+  margin-inline-start: auto;
+  width: 14px;
+  height: 14px;
+  color: var(--sub);
+  transition: transform .26s var(--ease-out);
+}
+
+.apgtg[aria-expanded='true'] > .ic {
+  transform: rotate(180deg);
+}
+
+.apgbody {
+  padding: 2px 12px 6px;
+  border-top: 1px dashed var(--bord);
+}
+
 .apguide p b {
   color: var(--tx);
   font-weight: 700;
@@ -184,6 +237,20 @@
   }
 }
 
+@media (max-width: 699px) {
+  .apsum {
+    position: relative;
+    padding-inline-end: 32px;
+  }
+
+  .apsum > .ic {
+    position: absolute;
+    top: 13px;
+    inset-inline-end: 10px;
+    margin: 0;
+  }
+}
+
 .apbody {
   padding: 2px 12px 12px;
   border-top: 1px dashed var(--bord);
@@ -278,6 +345,18 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+@media (max-width: 840px) {
+  .apcc {
+    min-height: 34px;
+    padding: 0 12px;
+  }
+
+  .apcopy {
+    width: 34px;
+    height: 34px;
+  }
 }
 
 .apcnote {

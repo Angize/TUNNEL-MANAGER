@@ -24,9 +24,17 @@
   -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--sat));
   box-shadow: var(--dsh-hi);
   color: var(--tx);
+  display: flex;
+  flex-direction: column;
   transform-origin: var(--tip) top;
   animation: hpin .18s cubic-bezier(.2, .8, .2, 1);
   outline: none;
+}
+
+.hpbd {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .hpop.up {
@@ -82,11 +90,17 @@
   border: 0;
   border-radius: 50%;
   background: var(--ctl);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--sub);
-  font-size: 16px;
-  line-height: 1;
   cursor: pointer;
   transition: background .15s, color .15s;
+}
+
+.hpx .ic {
+  width: 14px;
+  height: 14px;
 }
 
 .hpx::after {

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import Icon from './Icon.jsx'
 import RichText from './RichText.jsx'
 import { T } from '../i18n/fa.js'
 import './helppop.css'
@@ -9,6 +10,7 @@ const EDGE = 12
 
 export default function HelpPop({ id, anchor, title, text, example, leaving, onClose }) {
   const box = useRef(null)
+  const body = useRef(null)
   const [pos, setPos] = useState(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
@@ -24,17 +26,32 @@ export default function HelpPop({ id, anchor, title, text, example, leaving, onC
         return
       }
       const w = b.offsetWidth
-      const h = b.offsetHeight
-      const below = r.bottom + GAP + h <= innerHeight - EDGE || r.top - GAP - h < EDGE
+      const inner = body.current
+      const h = b.offsetHeight + (inner ? inner.scrollHeight - inner.clientHeight : 0)
+      const roomBelow = innerHeight - EDGE - r.bottom - GAP
+      const roomAbove = r.top - GAP - EDGE
+      const below = h <= roomBelow || (h > roomAbove && roomBelow >= roomAbove)
+      const room = below ? roomBelow : roomAbove
+      const fit = Math.min(h, room)
       const left = Math.min(Math.max(EDGE, r.left + r.width / 2 - w / 2), innerWidth - EDGE - w)
-      setPos({ left, top: below ? r.bottom + GAP : r.top - GAP - h, below, tip: r.left + r.width / 2 - left })
+      setPos({
+        left,
+        top: below ? r.bottom + GAP : r.top - GAP - fit,
+        below,
+        max: h > room ? room : null,
+        tip: r.left + r.width / 2 - left,
+      })
+    }
+    const onScroll = (e) => {
+      if (box.current && box.current.contains(e.target)) return
+      place()
     }
     place()
     addEventListener('resize', place)
-    addEventListener('scroll', place, true)
+    addEventListener('scroll', onScroll, true)
     return () => {
       removeEventListener('resize', place)
-      removeEventListener('scroll', place, true)
+      removeEventListener('scroll', onScroll, true)
     }
   }, [anchor])
 
@@ -58,7 +75,7 @@ export default function HelpPop({ id, anchor, title, text, example, leaving, onC
   }, [anchor])
 
   const style = pos
-    ? { left: pos.left, top: pos.top, '--tip': pos.tip + 'px' }
+    ? { left: pos.left, top: pos.top, maxHeight: pos.max || undefined, '--tip': pos.tip + 'px' }
     : { opacity: 0, left: 0, top: 0 }
 
   return createPortal(
@@ -74,17 +91,19 @@ export default function HelpPop({ id, anchor, title, text, example, leaving, onC
       <div className="hphd">
         <b id={id + 't'}>{title}</b>
         <button type="button" className="hpx" aria-label={T('close')} onClick={() => closeRef.current(true)}>
-          ×
+          <Icon name="x" />
         </button>
       </div>
-      <p>
-        <RichText text={text} />
-      </p>
-      {example ? (
-        <p className="hpex">
-          <RichText text={example} />
+      <div ref={body} className="hpbd">
+        <p>
+          <RichText text={text} />
         </p>
-      ) : null}
+        {example ? (
+          <p className="hpex">
+            <RichText text={example} />
+          </p>
+        ) : null}
+      </div>
     </div>,
     document.body,
   )

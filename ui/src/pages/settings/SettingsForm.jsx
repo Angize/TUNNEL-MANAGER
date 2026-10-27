@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { collectTuning, formErrors, secondsToMinutes } from './tuning.js'
+import { FIELDS, collectTuning, formErrors, secondsToMinutes } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
@@ -116,10 +116,11 @@ export function SettingsFormProvider({ tabs, children }) {
   const touch = (key) => setTouched((prev) => (prev[key] ? prev : { ...prev, [key]: true }))
 
   const save = async () => {
-    const bad = Object.values(allErrors)
+    const bad = Object.entries(allErrors)
     if (bad.length) {
+      const [key, msg] = bad[0]
       setTried((n) => n + 1)
-      toast(bad[0], 'err')
+      toast(TF('set_field_bad', { f: T(FIELDS[key].labelKey), m: msg }), 'err')
       return
     }
     const tuning = collectTuning(form)
