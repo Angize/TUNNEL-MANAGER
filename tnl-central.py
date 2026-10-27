@@ -2959,21 +2959,18 @@ def _self_ech_bodies(src, a_body, b_body):
 
 
 def _edge_addr(N):
-    return "%s:%d" % (N["host"], int(_edge_of(N).get("port") or _EDGE_PORT_DEFAULT))
+    return "%s:%d" % (N["host"], _edge_port(_edge_of(N)))
 
 
 def _edge_bodies(src, a_body, b_body):
-    r = src.get("edge_route") or {}
     N = get_node(src.get("edge_node") or "")
-    if not (N and r.get("cert")):
+    if not N:
         return
-    e = _edge_of(N)
     for body in (a_body, b_body):
         if body.get("role") == "client":
             body["edge_ip"] = _edge_addr(N)
-            body["ws_ca"] = r["cert"]
-            if e.get("ws_ech"):
-                body["ws_ech"] = e["ws_ech"]
+            body["ws_ca"] = src["edge_route"]["cert"]
+            body["ws_ech"] = _edge_of(N)["ws_ech"]
 
 
 def _core_end_bodies(src, a_body, b_body):
@@ -4201,7 +4198,10 @@ def api_node_del(d):
         raise Bad("node_busy", "روی این نود همین الان تونلی ساخته یا عوض می‌شود — بگذار تمام شود، بعد نود را پاک کن",
                   "a tunnel of this node is being built or changed right now — let it finish, then delete the node")
     with _PairLock(d["id"]):
-        return _node_del_impl(d)
+        try:
+            return _node_del_impl(d)
+        finally:
+            _edge_dying.discard(d["id"])
 
 
 def _node_del_impl(d):
@@ -4211,8 +4211,9 @@ def _node_del_impl(d):
     n = get_node(nid)
     if not n:
         raise _no_node()
-    _edge_unused(n)
     with _reg_lock:
+        _edge_unused(n)
+        _edge_dying.add(nid)
         links = load_links()
         mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
         mine_ids = {L["id"] for L in mine}
@@ -5781,9 +5782,9 @@ def api_fleet(d):
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
-        _en = get_node(L.get("edge_node") or "")
-        if _en:
-            rec["edge_at"] = {"name": _en["name"], "addr": _edge_addr(_en)}
+        EN = get_node(L.get("edge_node") or "")
+        if EN:
+            rec["edge_at"] = {"name": EN["name"], "addr": _edge_addr(EN)}
         if L.get("type") == "core":
             _ct = [t for t in ((L["a_name"], la.get("ct") or {}), (L["b_name"], lb.get("ct") or {}))
                    if t[1].get("max")]
@@ -5936,7 +5937,7 @@ def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, 
     lid = L.get("id") if L else None
     for n, _ip, p, proto in binds:
         e = _edge_of(n)
-        if proto == "tcp" and e.get("on") and int(p) == int(e.get("port") or _EDGE_PORT_DEFAULT):
+        if proto == "tcp" and e.get("on") and int(p) == _edge_port(e):
             raise Bad("edge_port_taken",
                       "پورتِ {0}/TCP روی نودِ «{1}» مالِ لبهٔ اختصاصیِ همین نود است — پورتِ دیگری بگذار",
                       "port {0}/TCP on node '{1}' belongs to this node's private-CDN edge — use another port", p, n["name"])
@@ -5974,9 +5975,9 @@ def _core_l4_conflict(new_binds, exclude_id=None):
 
 def _ports_held_on(node_id, ip, exclude_id):
     held = {p: L.get("name") for L in _core_others(exclude_id)
-            for n, i, p, proto in _core_link_binds(L) if (n, i, proto) == (node_id, ip, "tcp")}
+            for n, i, p, proto in _core_link_binds(L) if n == node_id and proto == "tcp" and ip in (None, i)}
     for c in _pf_node_configs(node_id)[0]:
-        if _sint(c.get("listen_port")) and (c.get("listen_ip") or "") in ("", ip):
+        if _sint(c.get("listen_port")) and (ip is None or (c.get("listen_ip") or "") in ("", ip)):
             held.setdefault(_sint(c.get("listen_port")), c.get("name") or "")
     return held
 
@@ -6317,15 +6318,15 @@ def _cdn_shape_fields(d, cur, cdn):
     return out
 
 
-def _ech_ossl(args, inp=None):
+def _ossl(args, inp=None):
     return subprocess.run(["openssl"] + args, input=inp, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, check=True).stdout
 
 
 def _gen_ech_key(public):
-    priv_pem = _ech_ossl(["genpkey", "-algorithm", "X25519"])
-    priv_der = _ech_ossl(["pkey", "-inform", "PEM", "-outform", "DER"], inp=priv_pem)
-    pub_der = _ech_ossl(["pkey", "-inform", "PEM", "-pubout", "-outform", "DER"], inp=priv_pem)
+    priv_pem = _ossl(["genpkey", "-algorithm", "X25519"])
+    priv_der = _ossl(["pkey", "-inform", "PEM", "-outform", "DER"], inp=priv_pem)
+    pub_der = _ossl(["pkey", "-inform", "PEM", "-pubout", "-outform", "DER"], inp=priv_pem)
     priv_raw, pub_raw = priv_der[-32:], pub_der[-32:]
     c = bytearray()
     c.append(hashlib.sha256(pub_raw).digest()[0])
@@ -6348,11 +6349,11 @@ def _gen_ech_key(public):
 def _gen_name_cert(inner):
     with tempfile.TemporaryDirectory() as drt:
         kp, cp = os.path.join(drt, "k.pem"), os.path.join(drt, "c.pem")
-        _ech_ossl(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
-                   "-keyout", kp, "-out", cp, "-days", "3650", "-nodes",
-                   "-subj", "/CN=" + inner,
-                   "-addext", "subjectAltName=DNS:" + inner,
-                   "-addext", "basicConstraints=critical,CA:TRUE"])
+        _ossl(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+               "-keyout", kp, "-out", cp, "-days", "3650", "-nodes",
+               "-subj", "/CN=" + inner,
+               "-addext", "subjectAltName=DNS:" + inner,
+               "-addext", "basicConstraints=critical,CA:TRUE"])
         with open(cp) as f:
             cert_pem = f.read()
         with open(kp) as f:
@@ -6361,26 +6362,28 @@ def _gen_name_cert(inner):
 
 
 def _gen_self_ech(public, inner):
-    ech = _gen_ech_key(public)
     nc = _gen_name_cert(inner)
-    return {"public": public, "inner": inner, "srv_ech_key": ech["srv_ech_key"],
-            "srv_ech_conf": ech["srv_ech_conf"], "ws_ech": ech["ws_ech"],
-            "srv_cert": nc["cert"], "srv_key": nc["key"], "ws_ca": nc["cert"]}
+    return dict(_gen_ech_key(public), inner=inner, srv_cert=nc["cert"], srv_key=nc["key"], ws_ca=nc["cert"])
 
 
-def _front_body(listen, ech_key, ech_conf, routes):
-    body = {"listen": listen, "routes": [
-        {"inner": r["inner"], "backend": r["backend"], "cert": r["cert"], "key": r["key"]}
-        for r in routes]}
-    if ech_key and ech_conf:
-        body["srv_ech_key"] = ech_key
-        body["srv_ech_conf"] = ech_conf
-    return body
+def _ws_path_into(out, d, cur):
+    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
+    if path:
+        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
+            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
+                      "invalid WebSocket path (ws_path) (must start with /)")
+        out["ws_path"] = path
 
 
-def _self_ech_fields(d, cur):
-    cur = cur or {}
-    out = {"ws_port_roll": bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))}
+def _own_tls_into(out, d, cur, cdn):
+    _ws_path_into(out, d, cur)
+    out["ws_tls"] = True
+    if cdn != "ws":
+        out["cdn_carrier"] = cdn
+        out.update(_cdn_shape_fields(d, cur, cdn))
+
+
+def _self_ech_fields(d, cur, out):
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip().lower()
     if not re.match(_DOMAIN_RE, host):
         raise Bad("self_ech_needs_inner",
@@ -6420,16 +6423,7 @@ def _self_ech_fields(d, cur):
                   "ECHِ خودمیزبان فعلاً فقط ws و http را پوشش می‌دهد؛ grpc (HTTP/2) هنوز روی سرورِ خودمان TLS+ECH را نمی‌بندد",
                   "self-hosted ECH covers only the ws and http carriers for now; grpc (HTTP/2) is not terminated on our own server yet")
     out["ws_host"] = host
-    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
-    if path:
-        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
-            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
-                      "invalid WebSocket path (ws_path) (must start with /)")
-        out["ws_path"] = path
-    out["ws_tls"] = True
-    if cdn != "ws":
-        out["cdn_carrier"] = cdn
-        out.update(_cdn_shape_fields(d, cur, cdn))
+    _own_tls_into(out, d, cur, cdn)
     mat = cur.get("self_ech_mat") or {}
     fresh = (mat.get("public") == public and mat.get("inner") == host and mat.get("srv_cert")
              and mat.get("srv_key") and mat.get("srv_ech_key") and mat.get("srv_ech_conf")
@@ -6442,34 +6436,23 @@ def _self_ech_fields(d, cur):
     return out
 
 
-EDGE_INNER_ZONE = "internal"
-
-
-def _edge_inner():
-    return "t%s.%s" % (secrets.token_hex(6), EDGE_INNER_ZONE)
-
-
 def _edge_pick(d, cur):
     return str((d["edge_node"] if "edge_node" in d else (cur or {}).get("edge_node")) or "").strip()
 
 
 def _edge_live(nid):
     N = get_node(nid)
-    if not N:
+    if not N or nid in _edge_dying:
         raise Bad("edge_node_missing",
                   "نودِ لبهٔ اختصاصیِ این تونل در پنل نیست — لبهٔ دیگری انتخاب کن یا لبه را از تونل بردار",
                   "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel")
-    e = _edge_of(N)
-    if not (e.get("on") and e.get("srv_ech_key") and e.get("ws_ech")):
+    if not _edge_of(N).get("on"):
         raise Bad("edge_off", "نودِ «{0}» لبهٔ روشن نیست — اول در «تنظیمات › CDNِ اختصاصی» روشنش کن",
                   "node '{0}' is not a live edge — turn it on under Settings › private CDN first", N["name"])
     return N
 
 
-def _edge_fields(d, cur):
-    cur = cur or {}
-    nid = _edge_pick(d, cur)
-    _edge_live(nid)
+def _edge_fields(d, cur, out):
     if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
         raise Bad("edge_vs_self_ech",
                   "لبهٔ اختصاصی و ECHِ خودمیزبان با هم روشن نمی‌شوند — یکی را انتخاب کن",
@@ -6491,35 +6474,28 @@ def _edge_fields(d, cur):
         raise Bad("edge_no_grpc",
                   "لبهٔ اختصاصی فعلاً فقط ws و http را می‌برد؛ grpc (HTTP/2) روی لبه باز نمی‌شود",
                   "a private-CDN edge carries only ws and http for now; grpc (HTTP/2) is not terminated on the edge")
-    out = {"ws_port_roll": bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))}
-    r = cur.get("edge_route") or {}
-    if not (r.get("inner") and r.get("cert") and r.get("key")):
-        inner = _edge_inner()
-        nc = _gen_name_cert(inner)
-        r = {"inner": inner, "cert": nc["cert"], "key": nc["key"]}
-    out["edge_node"] = nid
-    out["edge_route"] = {"inner": r["inner"], "backend": r.get("backend") or "", "cert": r["cert"], "key": r["key"]}
+    r = cur.get("edge_route")
+    if not r:
+        inner = "t%s.internal" % secrets.token_hex(6)
+        r = dict(_gen_name_cert(inner), inner=inner)
+    out["edge_node"] = _edge_pick(d, cur)
+    out["edge_route"] = {"inner": r["inner"], "cert": r["cert"], "key": r["key"]}
     out["ws_host"] = r["inner"]
-    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
-    if path:
-        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
-            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
-                      "invalid WebSocket path (ws_path) (must start with /)")
-        out["ws_path"] = path
-    out["ws_tls"] = True
-    if cdn != "ws":
-        out["cdn_carrier"] = cdn
-        out.update(_cdn_shape_fields(d, cur, cdn))
+    _own_tls_into(out, d, cur, cdn)
     return out
+
+
+def _edge_target(nid, srv_ip, port):
+    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_addr(get_node(nid))}
 
 
 def _edge_backend(extra, srv_ip):
     if extra.get("edge_route"):
-        extra["edge_route"] = dict(extra["edge_route"], backend="%s:%d" % (_cdn_public_ip(srv_ip), int(extra["port"])),
-                                   front=_edge_addr(get_node(extra["edge_node"])))
+        extra["edge_route"] = dict(extra["edge_route"], **_edge_target(extra["edge_node"], srv_ip, extra["port"]))
 
 
 _edge_holds = {}
+_edge_dying = set()
 
 
 def _hold_edge(nid, holder):
@@ -6548,25 +6524,20 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
     if transport != "ws":
         return out
     cur = cur or {}
-    if _edge_pick(d, cur):
-        return _edge_fields(d, cur)
     out["ws_port_roll"] = bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))
+    if _edge_pick(d, cur):
+        return _edge_fields(d, cur, out)
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         out.update(_ws_pool_fields(d, cur))
         return out
     if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
-        return _self_ech_fields(d, cur)
+        return _self_ech_fields(d, cur, out)
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise Bad("bad_ws_host", "دامنهٔ WebSocket (ws_host) نامعتبر است", "invalid WebSocket domain (ws_host)")
     if host:
         out["ws_host"] = host
-    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
-    if path:
-        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
-            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
-                      "invalid WebSocket path (ws_path) (must start with /)")
-        out["ws_path"] = path
+    _ws_path_into(out, d, cur)
     tls = d.get("ws_tls") if ("ws_tls" in d) else cur.get("ws_tls")
     if bool(tls):
         if not host:
@@ -8000,7 +7971,7 @@ def _rebuild_link_impl(d, h):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     if L.get("edge_node"):
         _edge_live(L["edge_node"])
-        _cdn_public_ip(a_ip if _srv_is_a(L) else b_ip)
+        edge_want = _edge_target(L["edge_node"], a_ip if _srv_is_a(L) else b_ip, L["port"])
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
@@ -8041,10 +8012,11 @@ def _rebuild_link_impl(d, h):
     _refresh_cache([L["a_node"], L["b_node"]])
     note = _cdn_follow_build(L["id"], a_ip if _srv_is_a(L) else b_ip, h, REBUILD_STEPS, REBUILD_STEPS + 1)
     if L.get("edge_node"):
-        _edge_follow(L["id"], a_ip if _srv_is_a(L) else b_ip)
+        _edge_follow(L, edge_want)
         act_step(h, _EDGE_STEP, REBUILD_STEPS, REBUILD_STEPS + 1, stop=False)
         tail = _edge_sync(L["edge_node"])
-        note = tx_join("", [tx("تونل بازسازی شد", "the tunnel was rebuilt"), tail]) if tail else ""
+        if tail:
+            note = tx_join("", [tx("تونل بازسازی شد", "the tunnel was rebuilt"), tail])
     return {"ok": True, "name": name, **({"msg": note} if note else {})}
 
 
@@ -11376,7 +11348,7 @@ def _cdn_public():
         out[p] = {"set": bool(k), "tail": k[-4:] if len(k) >= 12 else "", "proxy_id": str(c.get("proxy_id") or ""),
                   "used": used[p], **({"ssl_mode": c.get("ssl_mode") or "host"} if p == "cf" else {})}
     out["edges"] = list(get_settings().get("cdn_edges") or [])
-    out["fronts"] = [x for x in map(_edge_public, load_nodes()) if x["on"] and x["ready"]]
+    out["fronts"] = [x for x in _edge_list() if x["on"]]
     rows = sorted(_cdn_hosts().values(), key=lambda e: (-_sint(e.get("made")), e["host"]))
     users = {h: L for L in load_links() for h in _cdn_link_hosts(L)}
     out["hosts"] = [{"host": e["host"], "provider": e["provider"], "zone": e["zone"], "made": _sint(e.get("made")),
@@ -11457,15 +11429,16 @@ def _edge_of(node):
     return dict(e) if isinstance(e, dict) else {}
 
 
-def _edge_routes(node_id):
-    routes = []
+def _edge_port(e):
+    return int(e.get("port") or _EDGE_PORT_DEFAULT)
+
+
+def _edge_table():
+    t = {}
     for L in load_links():
-        if L.get("edge_node") != node_id or not L.get("enabled", True):
-            continue
-        r = L.get("edge_route")
-        if isinstance(r, dict) and r.get("inner") and r.get("backend") and r.get("cert") and r.get("key"):
-            routes.append({"inner": r["inner"], "backend": r["backend"], "cert": r["cert"], "key": r["key"]})
-    return routes
+        if L.get("edge_node") and L.get("enabled", True):
+            t.setdefault(L["edge_node"], []).append({k: L["edge_route"][k] for k in ("inner", "backend", "cert", "key")})
+    return t
 
 
 _EDGE_STEP = tx("به‌روزکردنِ لبهٔ اختصاصی", "updating the private-CDN edge")
@@ -11493,25 +11466,16 @@ def _edge_port_free(node, port):
     if int(node.get("port") or 0) == port:
         raise Bad("edge_port_agent", "پورتِ {0} پورتِ ایجنتِ همین نود است — برای لبه پورتِ دیگری بگذار",
                   "port {0} is this node's agent port — pick another port for the edge", port)
-    for L in _core_others(None):
-        if any(n == node["id"] and int(p) == port and proto == "tcp" for n, _ip, p, proto in _core_link_binds(L)):
-            raise Bad("edge_port_held", "پورتِ {0}/TCP روی این نود مالِ تونلِ «{1}» است — برای لبه پورتِ دیگری بگذار",
-                      "port {0}/TCP on this node belongs to tunnel '{1}' — pick another port for the edge", port, L["name"])
-    for c in _pf_node_configs(node["id"])[0]:
-        if _sint(c.get("listen_port")) == port:
-            raise Bad("edge_port_held", "پورتِ {0}/TCP روی این نود مالِ «{1}» است — برای لبه پورتِ دیگری بگذار",
-                      "port {0}/TCP on this node belongs to '{1}' — pick another port for the edge", port, c.get("name") or "")
+    owner = _ports_held_on(node["id"], None, None).get(port)
+    if owner is not None:
+        raise Bad("edge_port_held", "پورتِ {0}/TCP روی این نود مالِ «{1}» است — برای لبه پورتِ دیگری بگذار",
+                  "port {0}/TCP on this node belongs to '{1}' — pick another port for the edge", port, owner)
 
 
-def _edge_follow(lid, srv_ip):
-    L = get_link(lid) or {}
-    r = L.get("edge_route")
-    N = get_node(L.get("edge_node") or "")
-    want = {"backend": "%s:%d" % (srv_ip, _sint(L.get("port"))), **({"front": _edge_addr(N)} if N else {})}
-    if r and any(r.get(k) != v for k, v in want.items()):
+def _edge_follow(L, want):
+    if any(L["edge_route"].get(k) != v for k, v in want.items()):
         with _reg_lock:
-            store_edit(_LINKS, lid, lambda x: x.update(edge_route=dict(x["edge_route"], **want))
-                       if x.get("edge_route") else None)
+            store_edit(_LINKS, L["id"], lambda x: x.update(edge_route=dict(x["edge_route"], **want)))
 
 
 def _edge_current(L):
@@ -11552,29 +11516,29 @@ def _front_sync(node):
     with _edge_lock(node["id"]):
         node = get_node(node["id"]) or node
         e = _edge_of(node)
-        routes = _edge_routes(node["id"]) if e.get("on") else []
-        if not routes:
-            return node_call(node, "front", body={"stop": True}, timeout=NODE_OP_TIMEOUT)
-        listen = "0.0.0.0:%d" % int(e.get("port") or _EDGE_PORT_DEFAULT)
-        body = _front_body(listen, e.get("srv_ech_key"), e.get("srv_ech_conf"), routes)
+        routes = _edge_table().get(node["id"], []) if e.get("on") else []
+        body = ({"port": _edge_port(e), "routes": routes, "srv_ech_key": e["srv_ech_key"],
+                 "srv_ech_conf": e["srv_ech_conf"]} if routes else {"stop": True})
         return node_call(node, "front", body=body, timeout=NODE_OP_TIMEOUT)
 
 
-def _edge_public(node):
-    e = _edge_of(node)
-    p = _cached_ping(node["id"])
-    return {"id": node["id"], "name": node["name"], "host": node["host"],
-            "on": bool(e.get("on")), "port": int(e.get("port") or _EDGE_PORT_DEFAULT),
-            "decoy": e.get("decoy") or "", "routes": len(_edge_routes(node["id"])),
-            "ready": bool(e.get("srv_ech_key")), "online": _node_answered(node["id"]),
-            **({"front": bool(p.get("front"))} if "front" in p else {})}
+def _edge_list():
+    table = _edge_table()
+    out = []
+    for n in load_nodes():
+        e = _edge_of(n)
+        out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
+                    "port": _edge_port(e), "decoy": e.get("decoy") or "", "routes": len(table.get(n["id"], [])),
+                    "online": _node_answered(n["id"]), "front": bool(_cached_ping(n["id"]).get("front")),
+                    "hidden": bool(n.get("disabled"))})
+    return out
 
 
 def api_cdn_edge(d):
     d = d or {}
     act = str(d.get("act") or "state").strip().lower()
     if act == "state":
-        return {"ok": True, "edges": [_edge_public(n) for n in load_nodes()]}
+        return {"ok": True, "edges": _edge_list()}
     _require(d, ["id"])
     with _reg_lock:
         node = get_node(d["id"])
@@ -11583,15 +11547,15 @@ def api_cdn_edge(d):
         n2 = _thaw(node)
         e = _edge_of(n2)
         if act == "on":
-            port = int(d.get("port") or e.get("port") or _EDGE_PORT_DEFAULT)
-            if not 1 <= port <= 65535:
-                raise Bad("bad_edge_port", "پورتِ لبه باید بین ۱ و ۶۵۵۳۵ باشد", "the edge port must be 1..65535")
+            was = _edge_port(e)
+            port = _int_in(d.get("port") or was, 1, 65535,
+                           Bad("bad_edge_port", "پورتِ لبه باید بین ۱ و ۶۵۵۳۵ باشد", "the edge port must be 1..65535"))
             decoy = str(d.get("decoy") or e.get("decoy") or EDGE_DECOY_DEFAULT).strip().lower()
             if not re.match(_DOMAIN_RE, decoy):
                 raise Bad("bad_edge_decoy", "نامِ طعمه نامعتبر است", "the decoy name is invalid")
-            if not e.get("on") or port != int(e.get("port") or _EDGE_PORT_DEFAULT):
+            if not e.get("on") or port != was:
                 _edge_port_free(n2, port)
-            if port != int(e.get("port") or _EDGE_PORT_DEFAULT) or decoy != e.get("decoy"):
+            if port != was or decoy != e.get("decoy"):
                 _edge_unused(n2, tx("کلاینت‌هایشان پورت و کلیدِ ECHِ فعلی را دارند و با عوض‌شدنش قطع می‌شوند",
                                     "their clients hold the current port and ECH key and drop when it changes"))
             if not e.get("srv_ech_key") or e.get("decoy") != decoy:
@@ -11611,7 +11575,7 @@ def api_cdn_edge(d):
         with store_tx() as t:
             t.put(_NODES, n2)
     tail = _edge_sync(n2["id"])
-    return {"ok": True, "edge": _edge_public(n2),
+    return {"ok": True, "edges": _edge_list(),
             **({"msg": tx_join("", [tx("لبه ذخیره شد", "the edge was saved"), tail])} if tail else {})}
 
 

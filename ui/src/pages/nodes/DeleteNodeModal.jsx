@@ -3,7 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
-import { postError } from '../../lib/errors.js'
+import { postError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
@@ -26,6 +26,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
     setSteps(shown.length ? shown : null)
     if (r.ok && r.d.ok) {
       toast(r.d.node_wiped === false ? T('node_force_wiped') : T('node_wiped'), 'ok')
+      if (r.d.msg) toast(translateError(r.d.msg), 'err')
       onDeleted()
       if (!shown.length) {
         onClose()

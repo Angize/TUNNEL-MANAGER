@@ -10,29 +10,27 @@ import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { T, TF } from '../../i18n/fa.js'
 
-const EDGE_DECOY = 'www.google.com'
-
 function EdgeChip({ edge }) {
   if (!edge.on) return <span className="cdnchip off">{T('edge_chip_off')}</span>
   if (!edge.online) return <span className="cdnchip bad">{T('edge_chip_down')}</span>
-  if (edge.front === false) return <span className="cdnchip bad">{T('edge_chip_front_down')}</span>
   if (!edge.routes) return <span className="cdnchip warn">{T('edge_chip_idle')}</span>
+  if (!edge.front) return <span className="cdnchip bad">{T('edge_chip_front_down')}</span>
   return <span className="cdnchip ok">{TF('edge_chip_routes', { n: edge.routes })}</span>
 }
 
 function EdgeRow({ edge, onToggle, onSave, busy }) {
   const [open, setOpen] = useState(false)
-  const [decoy, setDecoy] = useState(edge.decoy || EDGE_DECOY)
-  const [port, setPort] = useState(String(edge.port || 443))
+  const [decoy, setDecoy] = useState(edge.decoy)
+  const [port, setPort] = useState(String(edge.port))
   const bodyId = useId()
   const n = Number(port)
   const portError = port && n >= 1 && n <= 65535 ? '' : T('edge_port_bad')
   const decoyError = decoy.trim() ? '' : T('edge_decoy_bad')
 
   useEffect(() => {
-    setDecoy(edge.decoy || EDGE_DECOY)
-    setPort(String(edge.port || 443))
-  }, [edge.decoy, edge.port, edge.saved])
+    setDecoy(edge.decoy)
+    setPort(String(edge.port))
+  }, [edge.decoy, edge.port])
 
   return (
     <div className={'edgerow' + (open && edge.on ? ' open' : '')}>
@@ -119,7 +117,7 @@ export default function CdnEdgeTab() {
   const run = async (edge, body, okKey) => {
     setBusy((v) => v.concat(edge.id))
     const r = await apiPost('cdn-edge', { id: edge.id, ...body })
-    if (r.ok) await load()
+    if (r.ok) setEdges(r.d.edges)
     done(r, okKey)
     setBusy((v) => v.filter((x) => x !== edge.id))
   }

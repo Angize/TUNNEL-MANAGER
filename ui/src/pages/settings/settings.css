@@ -828,9 +828,6 @@
   align-items: center;
   gap: 8px;
 }
-.cdnedge .edgeacts .grow {
-  flex: 1;
-}
 .cdnedge .edgecount {
   margin: 12px 2px 0;
   color: var(--sub);

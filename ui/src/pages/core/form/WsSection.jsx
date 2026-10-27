@@ -75,7 +75,9 @@ function CdnShape(props) {
 }
 
 function edgeFronts(fronts, form) {
-  return (fronts || []).filter((f) => f.id !== form.aNode && f.id !== form.bNode)
+  return (fronts || []).filter(
+    (f) => f.id !== form.aNode && f.id !== form.bNode && ((f.online && !f.hidden) || f.id === form.edgeNode)
+  )
 }
 
 function PrivateEdge({ form, fronts, patch }) {

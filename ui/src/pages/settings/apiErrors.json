@@ -282,11 +282,6 @@
    ],
    [
     400,
-    "edge_port_held",
-    "port …/TCP on this node belongs to tunnel '…' — pick another port for the edge"
-   ],
-   [
-    400,
     "missing_field",
     "field '…' is missing"
    ],
