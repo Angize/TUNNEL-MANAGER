@@ -61,7 +61,6 @@ export default function LogsPage() {
   const [openIds, setOpenIds] = useState({})
   const [born, setBorn] = useState(NO_BORN)
   const [kbFilters, setKbFilters] = useState(false)
-  const [cleared, setCleared] = useState(false)
   const [clearing, setClearing] = useState(false)
   const newest = useRef(null)
   const listBox = useRef(null)
@@ -149,12 +148,13 @@ export default function LogsPage() {
     return map
   }, [events])
 
+  const q = query.trim().toLowerCase()
+
   const found = useMemo(() => {
     const list = events || []
-    const q = query.trim().toLowerCase()
     if (!q) return list
     return list.filter((e) => ((e.text || '') + ' ' + (e.detail || '')).toLowerCase().includes(q))
-  }, [events, query])
+  }, [events, q])
 
   const counts = useMemo(() => {
     const c = { all: found.length, err: 0 }
@@ -196,7 +196,6 @@ export default function LogsPage() {
         }
       }
       toast(T('logs_cleared'), 'ok')
-      setCleared(true)
       setEvents([])
       setHiddenOut(0)
       refetch()
@@ -209,6 +208,8 @@ export default function LogsPage() {
     ([key]) => key === 'all' || key === filter || counts[key] > 0
   )
 
+  const hiddenTypes = hiddenCount ? T('logf_types').replace('{n}', hiddenCount) : undefined
+
   const openFilters = (e, open) => {
     setKbFilters(!e.detail)
     setFiltersOpen(open)
@@ -218,7 +219,7 @@ export default function LogsPage() {
   const remaining = visible.length - shown.length
 
   const more = (e) => {
-    if (e.type === 'click' && e.detail) setBorn(new Set(visible.slice(show, show + PAGE_SIZE)))
+    if (e.detail) setBorn(new Set(visible.slice(show, show + PAGE_SIZE)))
     setShow(show + PAGE_SIZE)
   }
 
@@ -231,16 +232,21 @@ export default function LogsPage() {
           type="button"
           className={'ghost lgfbtn' + (filtersOpen ? ' on' : '')}
           disabled={!known}
+          aria-label={hiddenTypes && T('logf_btn') + '، ' + hiddenTypes}
           onClick={(e) => openFilters(e, !filtersOpen)}
         >
           <Icon name="cog" />
           {T('logf_btn')}
-          {hiddenCount ? <span className="ct">{hiddenCount}</span> : null}
+          {hiddenCount ? (
+            <span className="ct" title={hiddenTypes}>
+              {hiddenCount}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
           className="ghost tone tone-del"
-          disabled={clearing || !events || !events.length}
+          disabled={clearing || events === null || (!events.length && !hiddenOut)}
           onClick={clearLogs}
         >
           {clearing ? <span className="bspin ink sm" /> : <Icon name="trash" />}
@@ -264,7 +270,7 @@ export default function LogsPage() {
 
       <LoadBar on={events === null} value={progress} />
       {events === null ? null : !events.length ? (
-        <div className={'card muted empty' + (hiddenOut ? ' lgfempty' : '') + (cleared ? ' logempty' : '')}>
+        <div className={'card muted empty' + (hiddenOut ? ' lgfempty' : '')}>
           {T(hiddenOut ? 'logf_empty' : 'logs_empty')}
           {hiddenOut && !filtersOpen ? (
             <button type="button" className="ghost" onClick={(e) => openFilters(e, true)}>
@@ -288,6 +294,12 @@ export default function LogsPage() {
                 <span className="ct">{counts[key] || 0}</span>
               </button>
             ))}
+            {hiddenOut && !filtersOpen ? (
+              <button type="button" className="fchip lgfhid" onClick={(e) => openFilters(e, true)}>
+                <Icon name="cog" />
+                {T('logf_hidden').replace('{n}', hiddenOut)}
+              </button>
+            ) : null}
           </div>
 
           <div>
@@ -299,33 +311,23 @@ export default function LogsPage() {
                     <LogEvent
                       key={key}
                       event={event}
-                      open={!!openIds[key]}
+                      open={openIds[key]}
+                      query={q}
                       born={born.has(event)}
-                      onToggle={() => setOpenIds((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      onToggle={(next) => setOpenIds((prev) => ({ ...prev, [key]: next }))}
                     />
                   )
                 })}
               </div>
             ) : (
               <div className="card muted">
-                {T(query.trim() || filter === 'all' ? 'logs_no_match' : 'logc_empty')}
+                {T(q || filter === 'all' ? 'logs_no_match' : 'logc_empty')}
               </div>
             )}
             {remaining > 0 ? (
-              <div
-                className="card muted logmore"
-                role="button"
-                tabIndex={0}
-                onClick={more}
-                onKeyDown={(e) => {
-                  if (e.key === ' ' || e.key === 'Enter') {
-                    e.preventDefault()
-                    more(e)
-                  }
-                }}
-              >
+              <button type="button" className="card muted logmore" onClick={more}>
                 {T('logs_more').replace('{n}', remaining)}
-              </div>
+              </button>
             ) : null}
           </div>
         </div>

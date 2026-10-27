@@ -15,10 +15,17 @@ function Named({ text }) {
   )
 }
 
-export default function LogEvent({ event, open, onToggle, born }) {
+function hitFolded(query, text, lead) {
+  if (!query) return false
+  const face = [text, ...lead.map((row) => row.k + ': ' + row.v)].join(' ').toLowerCase()
+  return !face.includes(query)
+}
+
+export default function LogEvent({ event, open, query, onToggle, born }) {
   const level = eventLevel(event)
   const { text, notes, lead, rest, isPair } = layoutEvent(event)
   const foldable = rest.length > 0 || notes.length > 0
+  const shown = foldable && (open === undefined ? hitFolded(query, text, lead) : open)
 
   const activate = () => {
     try {
@@ -26,14 +33,14 @@ export default function LogEvent({ event, open, onToggle, born }) {
     } catch {
       return
     }
-    onToggle()
+    onToggle(!shown)
   }
 
   const interactive = foldable
     ? {
         role: 'button',
         tabIndex: 0,
-        'aria-expanded': open ? 'true' : 'false',
+        'aria-expanded': shown ? 'true' : 'false',
         onClick: activate,
         onPointerDown: (e) => {
           delete e.currentTarget.dataset.kb
@@ -54,7 +61,7 @@ export default function LogEvent({ event, open, onToggle, born }) {
         'lev ' +
         level +
         (foldable ? ' tap' : '') +
-        (foldable && open ? ' open' : '') +
+        (shown ? ' open' : '') +
         (born ? ' lev-new' : '')
       }
       {...interactive}
@@ -80,7 +87,7 @@ export default function LogEvent({ event, open, onToggle, born }) {
         ) : null}
         {foldable ? (
           <>
-            <div className="lev-fold" inert={!open}>
+            <div className="lev-fold" inert={!shown}>
               <div className="lev-fold-in">
                 {notes.map((note, i) => (
                   <p className="lev-note" key={'n' + i}>

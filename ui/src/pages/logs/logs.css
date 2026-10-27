@@ -41,10 +41,16 @@
 }
 
 .lgfgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
-  gap: 11px;
-  align-items: start;
+  columns: 216px;
+  column-gap: 11px;
+}
+
+.lgfgrid > .mslist {
+  break-inside: avoid;
+}
+
+.lgfgrid > .mslist + .mslist {
+  margin-top: 11px;
 }
 
 .lgfgh {
@@ -128,6 +134,13 @@
   display: none;
 }
 
+@media (min-width: 641px) {
+  .logchips {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+}
+
 .fchip {
   flex: 0 0 auto;
   font-family: inherit;
@@ -178,6 +191,19 @@
   color: #fff;
 }
 
+.fchip.lgfhid {
+  color: var(--gold-tx);
+  background: var(--goldw);
+  border: 1px dashed color-mix(in srgb, var(--gold) 45%, transparent);
+  box-shadow: none;
+  gap: 6px;
+}
+
+.fchip.lgfhid .ic {
+  width: 14px;
+  height: 14px;
+}
+
 .loglist {
   display: flex;
   flex-direction: column;
@@ -210,6 +236,9 @@
 }
 
 .logmore {
+  display: block;
+  width: 100%;
+  font: inherit;
   cursor: pointer;
   text-align: center;
   font-weight: 700;

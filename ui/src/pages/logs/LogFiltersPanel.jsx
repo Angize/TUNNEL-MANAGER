@@ -1,25 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import { T } from '../../i18n/fa.js'
 import { checkable } from '../../lib/keys.js'
+import useMedia from '../../lib/useMedia.js'
 
 const PHONE = '(max-width: 640px)'
-
-function usePhone() {
-  const [phone, setPhone] = useState(() => !!(window.matchMedia && window.matchMedia(PHONE).matches))
-
-  useEffect(() => {
-    if (!window.matchMedia) return undefined
-    const query = window.matchMedia(PHONE)
-    const update = () => setPhone(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-
-  return phone
-}
 
 function TypeRow({ label, selected, onToggle }) {
   return (
@@ -57,7 +43,7 @@ function GroupHead({ label, count, selected, partial, phone, open, onToggle, onO
 }
 
 export default function LogFiltersPanel({ evTypes, evGroups, hidden, onToggleType, onToggleGroup }) {
-  const phone = usePhone()
+  const phone = useMedia(PHONE)
   const [open, setOpen] = useState({})
 
   return (
