@@ -743,12 +743,13 @@ export const DOCS = {
   },
   'cdn-edge': {
     t: 'Private-CDN edges',
-    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, routes (the enabled tunnels on it), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the node itself could not be updated.",
+    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, buf_mb, routes (the enabled tunnels on it), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the node itself could not be updated.",
     p: [
-      ['act', 0, S, 'state (default), on (turn on, or save a new port or decoy) or off'],
+      ['act', 0, S, 'state (default), on (turn on, or save a new port, decoy or buffer) or off'],
       ['id', 0, S, 'node id — needed for on and off'],
       ['port', 0, N, 'on: TCP port to listen on, default 443; refused when the agent, a tunnel or a port forward holds it on that node (edge_port_agent, edge_port_held)'],
       ['decoy', 0, S, 'on: the public name sent in clear, default www.google.com; a new decoy makes a new ECH key. Port and decoy cannot change, and off is refused, while tunnels use the edge (edge_in_use)'],
+      ['buf_mb', 0, N, 'on: TCP socket buffer of the edge in MB, 0..64, default 16; 0 leaves the size to the kernel (bad_edge_buf). A new value restarts the edge, so its tunnels drop for a few seconds and reconnect'],
     ],
   },
 

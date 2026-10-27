@@ -252,6 +252,11 @@
    ],
    [
     400,
+    "bad_edge_buf",
+    "the edge buffer must be from … to … MB"
+   ],
+   [
+    400,
     "bad_edge_decoy",
     "the decoy name is invalid"
    ],

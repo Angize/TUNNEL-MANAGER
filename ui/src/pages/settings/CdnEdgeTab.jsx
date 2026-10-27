@@ -6,9 +6,11 @@ import SwitchRow from '../../components/SwitchRow.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
+import Stepper from '../../components/Stepper.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
 import { WarnCap } from '../core/form/controls.jsx'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
@@ -31,16 +33,21 @@ function edgeItems(edges) {
 }
 
 function EdgeCard({ edge, onToggle, onSave, busy }) {
+  const [lo, hi] = useUiConfig().tuning_ranges.tcp_buf_mb
   const [decoy, setDecoy] = useState(edge.decoy)
   const [port, setPort] = useState(String(edge.port))
+  const [buf, setBuf] = useState(String(edge.buf_mb))
   const n = Number(port)
+  const mb = Number(buf)
   const portError = port && n >= 1 && n <= 65535 ? '' : T('edge_port_bad')
   const decoyError = decoy.trim() ? '' : T('edge_decoy_bad')
+  const bufError = /^\d+$/.test(buf) && mb >= lo && mb <= hi ? '' : TF('edge_buf_bad', { lo, hi })
 
   useEffect(() => {
     setDecoy(edge.decoy)
     setPort(String(edge.port))
-  }, [edge.decoy, edge.port])
+    setBuf(String(edge.buf_mb))
+  }, [edge.decoy, edge.port, edge.buf_mb])
 
   return (
     <>
@@ -62,12 +69,19 @@ function EdgeCard({ edge, onToggle, onSave, busy }) {
             </Field>
           </div>
           <WarnCap tone="gold" text={T('edge_decoy_warn')} />
+          <Field
+            label={T('edge_buf')}
+            hint={T(edge.routes && mb !== edge.buf_mb ? 'edge_buf_restart' : 'edge_buf_hint')}
+            error={bufError}
+          >
+            <Stepper min={lo} max={hi} unit={T('set_u_mb')} value={buf} onChange={setBuf} />
+          </Field>
           <div className="oprow">
             <button
               type="button"
               className="primary"
-              disabled={busy || !!portError || !!decoyError}
-              onClick={() => onSave(edge, decoy.trim().toLowerCase(), n)}
+              disabled={busy || !!portError || !!decoyError || !!bufError}
+              onClick={() => onSave(edge, decoy.trim().toLowerCase(), n, mb)}
             >
               <SaveLabel busy={busy}>{T('edge_save')}</SaveLabel>
             </button>
@@ -122,7 +136,7 @@ export default function CdnEdgeTab() {
 
   const toggle = (edge) => run(edge, { act: edge.on ? 'off' : 'on' }, edge.on ? 'edge_toast_off' : 'edge_toast_on')
 
-  const save = (edge, decoy, port) => run(edge, { act: 'on', decoy, port }, 'edge_toast_saved')
+  const save = (edge, decoy, port, buf_mb) => run(edge, { act: 'on', decoy, port, buf_mb }, 'edge_toast_saved')
 
   const on = (edges || []).filter((e) => e.on)
   const bad = on.filter((e) => edgeState(e)[0] === 'bad').length
