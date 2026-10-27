@@ -1,5 +1,9 @@
+.tbtnrow > button.lgfbtn {
+  min-width: 118px;
+}
+
 .lgfbtn .ct {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 800;
   background: var(--accw);
   color: var(--acc-tx);
@@ -12,20 +16,6 @@
   color: var(--acc-tx);
   background: var(--accw);
   border-color: color-mix(in srgb, var(--acc) 40%, var(--edge));
-}
-
-.lgfnote {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--gold-tx);
-  margin-bottom: 9px;
-}
-
-.lgfnote .ic {
-  width: 14px;
-  height: 14px;
 }
 
 .lgf {
@@ -51,10 +41,16 @@
 }
 
 .lgfgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
-  gap: 11px;
-  align-items: start;
+  columns: 216px;
+  column-gap: 11px;
+}
+
+.lgfgrid > .mslist {
+  break-inside: avoid;
+}
+
+.lgfgrid > .mslist + .mslist {
+  margin-top: 11px;
 }
 
 .lgfgh {
@@ -66,6 +62,60 @@
   margin-right: auto;
   font-size: 11px;
   direction: ltr;
+}
+
+.lgf .mslist {
+  box-shadow: none;
+}
+
+.lgf .msrow {
+  min-height: 42px;
+}
+
+.lgf .msrow.lgfsplit {
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+  min-height: 44px;
+}
+
+.lgfck {
+  display: flex;
+  align-items: center;
+  padding-inline: 11px 9px;
+  cursor: pointer;
+}
+
+.lgfexp {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  padding-inline-end: 11px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lgfexp .ic {
+  width: 16px;
+  height: 16px;
+  color: var(--sub);
+  transition: transform .2s var(--ease-in-out);
+}
+
+.lgfexp[aria-expanded='true'] .ic {
+  transform: rotate(180deg);
+}
+
+.lgfck:focus-visible,
+.lgfexp:focus-visible {
+  outline-offset: -2px;
 }
 
 .logchips {
@@ -84,8 +134,16 @@
   display: none;
 }
 
+@media (min-width: 641px) {
+  .logchips {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+}
+
 .fchip {
   flex: 0 0 auto;
+  font-family: inherit;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--sub);
@@ -93,7 +151,8 @@
   border: 1px solid var(--edge);
   box-shadow: var(--dsh);
   border-radius: 999px;
-  padding: 6px 13px;
+  min-height: 40px;
+  padding: 8px 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -117,7 +176,7 @@
 }
 
 .fchip .ct {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 800;
   background: var(--ctl);
   border-radius: 999px;
@@ -132,6 +191,19 @@
   color: #fff;
 }
 
+.fchip.lgfhid {
+  color: var(--gold-tx);
+  background: var(--goldw);
+  border: 1px dashed color-mix(in srgb, var(--gold) 45%, transparent);
+  box-shadow: none;
+  gap: 6px;
+}
+
+.fchip.lgfhid .ic {
+  width: 14px;
+  height: 14px;
+}
+
 .loglist {
   display: flex;
   flex-direction: column;
@@ -139,7 +211,34 @@
   margin-bottom: 12px;
 }
 
+.lgfempty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.lgfempty .ghost {
+  margin: 0;
+  margin-inline-start: auto;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lgfempty .ghost .ic {
+  width: 15px;
+  height: 15px;
+}
+
 .logmore {
+  display: block;
+  width: 100%;
+  font: inherit;
   cursor: pointer;
   text-align: center;
   font-weight: 700;
@@ -186,9 +285,8 @@
 }
 
 .lev-lv {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: .06em;
   color: var(--sev-tx);
 }
 
@@ -202,11 +300,22 @@
   white-space: nowrap;
 }
 
+@media (min-width: 641px) {
+  .lev-time {
+    margin-inline-start: 0;
+  }
+}
+
 .lev-text {
   font-size: 13px;
-  line-height: 1.9;
+  line-height: 1.7;
   color: var(--tx);
   overflow-wrap: anywhere;
+}
+
+.lev-nm {
+  display: inline-block;
+  max-width: 100%;
 }
 
 .lev.bad .lev-text {
@@ -231,7 +340,7 @@
 
 .lev-k {
   color: var(--sub);
-  font-size: 10.5px;
+  font-size: 11px;
   flex: 0 0 auto;
 }
 
@@ -347,9 +456,18 @@
   flex: 0 0 auto;
 }
 
+.lev-note {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--sub);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
 .lev-row span {
   font-family: ui-monospace, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   direction: ltr;
   unicode-bidi: isolate;
   color: var(--tx);

@@ -8614,8 +8614,8 @@ K_EVENTS = "tnl:events"
 EV_BATCH = 500
 
 EV_GROUPS = (("tunnel", tx("تونل", "tunnel")), ("node", tx("نود", "node")), ("rot", tx("چرخش و استخر", "rotation and pools")),
-             ("ech", tx("ECH", "ECH")), ("cdn", tx("CDN", "CDN")), ("cfg", tx("تنظیم", "settings")), ("auth", tx("ورود", "login")),
-             ("api", tx("API", "API")))
+             ("ech", tx("ECH", "ECH")), ("cdn", tx("CDN", "CDN")), ("cfg", tx("تنظیم", "settings")), ("upd", tx("آپدیت", "updates")),
+             ("auth", tx("ورود", "login")), ("api", tx("API", "API")))
 EV_TYPES = (
     ("link-up", "tunnel", tx("تونل وصل شد", "tunnel up")),
     ("link-down", "tunnel", tx("تونل قطع شد", "tunnel down")),
@@ -8645,6 +8645,8 @@ EV_TYPES = (
     ("cdn-left", "cdn", tx("چیزی در CDN پاک نشد", "something was not removed from the CDN")),
     ("cfg-clamped", "cfg", tx("تنظیمی که کامل اعمال نشد", "setting not fully applied")),
     ("cover-unreachable", "cfg", tx("سایتِ پوششی از سرور باز نمی‌شود", "cover site unreachable from the server")),
+    ("sign-key", "upd", tx("کلیدِ امضای آپدیت عوض شد", "update signing key rotated")),
+    ("update-key", "upd", tx("نود کلیدِ امضا ندارد", "node has no signing key")),
     ("auth-in", "auth", tx("ورودِ موفق به پنل", "panel login")),
     ("auth-out", "auth", tx("خروج از پنل", "panel logout")),
     ("auth-fail", "auth", tx("تلاشِ ناموفقِ ورود", "failed login")),
