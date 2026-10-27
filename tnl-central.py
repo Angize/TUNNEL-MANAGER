@@ -2100,7 +2100,7 @@ UPTIME_KEEP = 1440
 UPTIME_CELLS = 60
 UPTIME_OK = 99
 UPTIME_BAD = 50
-BW_TIERS = ((10, 360), (60, 1440), (600, 1008))
+BW_TIERS = ((10, 375), (60, 1450), (600, 1015))
 BW_RANGES = {"1h": (0, 3600, 2), "4h": (1, 14400, 1), "6h": (1, 21600, 2), "8h": (1, 28800, 2),
              "12h": (1, 43200, 3), "1d": (1, 86400, 6), "3d": (2, 259200, 2), "7d": (2, 604800, 6)}
 _bw = {}
@@ -2485,15 +2485,18 @@ def _tf_ingest(nid, net, up, now):
                 ifs[key] = {"prx": rx, "ptx": tx, "rx_bps": 0.0, "tx_bps": 0.0,
                             "crx": sd[0] if sd else 0, "ctx": sd[1] if sd else 0, "miss": 0}
                 continue
+            sound = emit and not s["miss"]
             s["miss"] = 0
             for raw, pk, ck, bk in ((rx, "prx", "crx", "rx_bps"), (tx, "ptx", "ctx", "tx_bps")):
                 draw = raw - s[pk]
                 if draw < 0 or reboot:
                     s[bk] = 0.0
+                    sound = False
                 elif emit:
                     bps = draw * 8.0 / dt
                     if bps > TF_BPS_CEIL:
                         s[bk] = 0.0
+                        sound = False
                     else:
                         s[bk] = bps
                         s[ck] += draw
@@ -2502,7 +2505,7 @@ def _tf_ingest(nid, net, up, now):
                     if draw <= TF_BPS_CEIL / 8.0 * dt:
                         s[ck] += draw
                 s[pk] = raw
-            if key == "_node" and emit:
+            if key == "_node" and sound:
                 feed = (s["rx_bps"], s["tx_bps"])
         stale = []
         for key, s in e["if"].items():
@@ -2620,18 +2623,20 @@ def _uh_view(nid, window_hours):
 
 
 def _bw_tier(step, now):
-    return {"ring": [], "bts": now // step * step, "rx": 0.0, "tx": 0.0, "secs": 0.0, "n": 0}
+    return {"ring": [], "bts": now // step * step, "rx": 0.0, "tx": 0.0, "secs": 0.0, "n": 0, "fed": 0.0}
 
 
 def _bw_close(t, step, keep, upto):
     gone = int((upto - t["bts"]) // step)
     if gone <= 0:
         return
-    add = min(gone, keep)
-    t["ring"].append((t["rx"] / t["secs"], t["tx"] / t["secs"]) if t["secs"] else None)
-    t["ring"].extend([None] * (add - 1))
-    del t["ring"][:-keep]
-    t["n"] += add
+    if gone > keep:
+        t["ring"] = [None] * keep
+    else:
+        t["ring"].append((t["rx"] / t["secs"], t["tx"] / t["secs"]) if t["secs"] else None)
+        t["ring"].extend([None] * (gone - 1))
+        del t["ring"][:-keep]
+    t["n"] += min(gone, keep)
     t["bts"] += gone * step
     t["rx"] = t["tx"] = t["secs"] = 0.0
 
@@ -2651,33 +2656,34 @@ def _bw_add(nid, a, b, rx_bps, tx_bps):
                 t["secs"] += seg
                 x += seg
             _bw_close(t, step, keep, b)
+            t["fed"] = b
 
 
 def _bw_series(nids, rng, now):
     ti, span, k = BW_RANGES[rng]
     step = BW_TIERS[ti][0]
     n = span // step
-    end = now // step * step
     rxs, txs, hit = [0.0] * n, [0.0] * n, [False] * n
     with _bw_lock:
-        for nid in nids:
-            tiers = _bw.get(nid)
-            if not tiers:
-                continue
-            t = tiers[ti]
+        tiers = [_bw[nid][ti] for nid in nids if nid in _bw]
+        closed = [t["bts"] for t in tiers if now - t["fed"] <= TF_MAX_GAP]
+        end = min([now // step * step] + closed) // (step * k) * (step * k)
+        for t in tiers:
             last = n - 1 - int((end - t["bts"]) // step)
-            for j in range(min(len(t["ring"]), last + 1)):
-                v = t["ring"][-1 - j]
-                if v is not None:
-                    rxs[last - j] += v[0]
-                    txs[last - j] += v[1]
-                    hit[last - j] = True
+            for j, v in enumerate(reversed(t["ring"])):
+                i = last - j
+                if i < 0:
+                    break
+                if i < n and v is not None:
+                    rxs[i] += v[0]
+                    txs[i] += v[1]
+                    hit[i] = True
     out_rx, out_tx = [], []
     for i in range(0, n, k):
         got = [j for j in range(i, i + k) if hit[j]]
         out_rx.append(round(sum(rxs[j] for j in got) / len(got)) if got else None)
         out_tx.append(round(sum(txs[j] for j in got) / len(got)) if got else None)
-    return {"range": rng, "step": step * k, "end": end, "rx": out_rx, "tx": out_tx}
+    return {"range": rng, "step": step * k, "end": int(end), "rx": out_rx, "tx": out_tx}
 
 
 def _tf_snapshot():
@@ -2790,8 +2796,8 @@ def _stats_boot():
             for step, keep in BW_TIERS:
                 t = _bw_tier(step, now)
                 ring = bw[nid].get(step, [])[-keep:]
-                at = bw_at.get((step, nid), t["bts"])
-                gone = max(0, int((now - at) // step))
+                at = min(bw_at.get((step, nid), t["bts"]), t["bts"])
+                gone = int((now - at) // step)
                 t["ring"] = (ring + [None] * min(gone, keep))[-keep:]
                 t["bts"] = at + gone * step
                 t["n"] = len(ring) + min(gone, keep)

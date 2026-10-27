@@ -33,7 +33,13 @@ export default function useScrub(count) {
         if (e.pointerType !== 'touch') setAt(null)
       },
       onKeyDown: (e) => {
-        if (e.key === 'Escape') return setAt(null)
+        if (e.key === 'Escape') {
+          if (at != null) {
+            e.stopPropagation()
+            setAt(null)
+          }
+          return
+        }
         const cur = at == null ? count : Math.min(at, last)
         const next = { ArrowLeft: cur - 1, ArrowDown: cur - 1, ArrowRight: cur + 1, ArrowUp: cur + 1, Home: 0, End: last }[
           e.key

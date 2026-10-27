@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { cssVar } from '../../lib/health.js'
@@ -10,11 +10,16 @@ const W = 300
 const H = 100
 const PAD = 3
 const DAY = 86400000
+const PX_PER_POINT = 3
 
 function niceMax(v) {
   if (!(v > 0)) return 1
   const p = 10 ** Math.floor(Math.log10(v))
   return [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((m) => m * p >= v) * p
+}
+
+function mean(values) {
+  return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null
 }
 
 function pointX(i, n) {
@@ -45,28 +50,55 @@ function liveSeries(live) {
   return {
     rx: live.map((p) => p.rx),
     tx: live.map((p) => p.tx),
-    span: (i) => fmtClock(live[i].t, true),
+    span: (i) => ({ day: '', clock: fmtClock(live[i].t, true) }),
     ticks: live.length ? [fmtClock(live[0].t, true), '', fmtClock(live[live.length - 1].t, true)] : ['', '', ''],
   }
 }
 
-function histSeries(h) {
+function histSeries(h, slots) {
+  const base = h.step * 1000
   const n = h.rx.length
-  const step = h.step * 1000
   const end = h.end * 1000
-  const from = end - n * step
-  const long = n * step > DAY
-  const dated = n * step >= DAY
+  const from = end - n * base
+  const step = base * Math.max(1, Math.ceil(n / Math.max(1, slots)))
+  const starts = []
+  const rx = []
+  const tx = []
+  h.rx.forEach((v, i) => {
+    const g = Math.floor((from + i * base) / step) * step
+    if (starts[starts.length - 1] !== g) {
+      starts.push(g)
+      rx.push([])
+      tx.push([])
+    }
+    if (v != null) rx[rx.length - 1].push(v)
+    if (h.tx[i] != null) tx[tx.length - 1].push(h.tx[i])
+  })
+  const long = n * base > DAY
+  const dated = n * base >= DAY
+  const fine = step < 60000
   const tick = (t) => (long ? fmtDay(t) : fmtClock(t))
   return {
-    rx: h.rx,
-    tx: h.tx,
-    span: (i) => {
-      const a = from + i * step
-      return (dated ? fmtDay(a) + ' ' : '') + fmtClock(a) + '–' + fmtClock(a + step)
-    },
-    ticks: [dated && !long ? fmtDay(from) + ' ' + fmtClock(from) : tick(from), tick(from + (n * step) / 2), tick(end)],
+    rx: rx.map(mean),
+    tx: tx.map(mean),
+    span: (i) => ({
+      day: dated ? fmtDay(starts[i]) : '',
+      clock: fmtClock(starts[i], fine) + '–' + fmtClock(starts[i] + step, fine),
+    }),
+    ticks: [dated && !long ? fmtDay(from) + ' ' + fmtClock(from) : tick(from), tick(from + (n * base) / 2), tick(end)],
   }
+}
+
+function useWidth(ref) {
+  const [width, setWidth] = useState(W)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return width
 }
 
 function RangePicker({ ranges, value, onChange }) {
@@ -110,12 +142,14 @@ function RangePicker({ ranges, value, onChange }) {
   )
 }
 
-export default function TrafficChart({ nodeId, live, now }) {
+export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
   const ranges = useUiConfig().bw_ranges
-  const [range, setRange] = useState('live')
+  const [range, setRange] = useState(initial)
   const [hist, setHist] = useState(null)
   const [failed, setFailed] = useState('')
   const gradientId = useId()
+  const plot = useRef(null)
+  const width = useWidth(plot)
 
   useEffect(() => {
     if (range === 'live') return undefined
@@ -144,7 +178,7 @@ export default function TrafficChart({ nodeId, live, now }) {
   }, [range, nodeId])
 
   const ready = range === 'live' || (hist && hist.range === range)
-  const s = range === 'live' ? liveSeries(live) : ready ? histSeries(hist) : null
+  const s = range === 'live' ? liveSeries(live) : ready ? histSeries(hist, Math.floor(width / PX_PER_POINT)) : null
   const n = s ? s.rx.length : 0
   const { at, handlers } = useScrub(n)
   const vals = s ? s.rx.concat(s.tx).filter((v) => v != null) : []
@@ -154,9 +188,15 @@ export default function TrafficChart({ nodeId, live, now }) {
   const tx = n ? trace(s.tx, max) : null
   const cur = at != null ? { rx: s.rx[at], tx: s.tx[at] } : now
   const show = (v) => (v == null ? '—' : fmtRate(v))
+  const focus = at == null ? n - 1 : at
+  const sp = at != null ? s.span(at) : null
   const okColor = cssVar('--ok')
   const accColor = cssVar('--acc')
   const note = !s ? T(failed === range ? 'bw_failed' : 'bw_loading') : !vals.length && range !== 'live' ? T('bw_empty') : ''
+  const said = (i) => {
+    const p = s.span(i)
+    return (p.day ? p.day + ' ' : '') + p.clock + ' · ↓ ' + show(s.rx[i]) + ' ↑ ' + show(s.tx[i])
+  }
 
   return (
     <div className="tf-chart">
@@ -167,24 +207,25 @@ export default function TrafficChart({ nodeId, live, now }) {
         <span className="dout iso">
           ↑ <b>{show(cur && cur.tx)}</b>
         </span>
-        {at != null ? (
+        {sp ? (
           <span className="tf-when">
-            <bdi dir="ltr">{s.span(at)}</bdi>
+            {sp.day ? <bdi>{sp.day}</bdi> : null}
+            {sp.day ? ' ' : null}
+            <bdi dir="ltr">{sp.clock}</bdi>
           </span>
         ) : null}
       </div>
       <RangePicker ranges={ranges} value={range} onChange={setRange} />
       <div
-        className={'tf-plot' + (at != null ? ' insp' : '')}
+        ref={plot}
+        className="tf-plot"
         role="slider"
         tabIndex={n ? 0 : -1}
         aria-label={T('bw_chart')}
         aria-valuemin={0}
         aria-valuemax={Math.max(0, n - 1)}
-        aria-valuenow={at == null ? Math.max(0, n - 1) : at}
-        aria-valuetext={
-          n ? s.span(at == null ? n - 1 : at) + ' · ↓ ' + show(s.rx[at == null ? n - 1 : at]) + ' ↑ ' + show(s.tx[at == null ? n - 1 : at]) : note
-        }
+        aria-valuenow={Math.max(0, focus)}
+        aria-valuetext={n ? said(focus) : note}
         {...handlers}
       >
         <svg className="tf-spk" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
@@ -238,7 +279,9 @@ export default function TrafficChart({ nodeId, live, now }) {
       </div>
       <div className="tf-x" aria-hidden="true">
         {(s ? s.ticks : ['', '', '']).map((t, i) => (
-          <span key={i}>{t}</span>
+          <span key={i}>
+            <bdi>{t}</bdi>
+          </span>
         ))}
       </div>
     </div>

@@ -684,14 +684,19 @@
 }
 
 .tf-x {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 6px;
   direction: ltr;
   margin-top: 4px;
   min-height: 13px;
   font-size: 10.5px;
   color: var(--sub);
   font-variant-numeric: tabular-nums;
+}
+
+.tf-x span:last-child {
+  text-align: right;
 }
 
 .ttiles {

@@ -324,11 +324,18 @@ export default function NodeDetailsModal({ node, onClose }) {
           </div>
         </>
       ) : (
-        <div className="nd-off">
-          <Icon name="plugoff" />
-          <b>{T('not_available')}</b>
-          {info.error ? <span>{translateError(info.error)}</span> : null}
-        </div>
+        <>
+          <div className="nd-off">
+            <Icon name="plugoff" />
+            <b>{T('not_available')}</b>
+            {info.error ? <span>{translateError(info.error)}</span> : null}
+          </div>
+          <div className="nd-sec">
+            <Icon name="traf" />
+            {T('nd_traffic')}
+          </div>
+          <TrafficChart nodeId={node.id} live={[]} now={null} initial="1h" />
+        </>
       )}
     </Modal>
   )
