@@ -89,6 +89,13 @@
   overflow: hidden;
 }
 
+@media (min-width: 900px) {
+  .modal.wide.edit {
+    width: 480px;
+    max-height: min(90vh, 980px);
+  }
+}
+
 .mtext {
   font-size: 14px;
   line-height: 1.85;
@@ -103,6 +110,7 @@
 
 .mbtns .primary,
 .mbtns .ghost {
+  flex: 1;
   margin: 0;
 }
 
@@ -238,7 +246,12 @@
 .mfoot .primary,
 .mfoot .ghost {
   flex: 1;
+  min-width: 0;
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .modalov.palov {
@@ -340,13 +353,18 @@
   height: 14px;
 }
 
-.palrow .sub {
-  color: var(--sub);
-  font-size: 11.5px;
-  margin-inline-start: auto;
+.palrow .pall {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.palrow .palsub {
+  flex: none;
+  color: var(--sub);
+  font-size: 11.5px;
 }
 
 .palfoot {

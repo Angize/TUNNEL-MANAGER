@@ -12,6 +12,7 @@
   --glow2: #d8e0fb;
   --card: rgba(255, 255, 255, .7);
   --side: rgba(255, 255, 255, .6);
+  --bar: var(--side);
   --modal: rgba(255, 255, 255, .9);
   --glass: rgba(255, 255, 255, .55);
   --field: rgba(15, 27, 45, .04);
@@ -66,6 +67,7 @@ html.dark {
   --glow2: #162049;
   --card: rgba(255, 255, 255, .06);
   --side: rgba(255, 255, 255, .05);
+  --bar: rgba(17, 24, 40, .82);
   --modal: rgba(22, 31, 46, .92);
   --glass: rgba(255, 255, 255, .05);
   --field: rgba(0, 0, 0, .22);

@@ -17,6 +17,21 @@ function stack(root, open) {
     el.classList.toggle('deep', !open && i >= DEPTH)
     above += el.offsetHeight + GAP
   })
+  if (!list.length) return 0
+  return open ? above - GAP : list[0].offsetHeight + PEEK * (Math.min(list.length, DEPTH) - 1)
+}
+
+function fitFoot(root, height) {
+  if (!height) return
+  root.style.bottom = ''
+  const feet = document.querySelectorAll('.modalov:not(.leaving) .mfoot')
+  const foot = feet[feet.length - 1]
+  root.classList.toggle('fitted', !!foot)
+  if (!foot) return
+  const base = innerHeight - parseFloat(getComputedStyle(root).bottom)
+  const r = foot.getBoundingClientRect()
+  if (r.top >= base || r.bottom <= base - height) return
+  root.style.bottom = innerHeight - r.top + GAP + 'px'
 }
 
 export default function ToastHost() {
@@ -30,7 +45,7 @@ export default function ToastHost() {
   if (open && live < 2) setOpen(false)
 
   useLayoutEffect(() => {
-    stack(box.current, open)
+    fitFoot(box.current, stack(box.current, open))
   }, [items, open])
 
   return (

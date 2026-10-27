@@ -47,6 +47,10 @@
   pointer-events: none;
 }
 
+body:has(.modalov:not(.leaving) .mfoot) .toasts:not(.fitted) .toast.show {
+  pointer-events: none;
+}
+
 .toast.out {
   --dy: 14px;
   transition-duration: .2s;

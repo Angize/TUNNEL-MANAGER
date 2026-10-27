@@ -74,7 +74,7 @@ function Dialog({ entry, top }) {
         ref={box}
         role="alertdialog"
         aria-modal="true"
-        aria-describedby={textId}
+        aria-labelledby={textId}
         tabIndex={-1}
         onKeyDown={(e) => trapTab(e, box.current)}
       >

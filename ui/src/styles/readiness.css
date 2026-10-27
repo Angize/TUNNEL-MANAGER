@@ -48,4 +48,30 @@
   .rdbar {
     margin-top: 14px;
   }
+
+  .rv + .rv .rdbar {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .rdbar {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 2px 10px;
+  }
+
+  .rdbar .rdtx {
+    display: contents;
+  }
+
+  .rdbar .rdtx span {
+    grid-column: 2 / -1;
+  }
+
+  .rdbar button {
+    grid-row: 1;
+    grid-column: 3;
+    min-height: 40px;
+  }
 }

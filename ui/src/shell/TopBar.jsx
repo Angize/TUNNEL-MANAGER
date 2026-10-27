@@ -5,7 +5,7 @@ import { logout } from '../lib/api.js'
 export default function TopBar({ dark, onToggleTheme }) {
   return (
     <div className="mtop">
-      <button className="hb" title={T('nav_logout')} onClick={logout}>
+      <button type="button" className="hb" title={T('nav_logout')} aria-label={T('nav_logout')} onClick={logout}>
         <Icon name="logout" />
       </button>
       <div className="sbrand">
@@ -14,7 +14,13 @@ export default function TopBar({ dark, onToggleTheme }) {
         </span>
         <span>TUNNEL-MANAGER</span>
       </div>
-      <button className="hb" title={T(dark ? 'theme_to_light' : 'theme_to_dark')} onClick={onToggleTheme}>
+      <button
+        type="button"
+        className="hb"
+        title={T(dark ? 'theme_to_light' : 'theme_to_dark')}
+        aria-label={T(dark ? 'theme_to_light' : 'theme_to_dark')}
+        onClick={onToggleTheme}
+      >
         <Icon name={dark ? 'sun' : 'moon'} />
       </button>
     </div>

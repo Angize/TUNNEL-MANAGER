@@ -186,8 +186,8 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
                       <span className="gi">
                         <Icon name={row.i} />
                       </span>
-                      {row.label}
-                      {row.sub ? <span className="sub mono">{row.sub}</span> : null}
+                      <span className="pall">{row.label}</span>
+                      {row.sub ? <span className="palsub mono">{row.sub}</span> : null}
                     </div>
                   )
                 })}

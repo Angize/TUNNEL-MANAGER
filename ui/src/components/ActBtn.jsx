@@ -6,6 +6,7 @@ export default function ActBtn({ cls, title, icon, busy, locked, style, onClick 
       type="button"
       className={'act' + (cls ? ' ' + cls : '')}
       title={title}
+      aria-label={title}
       style={style}
       disabled={!!locked}
       aria-busy={!!busy}
