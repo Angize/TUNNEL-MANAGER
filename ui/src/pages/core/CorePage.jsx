@@ -34,7 +34,9 @@ export default function CorePage({ active }) {
   const edgeFlight = useRef(new Set())
 
   const pollEdges = useCallback((links) => {
-    const pooled = (links || []).filter((l) => l.transport === 'ws' && l.ws_pool && l.enabled !== false)
+    const pooled = (links || []).filter(
+      (l) => l.transport === 'ws' && (l.ws_pool || (l.edge_at && l.edge_at.addrs.length > 1)) && l.enabled !== false
+    )
     const polled = new Set(pooled.map((l) => l.id))
     polledIds.current = polled
     setEdges((prev) =>

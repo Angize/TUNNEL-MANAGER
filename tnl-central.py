@@ -7460,6 +7460,10 @@ def api_edit_link(d):
     return act_link(d, edit)
 
 
+def _pooled(L):
+    return bool(L.get("ws_pool")) or len(L.get("edge_ips") or []) > 1
+
+
 def api_edge_status(d):
     d = d or {}
     _require(d, ["id"])
@@ -7472,7 +7476,7 @@ def api_edge_status(d):
 
 
 def _edge_status_of(L, node, missing):
-    is_pool = bool(L.get("ws_pool"))
+    is_pool = _pooled(L)
     if not node:
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": missing}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
@@ -8723,13 +8727,14 @@ def _ev_rot(kind, code):
 _ROT_PARTNER = {"dst": "src", "src": "dst", "ip": "sni", "sni": "ip"}
 
 
-def _ev_seed_axes(lid, is_pool, active):
+def _ev_seed_axes(L, active):
     active = str(active or "")
     if not active:
         return
-    if is_pool:
+    lid = L["id"]
+    if _pooled(L):
         left, sep, right = active.partition(" · ")
-        pairs = (("ip", left.strip()), ("sni", right.strip() if sep else ""))
+        pairs = (("ip", left.strip()), ("sni", right.strip() if sep and not L.get("edge_node") else ""))
     else:
         pairs = (("dst", _ev_ip(active)),)
     for ax, v in pairs:
@@ -9297,9 +9302,8 @@ def _events_once():
     for L in links:
         if L.get("type") != "core" or not L.get("enabled", True):
             continue
-        is_pool = bool(L.get("ws_pool"))
         tr = str(L.get("transport") or "").lower()
-        if not is_pool and tr not in CORE_TRANSPORTS:
+        if not _pooled(L) and tr not in CORE_TRANSPORTS:
             continue
         lid = L["id"]
         seen.add(lid)
@@ -9312,7 +9316,7 @@ def _events_once():
                 continue
             try:
                 if end == "cli":
-                    _ev_seed_axes(lid, is_pool, r.get("active"))
+                    _ev_seed_axes(L, r.get("active"))
                 _ingest_core_events(lid, end, nm, r.get("events"))
             except Exception:
                 continue
