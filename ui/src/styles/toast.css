@@ -8,6 +8,10 @@
   pointer-events: none;
 }
 
+.toasts.glide {
+  transition: transform .3s var(--ease-out);
+}
+
 .toast {
   --y: 0px;
   --s: 1;

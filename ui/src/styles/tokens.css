@@ -12,6 +12,7 @@
   --glow2: #d8e0fb;
   --card: rgba(255, 255, 255, .7);
   --side: rgba(255, 255, 255, .6);
+  --bar: var(--side);
   --modal: rgba(255, 255, 255, .9);
   --glass: rgba(255, 255, 255, .55);
   --field: rgba(15, 27, 45, .04);
@@ -22,6 +23,7 @@
   --veil: rgba(15, 27, 45, .28);
   --tx: #0f1b2d;
   --sub: #57667c;
+  --ph: color-mix(in srgb, var(--sub) 92%, transparent);
   --hi: rgba(255, 255, 255, .95);
   --blur: 9px;
   --sat: 150%;
@@ -66,6 +68,7 @@ html.dark {
   --glow2: #162049;
   --card: rgba(255, 255, 255, .06);
   --side: rgba(255, 255, 255, .05);
+  --bar: rgba(17, 24, 40, .82);
   --modal: rgba(22, 31, 46, .92);
   --glass: rgba(255, 255, 255, .05);
   --field: rgba(0, 0, 0, .22);
@@ -76,6 +79,7 @@ html.dark {
   --veil: rgba(0, 0, 0, .45);
   --tx: #e8edf5;
   --sub: #98a5ba;
+  --ph: color-mix(in srgb, var(--sub) 87%, transparent);
   --hi: rgba(255, 255, 255, .08);
   --dsh: 0 16px 44px -30px rgba(0, 0, 0, .7), inset 0 1px 0 var(--hi);
   --dsh-hi: 0 24px 56px -28px rgba(0, 0, 0, .8), inset 0 1px 0 var(--hi);

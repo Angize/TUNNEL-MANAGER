@@ -8,6 +8,7 @@ import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 import { formRows } from '../lib/formRows.js'
 import { stepFor } from '../lib/riseIn.js'
 import { SwapRoot } from '../lib/revealSwap.js'
+import { refitToasts } from '../lib/toast.js'
 
 const ROW_STEP_MS = 30
 const ROW_SPAN_MS = 330
@@ -75,12 +76,14 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
     const field = !coarsePointer() && box.current && box.current.querySelector('input,select,textarea')
     if (field) field.focus()
     else if (box.current) box.current.focus()
+    refitToasts()
     return () => {
       const i = open.indexOf(id)
       if (i >= 0) open.splice(i, 1)
       document.removeEventListener('keydown', onKey)
       if (!open.length) document.body.style.overflow = bodyOverflow
       restoreFocus(opener)
+      refitToasts()
     }
   }, [id])
 
@@ -106,6 +109,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
     const field = !coarsePointer() && el.querySelector('input,select,textarea')
     if (field) field.focus()
     growFrom(el, was)
+    refitToasts()
   }, [loading])
 
   return createPortal(
@@ -140,7 +144,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
                 {subtitle ? <div className="sb">{subtitle}</div> : null}
               </div>
               <button type="button" className="mx" aria-label={T('close')} onClick={onClose}>
-                ✕
+                <Icon name="x" />
               </button>
             </div>
             <div className="mbody" ref={body}>

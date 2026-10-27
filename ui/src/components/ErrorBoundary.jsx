@@ -1,4 +1,5 @@
 import { Component } from 'react'
+import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
 
 export default class ErrorBoundary extends Component {
@@ -14,12 +15,13 @@ export default class ErrorBoundary extends Component {
   render() {
     if (!this.state.failed) return this.props.children
     return (
-      <div className="card" role="alert">
-        <b>{T('page_crash_t')}</b>
-        <p className="muted" style={{ margin: '8px 0 12px' }}>
-          {T('page_crash_s')}
-        </p>
+      <div className="card loadfail" role="alert">
+        <span>
+          <b>{T('page_crash_t')}</b>
+          {' — ' + T('page_crash_s')}
+        </span>
         <button type="button" className="ghost" onClick={() => this.setState({ failed: false })}>
+          <Icon name="redo" />
           {T('net_retry')}
         </button>
       </div>

@@ -18,6 +18,8 @@ export default function TabBar({ page, unread, onNavigate }) {
           type="button"
           className={'tab' + (page === it.id ? ' on' : '')}
           title={T('nav_' + it.id)}
+          aria-label={T('nav_' + it.id)}
+          aria-current={page === it.id ? 'page' : undefined}
           onClick={() => onNavigate(it.id)}
         >
           <Icon name={it.icon} />

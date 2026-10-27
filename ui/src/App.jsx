@@ -317,7 +317,10 @@ function Shell() {
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (
-              <div className="card muted">{T('loading')}</div>
+              <div className="card mload">
+                <span className="bspin" />
+                <span>{T('loading')}</span>
+              </div>
             )}
           </div>
         </main>

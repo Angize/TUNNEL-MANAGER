@@ -26,6 +26,12 @@ export function dismissToast(id) {
   }, FADE_MS)
 }
 
+export function refitToasts() {
+  if (!items.length) return
+  items = [...items]
+  emit()
+}
+
 export function toast(msg, kind) {
   const id = ++seq
   items = [...items, { id, msg: String(msg == null ? '' : msg), kind: kind || '', show: false }]

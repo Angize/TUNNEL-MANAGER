@@ -46,6 +46,7 @@ export default function Sidebar({ page, counts, unread, dark, onNavigate, onTogg
           <a
             key={it.id}
             className={'navi' + (page === it.id ? ' on' : '')}
+            aria-current={page === it.id ? 'page' : undefined}
             {...pressable(() => onNavigate(it.id))}
           >
             <Icon name={it.icon} />

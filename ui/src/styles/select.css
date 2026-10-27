@@ -16,7 +16,7 @@
 }
 
 .msbtn.ph {
-  color: var(--sub);
+  color: var(--ph);
 }
 
 .msbtn .cv {
@@ -49,6 +49,11 @@
 
 .msrow:last-child {
   border-bottom: 0;
+}
+
+.sspoplist .msrow:focus-visible,
+.mslist .msrow:focus-visible {
+  outline-offset: -2px;
 }
 
 .msrow:hover {
@@ -169,6 +174,23 @@
   padding-block: 9px;
 }
 
+.sspoplist .mscheck {
+  border-radius: 50%;
+}
+
+.sspoplist .msrow.sel .mscheck {
+  background: none;
+  border-color: var(--acc);
+}
+
+.sspoplist .msrow.sel .mscheck::after {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+
 .sspoplist .mstx {
   display: flex;
   flex: 1 1 auto;
@@ -194,6 +216,7 @@
 .search {
   flex: 1;
   min-width: 150px;
+  text-overflow: ellipsis;
   padding: 10px 14px;
   border: 1px solid var(--edge);
   border-radius: 14px;
@@ -206,7 +229,7 @@
 }
 
 .search::placeholder {
-  color: var(--sub);
+  color: var(--ph);
 }
 
 .search:focus {

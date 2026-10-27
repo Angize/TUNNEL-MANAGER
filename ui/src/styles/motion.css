@@ -115,8 +115,8 @@ body.reord-on .flist {
 .hb:active,
 .ctab:active,
 .fchip:active,
-.primary:active,
-.ghost:active,
+.primary:active:not(:disabled),
+.ghost:active:not(:disabled),
 .tbtnrow > button:active,
 .reordbtn:active,
 .msticky .mx:active,
@@ -136,8 +136,7 @@ body.reord-on .flist {
 .msbtn:active,
 .bsheet .bcancel:active,
 .tagnone:active,
-.rbrow:active,
-.delopt:active:not(:disabled) {
+.rbrow:active {
   transform: scale(.985);
 }
 
@@ -172,10 +171,6 @@ body.reord-on .flist {
 .logmore:active {
   transform: scale(.98);
   opacity: 1;
-}
-
-.delopt {
-  transition: border-color .14s var(--ease-out), background-color .14s var(--ease-out), transform .12s var(--ease-out);
 }
 
 .secbtn {
@@ -228,12 +223,12 @@ body.reord-on .flist {
 }
 
 .swrow:active:not(.dis) .tglsw::after,
-.tglsw:active::after {
+:not(.swrow) > .tglsw:active::after {
   width: 24px;
 }
 
 .swrow:active:not(.dis) .tglsw.on::after,
-.tglsw.on:active::after {
+:not(.swrow) > .tglsw.on:active::after {
   inset-inline-start: 16px;
 }
 
@@ -251,7 +246,6 @@ body.reord-on .flist {
 
 .flderr,
 .warncap,
-.lgfnote,
 .stpage > .loadfail,
 .opc .loadfail {
   animation: fadeup .2s var(--ease-out);
@@ -365,20 +359,12 @@ body.reord-on .rgrip {
   animation-timing-function: ease;
 }
 
-.logempty {
-  animation: fadeup .22s var(--ease-out);
-}
-
 .ogood.won > div {
   animation: fadeup .2s var(--ease-out) both;
 }
 
 .ogood.won .ic {
   animation: dotin .16s var(--ease-out) .06s both;
-}
-
-.okn.won {
-  animation: fadeup .2s var(--ease-out);
 }
 
 .okpi .iso {

@@ -19,6 +19,12 @@ select {
   transition: border-color .2s, box-shadow .2s;
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--ph);
+  opacity: 1;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -48,7 +54,7 @@ textarea:focus {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .primary:hover {
+  .primary:not(:disabled):hover {
     transform: translateY(-2px);
     box-shadow: 0 16px 30px -12px color-mix(in srgb, var(--acc) 85%, transparent);
   }
@@ -81,8 +87,20 @@ textarea:focus {
   to { transform: rotate(360deg) }
 }
 
-.primary:active {
+.primary:active:not(:disabled) {
   transform: scale(.98);
+}
+
+.primary.danger {
+  background: linear-gradient(180deg, var(--bad-fill), color-mix(in srgb, var(--bad-fill) 86%, #000));
+  color: #fff;
+  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .primary.danger:not(:disabled):hover {
+    box-shadow: 0 14px 28px -12px color-mix(in srgb, var(--bad) 65%, transparent);
+  }
 }
 
 .ghost {
@@ -101,7 +119,7 @@ textarea:focus {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .ghost:hover {
+  .ghost:not(:disabled):hover {
     transform: translateY(-2px);
     color: var(--tx);
     box-shadow: var(--dsh-hi);
@@ -117,10 +135,12 @@ textarea:focus {
   box-shadow: var(--dsh);
 }
 
-.primary.glass:hover,
-.ghost.tone:hover {
-  color: var(--c);
-  box-shadow: var(--dsh-hi);
+@media (hover: hover) and (pointer: fine) {
+  .primary.glass:not(:disabled):hover,
+  .ghost.tone:not(:disabled):hover {
+    color: var(--c);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 .primary.glass .ic,
@@ -155,6 +175,23 @@ textarea:focus {
 
 .ghost.tone-more[aria-expanded='true'] {
   --c: var(--acc-tx);
+}
+
+.primary:disabled,
+.ghost:disabled {
+  cursor: not-allowed;
+  transform: none;
+}
+
+.primary:disabled:not(:has(.bspin, .bdone)),
+.ghost:disabled:not(:has(.bspin, .bdone)) {
+  opacity: .5;
+  box-shadow: none;
+}
+
+.primary:disabled:has(.bspin),
+.ghost:disabled:has(.bspin) {
+  cursor: progress;
 }
 
 .msg {
@@ -213,13 +250,17 @@ textarea:focus {
   -webkit-tap-highlight-color: transparent;
 }
 
-.swrow:hover {
+.swrow:not(.dis):hover {
   border-color: color-mix(in srgb, var(--acc) 35%, var(--edge));
 }
 
 .swrow.dis {
-  opacity: .45;
   cursor: default;
+}
+
+.swrow.dis .tglsw {
+  opacity: .5;
+  cursor: inherit;
 }
 
 .swtx {
@@ -332,7 +373,8 @@ textarea:focus {
   font-family: inherit;
   font-weight: 800;
   font-size: 11.5px;
-  padding: 5px 12px;
+  min-height: 36px;
+  padding: 8px 14px;
   border-radius: 7px;
   cursor: pointer;
 }
@@ -441,7 +483,6 @@ textarea:focus {
 .ptile .pn {
   font-size: 13px;
   font-weight: 800;
-  direction: ltr;
   letter-spacing: .3px;
   text-transform: uppercase;
 }
@@ -471,7 +512,7 @@ textarea:focus {
 }
 
 .seg2.segwrap .segopt {
-  flex: 1 1 72px;
+  flex: 1 1 60px;
 }
 
 .fldhint,
