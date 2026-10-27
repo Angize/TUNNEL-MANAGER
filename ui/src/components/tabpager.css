@@ -114,6 +114,19 @@
   display: none;
 }
 
+.lseg.nested {
+  margin-top: 0;
+}
+
+.lpager.nested {
+  margin-bottom: 0;
+  overscroll-behavior-x: auto;
+}
+
+.lpager.nested .lpane {
+  padding-bottom: 0;
+}
+
 .lpane {
   flex: 0 0 100%;
   min-width: 0;
