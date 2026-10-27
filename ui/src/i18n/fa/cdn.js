@@ -15,7 +15,7 @@ export default {
   cdn_chip_err: 'خطا',
   cdn_chip_nozone: 'بی‌دسترسی',
   cdn_chip_on: 'وصل',
-  cdn_chip_untested: 'آزمایش‌نشده',
+  cdn_chip_untested: 'ذخیره‌شده',
   cdn_chip_partial: 'دسترسیِ ناقص',
   cdn_zones_seen: '{n} دامنه دیده شد',
   cdn_zones_usable: '{n} تا قابلِ استفاده',
