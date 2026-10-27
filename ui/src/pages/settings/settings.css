@@ -735,7 +735,7 @@
 }
 
 .cdnedge .edgeintro {
-  margin: 0 2px 12px;
+  margin: 10px 2px 0;
   color: var(--sub);
   font-size: 12.5px;
   line-height: 1.75;
@@ -745,68 +745,32 @@
   color: var(--sub);
   font-size: 13px;
 }
-.cdnedge .edgerow {
-  margin-top: 12px;
-  border: 1px solid var(--bord);
-  border-radius: 14px;
-  background: var(--field);
-  overflow: hidden;
-}
-.cdnedge .edgerow.open {
-  border-color: color-mix(in srgb, var(--acc) 40%, transparent);
-}
-.cdnedge .edgehd {
+.cdnedge .edgepickhd {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px 4px 4px;
+  margin: 13px 2px 6px;
 }
-.cdnedge .edgehd .swrow {
-  flex: 1;
-  min-width: 0;
+.cdnedge .edgepickhd label {
+  margin: 0;
+}
+.cdnedge .edgepickhd .cdnchip {
+  margin-block: -3px;
+  margin-inline-start: auto;
 }
 .cdnedge .edgebody {
-  padding: 2px 12px 14px;
+  margin-top: 12px;
   display: grid;
-  gap: 11px;
+  gap: 12px;
+}
+.cdnedge .edgebody label {
+  margin-top: 0;
+}
+.cdnedge .edgebody .warncap {
+  margin-top: 0;
 }
 .cdnedge .edgegrid {
   display: grid;
-  grid-template-columns: 1fr 120px;
+  grid-template-columns: 1fr 104px;
   gap: 10px;
-}
-@media (max-width: 460px) {
-  .cdnedge .edgegrid {
-    grid-template-columns: 1fr;
-  }
-}
-.cdnedge .edgewarn {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  border-radius: 12px;
-  padding: 9px 11px;
-  font-size: 12px;
-  line-height: 1.7;
-  background: var(--goldw);
-  color: var(--gold-tx);
-}
-.cdnedge .edgewarn svg {
-  flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
-}
-.cdnedge .edgeacts {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cdnedge .edgecount {
-  margin: 12px 2px 0;
-  color: var(--sub);
-  font-size: 12px;
-}
-.cdnedge .edgecount.bad {
-  margin-top: 4px;
-  color: var(--bad-tx);
 }
