@@ -745,11 +745,8 @@
   color: var(--sub);
   font-size: 13px;
 }
-.cdnedge .edgelist {
-  display: grid;
-  gap: 8px;
-}
 .cdnedge .edgerow {
+  margin-top: 12px;
   border: 1px solid var(--bord);
   border-radius: 14px;
   background: var(--field);
@@ -767,30 +764,6 @@
 .cdnedge .edgehd .swrow {
   flex: 1;
   min-width: 0;
-}
-.cdnedge .edgecfg {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--ctl);
-  color: var(--sub);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-}
-.cdnedge .edgecfg[aria-expanded='true'] {
-  color: var(--acc);
-  background: var(--accw);
-}
-.cdnedge .edgecfg svg {
-  width: 18px;
-  height: 18px;
-  transition: transform 0.18s;
-}
-.cdnedge .edgecfg[aria-expanded='true'] svg {
-  transform: rotate(180deg);
 }
 .cdnedge .edgebody {
   padding: 2px 12px 14px;
@@ -832,4 +805,8 @@
   margin: 12px 2px 0;
   color: var(--sub);
   font-size: 12px;
+}
+.cdnedge .edgecount.bad {
+  margin-top: 4px;
+  color: var(--bad-tx);
 }
