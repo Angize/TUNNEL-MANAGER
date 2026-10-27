@@ -201,7 +201,7 @@ const CDN_PROVIDER = ['provider', 1, S, 'cf (Cloudflare) or ar (ArvanCloud)']
 export const DOCS = {
   summary: {
     t: 'Dashboard summary',
-    d: "Node and tunnel counts, the health score, the panel's own resource use, alerts and the number of unread log events — what the overview page shows.",
+    d: "Node and tunnel counts, the health score, the panel's own resource use, alerts and the number of unread log events — what the overview page shows. heat lists each node with its highest use (pct) and which one it is (met: cpu, ram or disk); tunnel_groups lists the tunnels in each state (down, drift, noping, wait, up, off).",
     p: [['seen', 0, S, 'id of the last log event you saw; unread is counted after it']],
   },
   readiness: {

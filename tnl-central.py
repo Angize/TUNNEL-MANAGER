@@ -3496,8 +3496,8 @@ def api_summary(d):
             if val >= UP_CRIT:
                 alerts.append({"level": "bad", "kind": key, "node": nid, "q": nm,
                                "msg": tx("{0} «\u2068{1}\u2069» به {2}٪ رسیده", "{0} of '{1}' is at {2}%", lab, nm, val)})
-        w = max(cpu, ram, disk)
-        heat.append({"name": nm, "pct": w, "online": True, "disabled": bool(n.get("disabled"))})
+        w, met = max((cpu, "cpu"), (ram, "ram"), (disk, "disk"))
+        heat.append({"name": nm, "pct": w, "met": met, "online": True, "disabled": bool(n.get("disabled"))})
         if w >= UP_CRIT:
             crit.append(nid)
         ips = _flat_ips(p)
@@ -3513,43 +3513,52 @@ def api_summary(d):
     types = {"vxlan": 0, "gre": 0, "sit": 0}
     worst_tun = None
     rtts = []
+    tgroups = {k: [] for k in ("down", "drift", "noping", "wait", "up", "off")}
     for L in links:
         types[L.get("type", "")] = types.get(L.get("type", ""), 0) + 1
+        tab = "core" if L.get("type") == "core" else "tunnels"
+        row = {"name": L.get("name"), "tab": tab, "type": L.get("type", ""),
+               "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
+               "b": nmap.get(L.get("b_node"), L.get("b_name", ""))}
         if not L.get("enabled", True):
             off_n += 1
+            tgroups["off"].append(row)
             continue
         ah, _a = _link_side_health(L, "a_node")
         bh, _b = _link_side_health(L, "b_node")
         state = _link_mark(L)[0]
         if state is None:
+            tgroups["wait"].append(row)
             continue
-        tab = "core" if L.get("type") == "core" else "tunnels"
         if link_drift(L["id"]):
             drift_n += 1
+            tgroups["drift"].append(row)
             alerts.append({"level": "warn", "kind": "drift", "tab": tab, "id": L["id"], "q": L.get("name"), "msg": tx(
                 "تونلِ «{0}» نیازمندِ بازسازی است", "tunnel '{0}' needs a rebuild", L.get("name"))})
             continue
         if not state:
             down += 1
+            tgroups["down"].append(row)
             leak = _leak_end(L, nmap)
             msg = tx("تونلِ «{0}» قطع است — روی «{1}» مسیر به {2} می‌رود", "tunnel '{0}' is down — on '{1}' the route goes to {2}",
                      L.get("name"), *leak) if leak else tx("تونلِ «{0}» قطع است", "tunnel '{0}' is down", L.get("name"))
             alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "q": L.get("name"), "msg": msg})
             continue
         sides = [h for h in (ah, bh) if isinstance(h, dict)]
-        if any(h.get("alive") is True for h in sides):
-            up += 1
-        else:
-            noping += 1
         lrtt = max([_sflt(h.get("rtt_ms")) for h in sides if h.get("rtt_ms") is not None] or [0])
         lloss = max([_sflt(h.get("loss_pct")) for h in sides] or [0])
+        row["rtt"] = round(lrtt) if lrtt > 0 else None
+        row["loss"] = round(lloss)
+        if any(h.get("alive") is True for h in sides):
+            up += 1
+            tgroups["up"].append(row)
+        else:
+            noping += 1
+            tgroups["noping"].append(row)
         if lrtt > 0:
             rtts.append(lrtt)
         if lrtt > PING_BAD:
-            cand = {"name": L.get("name"),
-                    "a": nmap.get(L.get("a_node"), L.get("a_name", "")),
-                    "b": nmap.get(L.get("b_node"), L.get("b_name", "")),
-                    "rtt": lrtt, "loss": lloss}
+            cand = {"name": row["name"], "a": row["a"], "b": row["b"], "rtt": lrtt, "loss": lloss}
             if worst_tun is None or (cand["loss"], cand["rtt"]) > (worst_tun["loss"], worst_tun["rtt"]):
                 worst_tun = cand
     for nid, who, nm in _stray_snapshot():
@@ -3587,7 +3596,7 @@ def api_summary(d):
             "portfw": sum(len(_pf_node_configs(n["id"])[0]) for n in nodes),
             "health_score": score,
             "central": central_stats(),
-            "heat": heat, "worst": worst,
+            "heat": heat, "worst": worst, "tunnel_groups": tgroups,
             "crit": len(crit),
             "alerts": alerts, "alert_count": len(alerts),
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
