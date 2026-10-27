@@ -211,12 +211,7 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
       </Tiles>
       <WorkersSection form={form} cfg={cfg} sides={sides} patch={patch} />
       <CdnShape form={form} enums={cfg.enums} patch={patch} />
-      <SwitchRow
-        on={form.SelfEch}
-        title={T('selfech_t')}
-        note={T('selfech_d')}
-        onToggle={toggleSelfEch}
-      />
+      <SwitchRow on={form.SelfEch} title={T('selfech_t')} note={T('selfech_d')} onToggle={toggleSelfEch} />
       <Reveal show={!!form.SelfEch}>
         <div style={{ marginTop: 8 }}>
           <Field label={T('selfech_inner_lbl')}>
