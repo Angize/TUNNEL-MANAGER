@@ -274,27 +274,29 @@ export default function ApiRef() {
           <span>{TEXT.base}</span>
           <CopyValue text={base} />
         </div>
-        <button
-          type="button"
-          className="apgtg"
-          aria-expanded={guide}
-          onClick={(e) => {
-            setGuideKb(!e.detail)
-            setGuide((v) => !v)
-          }}
-        >
-          <span>{TEXT.guideT}</span>
-          <Icon name="chev" />
-        </button>
-        <Reveal show={guide} instant={guideKb}>
-          <div className="apgbody">
-            {TEXT.guide.map((text) => (
-              <p key={text}>
-                <RichText text={text} />
-              </p>
-            ))}
-          </div>
-        </Reveal>
+        <div className={'apgbox' + (guide ? ' open' : '')}>
+          <button
+            type="button"
+            className="apgtg"
+            aria-expanded={guide}
+            onClick={(e) => {
+              setGuideKb(!e.detail)
+              setGuide((v) => !v)
+            }}
+          >
+            <span>{TEXT.guideT}</span>
+            <Icon name="chev" />
+          </button>
+          <Reveal show={guide} instant={guideKb}>
+            <div className="apgbody">
+              {TEXT.guide.map((text) => (
+                <p key={text}>
+                  <RichText text={text} />
+                </p>
+              ))}
+            </div>
+          </Reveal>
+        </div>
       </div>
 
       <div className="aplist">

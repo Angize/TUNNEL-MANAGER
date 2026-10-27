@@ -83,15 +83,9 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
 
   const footer = (
     <>
-      <button type="button" className="primary danger" disabled={busy} onClick={onRestore}>
-        {busy ? (
-          <span className="bspin" />
-        ) : (
-          <>
-            <Icon name="upload" />
-            {T('bk_go')}
-          </>
-        )}
+      <button type="button" className="primary danger" disabled={busy} aria-busy={busy} onClick={onRestore}>
+        {busy ? <span className="bspin sm" /> : <Icon name="upload" />}
+        {T('bk_go')}
       </button>
       <button type="button" className="ghost" disabled={busy} onClick={onClose}>
         {T('cancel')}
@@ -141,8 +135,11 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
                 ) : (
                   <>
                     <bdi>{withUnit(c.key, c.old)}</bdi>
-                    {'  ←  '}
-                    <bdi>{withUnit(c.key, c.new)}</bdi>
+                    {'  '}
+                    <span className="bknew">
+                      {'←  '}
+                      <bdi>{withUnit(c.key, c.new)}</bdi>
+                    </span>
                   </>
                 )}
               </span>

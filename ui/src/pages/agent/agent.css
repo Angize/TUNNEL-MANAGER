@@ -366,3 +366,26 @@ body.pushing .savedock:not(.docked) {
 .cn-stale {
   color: var(--gold-tx);
 }
+
+.dlpx .ophd > .tglsw {
+  transition: background .25s, border-color .25s, opacity .2s var(--ease-out);
+}
+
+.dlpx .ophd > .tglsw.dis {
+  opacity: .5;
+  cursor: progress;
+  transition-delay: 0s, 0s, .15s;
+}
+
+.dlpx .oprow > .opsel.busy {
+  pointer-events: none;
+}
+
+.dlpx .oprow > .opsel.busy:not(.off) {
+  opacity: .6;
+  transition-delay: .15s;
+}
+
+.dlpx .oprow:has(> .opsel.busy) {
+  cursor: progress;
+}

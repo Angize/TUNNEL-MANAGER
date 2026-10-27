@@ -252,10 +252,6 @@ export default function AgentPage({ headless }) {
   }
 
   const pushAgent = async (target) => {
-    if (agentUnknown) {
-      toast(T('net_read'), 'err')
-      return
-    }
     if (agentMeta.none && delivery.agent !== 'github') {
       toast(T('ag_pick_first'), 'err')
       return
@@ -465,7 +461,7 @@ export default function AgentPage({ headless }) {
 
   const pushCoreAll = async () => {
     if (!wanted) {
-      toast(T(coreUnknown ? 'net_read' : 'ag_pick_ver'), 'err')
+      toast(T('ag_pick_ver'), 'err')
       return
     }
     const ids = await onlineIds()
@@ -603,7 +599,7 @@ export default function AgentPage({ headless }) {
                   onChange={setWanted}
                 />
               ) : (
-                <div className="opnote">{coreUnknown ? unknownSub('core') : T('cor_ver_empty')}</div>
+                <div className="opnote">{coreUnknown ? '—' : T('cor_ver_empty')}</div>
               )}
             </div>
             <button type="button" className="ghost tone tone-check corcheck" onClick={checkCore}>

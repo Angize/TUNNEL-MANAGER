@@ -70,9 +70,10 @@ export default function DownloadProxyCard() {
         </div>
         {ready ? (
           <div
-            className={'tglsw' + (value.on ? ' on' : '')}
+            className={'tglsw' + (value.on ? ' on' : '') + (busy ? ' dis' : '')}
             aria-label={T('dlpx_on')}
             aria-busy={busy}
+            aria-disabled={busy ? 'true' : undefined}
             {...checkable('switch', value.on, () => commit({ on: !value.on, id: picked }))}
           >
             <KnobCheck on={value.on} />
@@ -81,8 +82,8 @@ export default function DownloadProxyCard() {
       </div>
       <LoadBar on={loading} value={(pxPart + stPart) / 2} />
       {ready ? (
-        <div className="oprow">
-          <div className={'opsel' + (value.on ? '' : ' off')} inert={!value.on}>
+        <div className="oprow" aria-busy={busy}>
+          <div className={'opsel' + (value.on ? '' : ' off') + (busy ? ' busy' : '')} inert={!value.on}>
             <Select items={items} value={picked} onChange={(id) => id !== picked && commit({ on: true, id })} />
           </div>
         </div>

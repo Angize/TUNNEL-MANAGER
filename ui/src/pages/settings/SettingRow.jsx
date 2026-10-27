@@ -6,13 +6,15 @@ import { T, TF } from '../../i18n/fa.js'
 
 const POP_EXIT_MS = 140
 
-export default function SettingRow({ label, helpKey, exampleKey, unit, error, wide, half, children }) {
+export default function SettingRow({ label, helpKey, exampleKey, unit, error, note, wide, half, children }) {
   const [open, setOpen] = useState(false)
   const shown = usePresence(open, POP_EXIT_MS)
   const help = useRef(null)
   const id = useId()
   const popId = id + 'h'
   const errorId = id + 'e'
+  const noteId = id + 'n'
+  const described = [error ? errorId : '', note ? noteId : ''].filter(Boolean).join(' ')
 
   const close = (refocus) => {
     setOpen(false)
@@ -40,7 +42,7 @@ export default function SettingRow({ label, helpKey, exampleKey, unit, error, wi
         <div className={'srctl' + (unit ? ' unit' : '')}>
           {cloneElement(children, {
             id,
-            'aria-describedby': error ? errorId : undefined,
+            'aria-describedby': described || undefined,
             'aria-invalid': error ? 'true' : undefined,
           })}
           {unit ? <span className="srunit">{unit}</span> : null}
@@ -51,6 +53,11 @@ export default function SettingRow({ label, helpKey, exampleKey, unit, error, wi
           <Icon name="warn" />
           <span>{error}</span>
         </div>
+      ) : null}
+      {note ? (
+        <p id={noteId} className="srnote">
+          {note}
+        </p>
       ) : null}
       {shown ? (
         <HelpPop

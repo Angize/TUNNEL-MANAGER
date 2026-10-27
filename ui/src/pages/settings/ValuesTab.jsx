@@ -20,7 +20,7 @@ import { reducedMotion } from '../../lib/motion.js'
 
 const PICK_BEAT_MS = 140
 
-function ValueRow({ name, helpKey, exampleKey }) {
+function ValueRow({ name, helpKey, exampleKey, note }) {
   const { form, set, touch, errors } = useSettingsForm()
   const config = useUiConfig()
   const spec = FIELDS[name]
@@ -34,6 +34,7 @@ function ValueRow({ name, helpKey, exampleKey }) {
       exampleKey={exampleKey}
       unit={list || spec.stepper ? '' : T(spec.unitKey)}
       error={errors[name]}
+      note={note}
       wide={list}
       half={spec.half}
     >
@@ -135,9 +136,7 @@ export default function ValuesTab({ active }) {
         </SettingsGroup>
 
         <SettingsGroup section icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
-          <ValueRow name="probeMin" helpKey="set_t_probemin_d" exampleKey="set_x_probemin" />
-          <p className="srnote">{probeHint}</p>
-
+          <ValueRow name="probeMin" helpKey="set_t_probemin_d" exampleKey="set_x_probemin" note={probeHint} />
           <ValueRow name="revive" helpKey="set_t_revive_d" exampleKey="set_x_revive" />
         </SettingsGroup>
 
