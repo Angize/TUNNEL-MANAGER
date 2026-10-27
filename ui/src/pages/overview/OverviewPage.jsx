@@ -7,23 +7,22 @@ import AlertList from './AlertList.jsx'
 import NodeHeat from './NodeHeat.jsx'
 import Gauge from './Gauge.jsx'
 import TunnelBreakdown from './TunnelBreakdown.jsx'
-import Sparkline from './Sparkline.jsx'
+import TrafficChart from './TrafficChart.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { scoreColor, uptimeColor, usageColor, usageLevel } from '../../lib/health.js'
-import { fmtBytes, fmtRate, num } from '../../lib/num.js'
+import { fmtBytes, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
-const SPARK_POINTS = 26
+const LIVE_POINTS = 26
 
-function Section({ icon, titleKey, extra, children }) {
+function Section({ icon, titleKey, children }) {
   return (
     <section className="osec">
       <h2 className="sec">
         <Icon name={icon} color="var(--acc-tx)" />
         {T(titleKey)}
-        {extra}
       </h2>
       {children}
     </section>
@@ -72,13 +71,14 @@ function gb(mb) {
 export default function OverviewPage({ onNavigate }) {
   const config = useUiConfig()
   const crit = num(config.usage_crit_pct)
-  const rxHistory = useRef([])
-  const txHistory = useRef([])
+  const live = useRef([])
 
   const load = useCallback(async (onProgress) => {
     const summary = await apiGet('summary', onProgress)
-    rxHistory.current = [...rxHistory.current, num(summary.fleet_rx_bps)].slice(-SPARK_POINTS)
-    txHistory.current = [...txHistory.current, num(summary.fleet_tx_bps)].slice(-SPARK_POINTS)
+    live.current = [
+      ...live.current,
+      { t: Date.now(), rx: num(summary.fleet_rx_bps), tx: num(summary.fleet_tx_bps) },
+    ].slice(-LIVE_POINTS)
     return summary
   }, [])
 
@@ -144,28 +144,9 @@ export default function OverviewPage({ onNavigate }) {
             <AlertList alerts={alerts} onNavigate={onNavigate} />
           </Section>
 
-          <Section
-            icon="traf"
-            titleKey="ov_traffic"
-            extra={
-              <span className="lpill">
-                <span className="pd" />
-                {T('live')}
-              </span>
-            }
-          >
+          <Section icon="traf" titleKey="ov_traffic">
             <div className="card otraf">
-              <div className="tf-chart">
-                <div className="tf-top">
-                  <span className="din iso">
-                    ↓ <b>{fmtRate(summary.fleet_rx_bps)}</b>
-                  </span>
-                  <span className="dout iso">
-                    ↑ <b>{fmtRate(summary.fleet_tx_bps)}</b>
-                  </span>
-                </div>
-                <Sparkline rx={rxHistory.current} tx={txHistory.current} />
-              </div>
+              <TrafficChart live={live.current} now={{ rx: summary.fleet_rx_bps, tx: summary.fleet_tx_bps }} />
               <div className="ttiles">
                 <div className="ttile">
                   <span className="din">{T('ov_rxtot')}</span>

@@ -2100,6 +2100,11 @@ UPTIME_KEEP = 1440
 UPTIME_CELLS = 60
 UPTIME_OK = 99
 UPTIME_BAD = 50
+BW_TIERS = ((10, 375), (60, 1450), (600, 1015))
+BW_RANGES = {"1h": (0, 3600, 2), "4h": (1, 14400, 1), "6h": (1, 21600, 2), "8h": (1, 28800, 2),
+             "12h": (1, 43200, 3), "1d": (1, 86400, 6), "3d": (2, 259200, 2), "7d": (2, 604800, 6)}
+_bw = {}
+_bw_lock = threading.Lock()
 _tomb = {}
 _tomb_lock = threading.Lock()
 _addr_gen = {}
@@ -2238,7 +2243,7 @@ def _ensure_cached(nodes):
     threading.Thread(target=_warm, daemon=True).start()
 
 
-NODE_STATE = ("_pc", "_tf", "_uh", "_addr_gen")
+NODE_STATE = ("_pc", "_tf", "_uh", "_bw", "_addr_gen")
 
 
 def _prune_node_state(valid):
@@ -2460,6 +2465,7 @@ def _tf_ingest(nid, net, up, now):
         emit = (0 < dt <= TF_MAX_GAP) and not reboot
         gap = dt > TF_MAX_GAP and not reboot
         ifs = e["if"]
+        feed = None
         for key, v in net.items():
             if not _tf_valid_key(key):
                 continue
@@ -2479,15 +2485,18 @@ def _tf_ingest(nid, net, up, now):
                 ifs[key] = {"prx": rx, "ptx": tx, "rx_bps": 0.0, "tx_bps": 0.0,
                             "crx": sd[0] if sd else 0, "ctx": sd[1] if sd else 0, "miss": 0}
                 continue
+            sound = emit and not s["miss"]
             s["miss"] = 0
             for raw, pk, ck, bk in ((rx, "prx", "crx", "rx_bps"), (tx, "ptx", "ctx", "tx_bps")):
                 draw = raw - s[pk]
                 if draw < 0 or reboot:
                     s[bk] = 0.0
+                    sound = False
                 elif emit:
                     bps = draw * 8.0 / dt
                     if bps > TF_BPS_CEIL:
                         s[bk] = 0.0
+                        sound = False
                     else:
                         s[bk] = bps
                         s[ck] += draw
@@ -2496,6 +2505,8 @@ def _tf_ingest(nid, net, up, now):
                     if draw <= TF_BPS_CEIL / 8.0 * dt:
                         s[ck] += draw
                 s[pk] = raw
+            if key == "_node" and sound:
+                feed = (s["rx_bps"], s["tx_bps"])
         stale = []
         for key, s in e["if"].items():
             if key not in net:
@@ -2510,6 +2521,8 @@ def _tf_ingest(nid, net, up, now):
                 e["seed"][key] = [int(s["crx"]), int(s["ctx"])]
         e["prev_ts"] = now
         e["prev_up"] = up
+    if feed:
+        _bw_add(nid, now - dt, now, *feed)
 
 
 def _tf_forget(nid, keys):
@@ -2609,6 +2622,70 @@ def _uh_view(nid, window_hours):
     return {"uptime": cells, "uptime_pct": _uh_share(seen) if seen else 100.0, "uptime_end": end}
 
 
+def _bw_tier(step, now):
+    return {"ring": [], "bts": now // step * step, "rx": 0.0, "tx": 0.0, "secs": 0.0, "n": 0, "fed": 0.0}
+
+
+def _bw_close(t, step, keep, upto):
+    gone = int((upto - t["bts"]) // step)
+    if gone <= 0:
+        return
+    if gone > keep:
+        t["ring"] = [None] * keep
+    else:
+        t["ring"].append((t["rx"] / t["secs"], t["tx"] / t["secs"]) if t["secs"] else None)
+        t["ring"].extend([None] * (gone - 1))
+        del t["ring"][:-keep]
+    t["n"] += min(gone, keep)
+    t["bts"] += gone * step
+    t["rx"] = t["tx"] = t["secs"] = 0.0
+
+
+def _bw_add(nid, a, b, rx_bps, tx_bps):
+    with _bw_lock:
+        tiers = _bw.get(nid)
+        if tiers is None:
+            tiers = _bw[nid] = [_bw_tier(step, a) for step, _keep in BW_TIERS]
+        for t, (step, keep) in zip(tiers, BW_TIERS):
+            x = max(a, t["bts"])
+            while x < b:
+                _bw_close(t, step, keep, x)
+                seg = min(b, t["bts"] + step) - x
+                t["rx"] += rx_bps * seg
+                t["tx"] += tx_bps * seg
+                t["secs"] += seg
+                x += seg
+            _bw_close(t, step, keep, b)
+            t["fed"] = b
+
+
+def _bw_series(nids, rng, now):
+    ti, span, k = BW_RANGES[rng]
+    step = BW_TIERS[ti][0]
+    n = span // step
+    rxs, txs, hit = [0.0] * n, [0.0] * n, [False] * n
+    with _bw_lock:
+        tiers = [_bw[nid][ti] for nid in nids if nid in _bw]
+        closed = [t["bts"] for t in tiers if now - t["fed"] <= TF_MAX_GAP]
+        end = min([now // step * step] + closed) // (step * k) * (step * k)
+        for t in tiers:
+            last = n - 1 - int((end - t["bts"]) // step)
+            for j, v in enumerate(reversed(t["ring"])):
+                i = last - j
+                if i < 0:
+                    break
+                if i < n and v is not None:
+                    rxs[i] += v[0]
+                    txs[i] += v[1]
+                    hit[i] = True
+    out_rx, out_tx = [], []
+    for i in range(0, n, k):
+        got = [j for j in range(i, i + k) if hit[j]]
+        out_rx.append(round(sum(rxs[j] for j in got) / len(got)) if got else None)
+        out_tx.append(round(sum(txs[j] for j in got) / len(got)) if got else None)
+    return {"range": rng, "step": step * k, "end": int(end), "rx": out_rx, "tx": out_tx}
+
+
 def _tf_snapshot():
     out = {}
     with _tf_lock:
@@ -2625,12 +2702,26 @@ K_TRAFFIC = "tnl:traffic"
 K_UPTIME = "tnl:uptime:"
 K_UPTIME_AT = "tnl:uptime_at"
 K_CHECKIN = "tnl:checkin"
+K_BW = "tnl:bw:"
+K_BW_AT = "tnl:bw_at"
 _tf_flushed = {}
 _uh_flushed = {}
+_bw_flushed = {}
+
+
+def _bw_enc(v):
+    return "-" if v is None else "%d,%d" % (round(v[0]), round(v[1]))
+
+
+def _bw_dec(x):
+    if x == "-":
+        return None
+    rx, tx_ = x.split(",")
+    return (float(rx), float(tx_))
 
 
 def _stats_read(r):
-    tf, ck, up, at = {}, {}, {}, {}
+    tf, ck, up, at, bw, bw_at = {}, {}, {}, {}, {}, {}
     for k, v in r.hgetall(K_TRAFFIC).items():
         try:
             d = json.loads(v)
@@ -2656,14 +2747,31 @@ def _stats_read(r):
             at[k] = float(v)
         except (TypeError, ValueError):
             log_warn("stats", "bad uptime time %s in redis skipped" % k)
-    return tf, ck, up, at
+    bkeys = list(r.scan_iter(K_BW + "*", count=1000))
+    p = r.pipeline(transaction=False)
+    for k in bkeys:
+        p.lrange(k, 0, -1)
+    for k, ring in zip(bkeys, p.execute()):
+        try:
+            step, nid = k[len(K_BW):].split(":", 1)
+            bw.setdefault(nid, {})[int(step)] = [_bw_dec(x) for x in ring]
+        except ValueError:
+            log_warn("stats", "bad traffic history %s in redis skipped" % k)
+    for k, v in r.hgetall(K_BW_AT).items():
+        try:
+            step, nid = k.split(":", 1)
+            bw_at[(int(step), nid)] = float(v)
+        except (TypeError, ValueError):
+            log_warn("stats", "bad traffic history time %s in redis skipped" % k)
+    return tf, ck, up, at, bw, bw_at
 
 
 def _stats_boot():
     r = _redis()
     valid = {n["id"] for n in load_nodes()}
-    tf_raw, ck_raw, rings, ats = _stats_read(r)
-    stale = [k for k in set(tf_raw) | set(ck_raw) | set(rings) | set(ats) if k not in valid]
+    tf_raw, ck_raw, rings, ats, bw, bw_at = _stats_read(r)
+    seen = set(tf_raw) | set(ck_raw) | set(rings) | set(ats) | set(bw) | {nid for _s, nid in bw_at}
+    stale = [k for k in seen if k not in valid]
     if stale:
         with _reg_lock, store_tx() as t:
             for nid in stale:
@@ -2682,6 +2790,20 @@ def _stats_boot():
             _uh[nid] = {"ring": ring, "bts": at + int((now - at) // UPTIME_BUCKET) * UPTIME_BUCKET,
                         "up": 0, "tot": 0, "n": len(rings[nid]) + gap}
             _uh_flushed[nid] = len(rings[nid])
+    with _bw_lock:
+        for nid in valid & set(bw):
+            tiers = []
+            for step, keep in BW_TIERS:
+                t = _bw_tier(step, now)
+                ring = bw[nid].get(step, [])[-keep:]
+                at = min(bw_at.get((step, nid), t["bts"]), t["bts"])
+                gone = int((now - at) // step)
+                t["ring"] = (ring + [None] * min(gone, keep))[-keep:]
+                t["bts"] = at + gone * step
+                t["n"] = len(ring) + min(gone, keep)
+                _bw_flushed[(nid, step)] = len(ring)
+                tiers.append(t)
+            _bw[nid] = tiers
     with _checkin_ctr_lock:
         for nid in valid & set(ck_raw):
             _checkin_ctr[nid] = _checkin_ctr_saved[nid] = ck_raw[nid]
@@ -2692,6 +2814,9 @@ def _stats_forget(p, nid):
     p.hdel(K_CHECKIN, nid)
     p.delete(K_UPTIME + nid)
     p.hdel(K_UPTIME_AT, nid)
+    for step, _keep in BW_TIERS:
+        p.delete("%s%d:%s" % (K_BW, step, nid))
+        p.hdel(K_BW_AT, "%d:%s" % (step, nid))
 
 
 def _stats_drop(nid):
@@ -2701,6 +2826,10 @@ def _stats_drop(nid):
     with _uh_lock:
         _uh.pop(nid, None)
         _uh_flushed.pop(nid, None)
+    with _bw_lock:
+        _bw.pop(nid, None)
+        for step, _keep in BW_TIERS:
+            _bw_flushed.pop((nid, step), None)
     with _checkin_ctr_lock:
         _checkin_ctr.pop(nid, None)
         _checkin_ctr_saved.pop(nid, None)
@@ -2718,7 +2847,16 @@ def _persist_stats():
                 fresh = e.get("n", 0) - _uh_flushed.get(nid, 0)
                 if fresh > 0 and nid in valid:
                     uh_new[nid] = (e["n"], e["ring"][-min(fresh, UPTIME_KEEP):], e["bts"])
-        if not tf_new and not uh_new:
+        with _bw_lock:
+            bw_new = []
+            for nid, tiers in _bw.items():
+                if nid not in valid:
+                    continue
+                for t, (step, keep) in zip(tiers, BW_TIERS):
+                    fresh = t["n"] - _bw_flushed.get((nid, step), 0)
+                    if fresh > 0:
+                        bw_new.append((nid, step, keep, t["n"], t["ring"][-min(fresh, keep):], t["bts"]))
+        if not tf_new and not uh_new and not bw_new:
             return
         p = _redis().pipeline(transaction=True)
         if tf_new:
@@ -2728,11 +2866,18 @@ def _persist_stats():
             p.ltrim(K_UPTIME + nid, -UPTIME_KEEP, -1)
         if uh_new:
             p.hset(K_UPTIME_AT, mapping={nid: at for nid, (_n, _v, at) in uh_new.items()})
+        for nid, step, keep, _n, vals, _at in bw_new:
+            p.rpush("%s%d:%s" % (K_BW, step, nid), *[_bw_enc(v) for v in vals])
+            p.ltrim("%s%d:%s" % (K_BW, step, nid), -keep, -1)
+        if bw_new:
+            p.hset(K_BW_AT, mapping={"%d:%s" % (step, nid): at for nid, step, _k, _n, _v, at in bw_new})
         p.execute()
     with _tf_lock:
         _tf_flushed.update(tf_new)
     with _uh_lock:
         _uh_flushed.update({nid: n for nid, (n, _v, _a) in uh_new.items()})
+    with _bw_lock:
+        _bw_flushed.update({(nid, step): n for nid, step, _k, n, _v, _a in bw_new})
 
 
 def traffic_persist_loop():
@@ -4430,6 +4575,22 @@ def api_node_traffic(d):
             "node": {"rx_bps": node.get("rx_bps", 0.0), "tx_bps": node.get("tx_bps", 0.0),
                      "rx_total": node.get("crx", 0), "tx_total": node.get("ctx", 0)},
             "tunnels": tunnels, "portfw": portfw}
+
+
+def api_traffic_history(d):
+    rng = str(d.get("range") or "")
+    if rng not in BW_RANGES:
+        raise Bad("bad_range", "بازهٔ نمودار باید یکی از {0} باشد — {1} پذیرفته نیست",
+                  "the chart range must be one of {0} — {1} is not accepted",
+                  tx_join("، ", list(BW_RANGES), ", "), rng)
+    if d.get("id"):
+        n = get_node(d["id"])
+        if not n:
+            raise _no_node()
+        nids = [n["id"]]
+    else:
+        nids = [n["id"] for n in load_nodes()]
+    return _bw_series(nids, rng, time.time())
 
 
 def _store_agent_src(src, msgs, extra_meta=None, want_ver=None):
@@ -12416,6 +12577,7 @@ def ui_config():
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
         "uptime_windows": list(UPTIME_WINDOWS),
         "uptime_levels": [UPTIME_OK, UPTIME_BAD],
+        "bw_ranges": list(BW_RANGES),
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,
         "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],
@@ -12450,7 +12612,7 @@ API = {
     "install-forget-key": api_install_forget_key,
     "node-test": api_node_test, "node-stats": api_node_stats, "node-kernel-tune": api_node_kernel_tune,
     "node-adopt-ip": api_node_adopt_ip, "node-ips": api_node_ips, "link-rebuild-info": api_link_rebuild_info,
-    "traffic": api_node_traffic, "fleet": api_fleet,
+    "traffic": api_node_traffic, "traffic-history": api_traffic_history, "fleet": api_fleet,
     "create-tunnel": api_create_tunnel, "edit-link": api_edit_link, "check-link": api_check_link,
     "link-speed": api_link_speed,
     "proxies": api_proxies, "proxy-add": api_proxy_add, "proxy-edit": api_proxy_edit,

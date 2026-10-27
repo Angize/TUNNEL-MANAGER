@@ -73,6 +73,7 @@ export const GROUPS = [
       'node-stats',
       'node-ips',
       'traffic',
+      'traffic-history',
       'node-kernel-tune',
       'node-adopt-ip',
     ],
@@ -379,6 +380,14 @@ export const DOCS = {
     t: 'Node traffic',
     d: 'Speed and volume of the traffic of the whole node, each tunnel and each port forward on it.',
     p: [['id', 1, S, 'node id']],
+  },
+  'traffic-history': {
+    t: 'Traffic history',
+    d: 'Average download and upload speed (bit/s) over a past range, for one node or the whole fleet. Point i covers the step seconds that end at end - (n - 1 - i) * step; null = no data (the panel or the node was down). History is kept by the panel and starts when it starts collecting.',
+    p: [
+      ['range', 1, S, '1h, 4h, 6h, 8h, 12h, 1d, 3d or 7d'],
+      ['id', 0, S, 'node id; empty = the sum of every node'],
+    ],
   },
   'node-kernel-tune': {
     t: 'Node kernel tuning',

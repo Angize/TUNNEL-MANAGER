@@ -25,6 +25,16 @@ export function fmtUptime(s) {
   return c + ' ' + T('fmt_sec')
 }
 
+export function fmtClock(ms, withSec) {
+  const d = new Date(ms)
+  const two = (n) => String(n).padStart(2, '0')
+  return two(d.getHours()) + ':' + two(d.getMinutes()) + (withSec ? ':' + two(d.getSeconds()) : '')
+}
+
+export function fmtDay(ms) {
+  return new Date(ms).toLocaleDateString('fa-IR-u-nu-latn', { month: 'short', day: 'numeric' })
+}
+
 export function fmtBytes(n) {
   let v = num(n)
   const u = ['B', 'KB', 'MB', 'GB', 'TB']

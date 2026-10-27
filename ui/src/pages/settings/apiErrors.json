@@ -3896,6 +3896,20 @@
    ]
   ]
  },
+ "traffic-history": {
+  "bad": [
+   [
+    400,
+    "bad_range",
+    "the chart range must be one of … — … is not accepted"
+   ],
+   [
+    400,
+    "node_not_found",
+    "node not found"
+   ]
+  ]
+ },
  "traffic-reset": {
   "bad": [
    [

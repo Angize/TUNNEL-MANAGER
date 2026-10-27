@@ -4,7 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import IpChips from '../../components/IpChips.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import Gauge from '../overview/Gauge.jsx'
-import Sparkline from '../overview/Sparkline.jsx'
+import TrafficChart from '../overview/TrafficChart.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { readError, translateError } from '../../lib/errors.js'
@@ -13,7 +13,7 @@ import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 import useBusy from '../../lib/useBusy.js'
 
-const SPARK_POINTS = 30
+const LIVE_POINTS = 30
 
 function gb(mb) {
   const v = num(mb) / 1024
@@ -67,8 +67,7 @@ export default function NodeDetailsModal({ node, onClose }) {
   const [rows, setRows] = useState([])
   const [ips, setIps] = useState(null)
   const [ipsError, setIpsError] = useState('')
-  const rxHistory = useRef([])
-  const txHistory = useRef([])
+  const live = useRef([])
   const [testing, guard] = useBusy()
 
   useEffect(() => {
@@ -100,8 +99,10 @@ export default function NodeDetailsModal({ node, onClose }) {
             .then((r) => {
               if (!alive) return
               setTraffic(r.node)
-              rxHistory.current = [...rxHistory.current, num(r.node.rx_bps)].slice(-SPARK_POINTS)
-              txHistory.current = [...txHistory.current, num(r.node.tx_bps)].slice(-SPARK_POINTS)
+              live.current = [
+                ...live.current,
+                { t: Date.now(), rx: num(r.node.rx_bps), tx: num(r.node.tx_bps) },
+              ].slice(-LIVE_POINTS)
               setRows(r.tunnels.concat(r.portfw))
             })
             .catch(() => {}),
@@ -220,17 +221,11 @@ export default function NodeDetailsModal({ node, onClose }) {
             <Icon name="traf" />
             {T('nd_traffic')}
           </div>
-          <div className="tf-chart">
-            <div className="tf-top">
-              <span className="din iso">
-                ↓ <b>{traffic ? fmtRate(traffic.rx_bps) : '—'}</b>
-              </span>
-              <span className="dout iso">
-                ↑ <b>{traffic ? fmtRate(traffic.tx_bps) : '—'}</b>
-              </span>
-            </div>
-            <Sparkline rx={rxHistory.current} tx={txHistory.current} />
-          </div>
+          <TrafficChart
+            nodeId={node.id}
+            live={live.current}
+            now={traffic ? { rx: traffic.rx_bps, tx: traffic.tx_bps } : null}
+          />
           <div className="ttiles">
             <div className="ttile">
               <span className="din">{T('ov_rxtot')}</span>
@@ -329,11 +324,18 @@ export default function NodeDetailsModal({ node, onClose }) {
           </div>
         </>
       ) : (
-        <div className="nd-off">
-          <Icon name="plugoff" />
-          <b>{T('not_available')}</b>
-          {info.error ? <span>{translateError(info.error)}</span> : null}
-        </div>
+        <>
+          <div className="nd-off">
+            <Icon name="plugoff" />
+            <b>{T('not_available')}</b>
+            {info.error ? <span>{translateError(info.error)}</span> : null}
+          </div>
+          <div className="nd-sec">
+            <Icon name="traf" />
+            {T('nd_traffic')}
+          </div>
+          <TrafficChart nodeId={node.id} live={[]} now={null} initial="1h" />
+        </>
       )}
     </Modal>
   )

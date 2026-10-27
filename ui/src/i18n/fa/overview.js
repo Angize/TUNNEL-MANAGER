@@ -51,4 +51,11 @@ export default {
   unit_mb: 'MB',
   unit_gb: 'GB',
   live: 'زنده',
+  bw_hours: 'ساعت',
+  bw_days: 'روز',
+  bw_range: 'بازهٔ نمودار',
+  bw_chart: 'نمودارِ ترافیک',
+  bw_loading: 'در حالِ خواندنِ تاریخچه…',
+  bw_failed: 'تاریخچه خوانده نشد',
+  bw_empty: 'هنوز داده‌ای در این بازه ثبت نشده',
 }

@@ -1361,6 +1361,29 @@
    "portfw": []
   }
  },
+ "traffic-history": {
+  "req": null,
+  "q": {
+   "range": "1h",
+   "id": "9eec8c5207"
+  },
+  "ok": {
+   "code": 200,
+   "range": "1h",
+   "step": 20,
+   "end": 1793133540,
+   "rx": [
+    null,
+    5434,
+    "… 178 more"
+   ],
+   "tx": [
+    null,
+    7939,
+    "… 178 more"
+   ]
+  }
+ },
  "node-kernel-tune": {
   "req": {
    "id": "9eec8c5207",
