@@ -86,7 +86,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
     <Modal icon="pen" title={T('nd_edit')} subtitle={node.name} footer={footer} onClose={onClose}>
       <div className="grid2">
         <Field label={T('f_name')} first>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <input {...LTR_TEXT} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label={T('f_host_ip')} first>
           <input
@@ -100,8 +100,8 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
         <Field label={T('f_port')}>
           <NumberInput value={port} onChange={setPort} />
         </Field>
-        <Field label={T('f_token')}>
-          <SecretInput placeholder={T('tok_keep')} value={token} onChange={setToken} />
+        <Field label={T('f_token')} hint={T('tok_keep')}>
+          <SecretInput value={token} onChange={setToken} />
         </Field>
       </div>
       <ProxyFields proxies={proxies} value={proxy} onChange={setProxy} />

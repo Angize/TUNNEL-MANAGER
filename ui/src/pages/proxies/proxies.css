@@ -8,6 +8,11 @@
   overscroll-behavior: contain;
 }
 
+.mslist .msrow.pxall,
+.pxnlist .msrow {
+  min-height: 40px;
+}
+
 .pxnname {
   flex: 0 1 auto;
   min-width: 0;
@@ -82,16 +87,11 @@
 }
 
 .pxgrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   max-height: 132px;
   overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--edge);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: var(--dsh);
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--bord) transparent;
@@ -99,14 +99,17 @@
 
 .pxcell {
   font-size: 11.5px;
-  padding: 5px 6px;
-  border-radius: 7px;
-  background: var(--card);
-  border: 1px solid var(--edge);
-  box-shadow: var(--dsh);
-  text-align: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--tx);
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   overflow-wrap: normal;
+}
+
+.pxoff {
+  margin: 0 0 12px;
 }

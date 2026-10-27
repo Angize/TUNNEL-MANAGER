@@ -47,7 +47,7 @@ function UsedBy({ nodes, tunnels, panel, cdn }) {
       </div>
       {panel ? (
         <div className="pxpanel">
-          <Icon name="server" />
+          <Icon name="download" />
           {T('px_used_panel')}
         </div>
       ) : null}
@@ -57,7 +57,15 @@ function UsedBy({ nodes, tunnels, panel, cdn }) {
           {TF('px_used_cdn', { p: cdnNames })}
         </div>
       ) : null}
-      {nodes.length ? <Names names={nodes} /> : null}
+      {nodes.length ? (
+        <>
+          <div className="pxpanel">
+            <Icon name="server" />
+            {T('px_used_nodes_lbl')}
+          </div>
+          <Names names={nodes} />
+        </>
+      ) : null}
       {tunnels.length ? (
         <>
           <div className="pxpanel">
@@ -116,30 +124,28 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
 
   const head = (
     <>
-      <span className="grow" />
-      <div
-        className="hmain"
-        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 1 auto', minWidth: 0 }}
-      >
+      <span className={'ndot ' + dot} title={title} />
+      <div className="hmain" style={{ alignItems: 'flex-start', gap: 2 }}>
         <div className="name nmrow">
-          <span className="nmtxt">{proxy.name}</span>
+          <bdi className="nmtxt">{proxy.name}</bdi>
         </div>
-        <div className="muted mono nmtxt" style={{ fontSize: 12 }}>
+        <div className="muted mono nmtxt" dir="ltr" style={{ fontSize: 12 }}>
           {proxy.addr}
         </div>
       </div>
-      <span className={'ndot ' + dot} title={title} />
     </>
   )
 
   return (
     <AccordionCard id={proxy.id} className="node acc" head={head}>
-      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn || []} />
-      {status.error ? (
-        <div className="pxused" style={{ color: 'var(--bad-tx)' }}>
-          {translateError(status.error)}
+      {proxy.online || proxy.pending ? null : (
+        <div className="noff pxoff">
+          <Icon name="plugoff" />
+          <b>{T('not_available')}</b>
+          {status.error ? <span>· {translateError(status.error)}</span> : null}
         </div>
-      ) : null}
+      )}
+      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn || []} />
       <div className="nact iconly">
         <ActBtn cls="ok" icon="bolt" title={T('px_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(proxy)} />

@@ -11,11 +11,12 @@ import NodeDetailsModal from './NodeDetailsModal.jsx'
 import KernelTuneModal from './KernelTuneModal.jsx'
 import DeleteNodeModal from './DeleteNodeModal.jsx'
 import MovedIpModal from './MovedIpModal.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError } from '../../lib/errors.js'
+import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
-import { num } from '../../lib/num.js'
+import { latinDigits, num } from '../../lib/num.js'
+import useBusy from '../../lib/useBusy.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
@@ -35,8 +36,8 @@ function StaleBanner({ count }) {
     <div className="rdbar">
       <Icon name="warn" />
       <div className="rdtx">
-        <b>{count === 1 ? T('cn_stale_one') : T('cn_stale_n').replace('{n}', count)}</b>
-        <span>{T('cn_stale_sub')}</span>
+        <b>{count === 1 ? T('cn_stale_one') : TF('cn_stale_n', { n: count })}</b>
+        <span>{T(count === 1 ? 'cn_stale_sub_one' : 'cn_stale_sub_n')}</span>
       </div>
     </div>
   )
@@ -52,11 +53,20 @@ export default function NodesPage({ active }) {
   const [deleting, setDeleting] = useState(null)
   const [moved, setMoved] = useState(null)
   const settled = useRef(0)
+  const [loadErr, setLoadErr] = useState('')
+  const [retrying, guard] = useBusy()
 
   const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
     const epoch = settled.current
-    const r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
+    let r
+    try {
+      r = await apiGet('nodes?q=' + encodeURIComponent(latinDigits(query).replace(/٫/g, '.')), onProgress)
+    } catch (e) {
+      setLoadErr(readError(e))
+      throw e
+    }
+    setLoadErr('')
     return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1, epoch }
   }, [query])
 
@@ -118,14 +128,18 @@ export default function NodesPage({ active }) {
         </button>
       </div>
 
-      <div className="sec">
-        <Icon name="server" color="var(--acc-tx)" />
-        {T('nodes_fleet')}
-      </div>
-
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={data === null} value={progress} />
+      <LoadBar on={data === null && !loadErr} value={progress} />
+      {data === null && loadErr ? (
+        <div className="card loadfail">
+          <span>{T('nodes_load_fail') + ' ' + loadErr}</span>
+          <button type="button" className="ghost" disabled={retrying} onClick={guard(reload)}>
+            {retrying ? <span className="bspin ink sm" /> : <Icon name="redo" />}
+            {T('retry')}
+          </button>
+        </div>
+      ) : null}
       <div ref={listBox} className="flist">
         {data === null ? null : (
           <>

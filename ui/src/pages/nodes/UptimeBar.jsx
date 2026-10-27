@@ -7,7 +7,7 @@ export default function UptimeBar({ node, windowHours }) {
   return (
     <div className="upwrap">
       <div className="uptop">
-        {T('uptime_bar')}
+        {T('uptime')}
         <b style={{ marginInlineStart: 6 }}>{pct + T('pct')}</b>
         <span className="r">
           {windowHours} {T('ov_hours_recent')}
