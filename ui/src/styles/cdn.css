@@ -360,7 +360,7 @@
 
 .cdnprov button:disabled:not(:has(.bspin)),
 .cdnedges button:disabled:not(:has(.bspin)),
-.cdnedge button:disabled {
+.cdnedge button:disabled:not(:has(.bspin)) {
   opacity: .45;
   cursor: not-allowed;
 }
