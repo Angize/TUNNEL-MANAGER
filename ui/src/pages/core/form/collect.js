@@ -84,6 +84,8 @@ function edgeCollect(form, enums, body) {
   body.self_ech = false
   body.ws_tls = true
   body.edge_node = form.edgeNode
+  body.edge_ips = form.edgeIps
+  body.edge_rotate = form.edgeRotate
   body.edge_ip = ''
   return shapeCollect(form, enums, body)
 }

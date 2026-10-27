@@ -5,16 +5,18 @@ import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import RichText from '../../../components/RichText.jsx'
 import Select from '../../../components/Select.jsx'
+import RotIpPool from './RotIpPool.jsx'
 import { Tile, Tiles, WarnCap } from './controls.jsx'
 import WorkersSection from './WorkersSection.jsx'
 import WsPool from './WsPool.jsx'
 import CdnHostField from './CdnHostField.jsx'
 import { cdnAuto } from '../../../lib/cdn.js'
 import { cdnShapeOn, wsProfOf } from './gates.js'
-import { CDN_FIELD_NAMES, cdnLabel, cdnShape, wsProfiles } from './presets.js'
+import { CDN_FIELD_NAMES, cdnLabel, cdnShape, poolRotateItems, wsProfiles } from './presets.js'
 import { cdnShapeErr } from './validate.js'
 import { T } from '../../../i18n/fa.js'
 import { LTR_TEXT } from '../../../lib/form.js'
+import { toast } from '../../../lib/toast.js'
 
 function Shape({ form, enums, patch }) {
   const shape = cdnShape(enums)
@@ -80,6 +82,44 @@ function edgeFronts(fronts, form) {
   )
 }
 
+function EdgeIps({ form, picked, patch }) {
+  const ips = picked.ips
+  const chosen = form.edgeIps.length ? form.edgeIps : ips.filter((ip) => ip === picked.host)
+  const toggle = (ip, count) => {
+    if (chosen.includes(ip)) {
+      if (count <= 1) {
+        toast(T('pedge_keep_one'), 'err')
+        return
+      }
+      patch({ edgeIps: chosen.filter((x) => x !== ip) })
+    } else patch({ edgeIps: ips.filter((x) => x === ip || chosen.includes(x)) })
+  }
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <RotIpPool
+        label={T('pedge_ips_lbl')}
+        ips={ips}
+        selected={Object.fromEntries(chosen.map((ip) => [ip, true]))}
+        onToggle={toggle}
+      />
+      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
+        {T('pedge_ips_note')}
+      </div>
+      <Reveal show={chosen.length > 1}>
+        <Field label={T('rot_int_lbl')}>
+          <Select
+            items={poolRotateItems()}
+            value={form.edgeRotate}
+            placeholder={T('rot_int_lbl')}
+            onChange={(v) => patch({ edgeRotate: +v })}
+          />
+        </Field>
+      </Reveal>
+    </div>
+  )
+}
+
 function PrivateEdge({ form, fronts, patch }) {
   const live = edgeFronts(fronts, form)
   const items = live.map((f) => ({ v: f.id, label: f.name, sub: f.host + ':' + f.port }))
@@ -88,22 +128,25 @@ function PrivateEdge({ form, fronts, patch }) {
   return (
     <div style={{ marginTop: 8 }}>
       {items.length ? (
-        <Field label={T('pedge_pick_lbl')}>
-          <Select
-            items={items}
-            value={form.edgeNode}
-            placeholder={T('select')}
-            onChange={(v) => patch({ edgeNode: v })}
-          />
-          {picked ? (
-            <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-              {T('pedge_decoy_lbl')}{' '}
-              <span className="mono" dir="ltr">
-                {picked.decoy}
-              </span>
-            </div>
-          ) : null}
-        </Field>
+        <>
+          <Field label={T('pedge_pick_lbl')}>
+            <Select
+              items={items}
+              value={form.edgeNode}
+              placeholder={T('select')}
+              onChange={(v) => patch({ edgeNode: v, edgeIps: [] })}
+            />
+            {picked ? (
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
+                {T('pedge_decoy_lbl')}{' '}
+                <span className="mono" dir="ltr">
+                  {picked.decoy}
+                </span>
+              </div>
+            ) : null}
+          </Field>
+          {picked && picked.ips.length > 1 ? <EdgeIps form={form} picked={picked} patch={patch} /> : null}
+        </>
       ) : (
         <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
           {T('pedge_none')}
@@ -143,10 +186,10 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
 
   const toggleEdge = () => {
     if (form.EdgeOn) {
-      patch({ EdgeOn: false, edgeNode: '', WsTls: false })
+      patch({ EdgeOn: false, edgeNode: '', edgeIps: [], WsTls: false })
     } else {
       const first = edgeFronts(fronts, form)[0]
-      patch({ ...cdnPathOff, EdgeOn: true, edgeNode: first ? first.id : '', SelfEch: false, wsHost: '' })
+      patch({ ...cdnPathOff, EdgeOn: true, edgeNode: first ? first.id : '', edgeIps: [], SelfEch: false, wsHost: '' })
     }
   }
 

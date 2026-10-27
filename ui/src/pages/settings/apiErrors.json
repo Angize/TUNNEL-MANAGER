@@ -811,6 +811,11 @@
    ],
    [
     400,
+    "bad_edge_ips",
+    "the edge IP list must be a list of IPv4 addresses"
+   ],
+   [
+    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
@@ -1128,6 +1133,11 @@
     400,
     "ech_public_eq_inner",
     "the decoy and the inner name must differ — the decoy is what everyone sees on the wire, the inner name is what stays hidden"
+   ],
+   [
+    400,
+    "edge_ip_gone",
+    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
    ],
    [
     400,
@@ -1637,6 +1647,11 @@
    ],
    [
     400,
+    "bad_edge_ips",
+    "the edge IP list must be a list of IPv4 addresses"
+   ],
+   [
+    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
@@ -1954,6 +1969,11 @@
     400,
     "ech_public_eq_inner",
     "the decoy and the inner name must differ — the decoy is what everyone sees on the wire, the inner name is what stays hidden"
+   ],
+   [
+    400,
+    "edge_ip_gone",
+    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
    ],
    [
     400,
@@ -3523,6 +3543,11 @@
     400,
     "ech_proxy_missing",
     "this tunnel's ECH proxy no longer exists — create one and pick it when editing the tunnel"
+   ],
+   [
+    400,
+    "edge_ip_gone",
+    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
    ],
    [
     400,
