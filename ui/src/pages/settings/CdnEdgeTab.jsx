@@ -83,28 +83,35 @@ function EdgeCard({ edge, onToggle, onSave, busy }) {
   )
 }
 
+function firstPick(edges) {
+  const on = edges.filter((e) => e.on)
+  return (on.find((e) => edgeState(e)[0] === 'bad') || on[0] || edges[0] || {}).id || ''
+}
+
 export default function CdnEdgeTab() {
   const [edges, setEdges] = useState(null)
+  const [failed, setFailed] = useState(false)
   const [pick, setPick] = useState('')
   const [busy, setBusy] = useState([])
   const box = useRef(null)
   useRiseIn(box, true)
 
   const load = async () => {
+    setFailed(false)
     const r = await apiPost('cdn-edge', { act: 'state' })
     if (r.ok) {
       const list = r.d.edges || []
       setEdges(list)
-      setPick((v) => v || (list.find((e) => e.on) || {}).id || '')
+      setPick((v) => v || firstPick(list))
     } else {
       toast(postError(r), 'err')
-      setEdges((v) => v || [])
+      setFailed(true)
     }
   }
 
-  const done = (r, okKey) => {
-    if (!r.ok) toast(postError(r), 'err')
-    else if (r.d.msg) toast(translateError(r.d.msg), 'err')
+  const done = (edge, r, okKey) => {
+    if (!r.ok) toast(TF('edge_err_of', { n: edge.name, m: postError(r) }), 'err')
+    else if (r.d.msg) toast(TF('edge_err_of', { n: edge.name, m: translateError(r.d.msg) }), 'err')
     else toast(T(okKey))
   }
 
@@ -116,7 +123,7 @@ export default function CdnEdgeTab() {
     setBusy((v) => v.concat(edge.id))
     const r = await apiPost('cdn-edge', { id: edge.id, ...body })
     if (r.ok) setEdges(r.d.edges)
-    done(r, okKey)
+    done(edge, r, okKey)
     setBusy((v) => v.filter((x) => x !== edge.id))
   }
 
@@ -125,29 +132,36 @@ export default function CdnEdgeTab() {
   const save = (edge, decoy, port) => run(edge, { act: 'on', decoy, port }, 'edge_toast_saved')
 
   const on = (edges || []).filter((e) => e.on)
-  const picked = (edges || []).find((e) => e.id === pick)
+  const bad = on.filter((e) => edgeState(e)[0] === 'bad')
+  const picked = (edges || []).find((e) => e.id === pick) || (edges || [])[0]
 
   return (
     <div className="cdnedge" ref={box}>
       <SettingsGroup icon="shield" titleKey="edge_title" chipKey="edge_sub" tone="">
         <p className="edgeintro">{T('edge_intro')}</p>
         {edges === null ? (
-          <p className="edgemuted">{T('edge_loading')}</p>
-        ) : !edges.length ? (
+          failed ? (
+            <div className="edgeacts">
+              <p className="edgemuted grow">{T('edge_load_failed')}</p>
+              <button type="button" className="btn" onClick={load}>
+                {T('retry')}
+              </button>
+            </div>
+          ) : (
+            <p className="edgemuted">{T('edge_loading')}</p>
+          )
+        ) : !picked ? (
           <p className="edgemuted">{T('edge_no_nodes')}</p>
         ) : (
           <>
             <Field label={T('edge_pick')}>
-              <Select items={edgeItems(edges)} value={pick} placeholder={T('edge_pick_ph')} onChange={setPick} />
+              <Select items={edgeItems(edges)} value={picked.id} placeholder={T('edge_pick_ph')} onChange={setPick} />
             </Field>
-            {picked ? (
-              <EdgeCard key={picked.id} edge={picked} busy={busy.includes(picked.id)} onToggle={toggle} onSave={save} />
-            ) : (
-              <p className="edgemuted">{T('edge_pick_hint')}</p>
-            )}
+            <EdgeCard key={picked.id} edge={picked} busy={busy.includes(picked.id)} onToggle={toggle} onSave={save} />
           </>
         )}
         {on.length ? <p className="edgecount">{TF('edge_active_count', { n: on.length })}</p> : null}
+        {bad.length ? <p className="edgecount bad">{TF('edge_bad_count', { n: bad.length })}</p> : null}
       </SettingsGroup>
     </div>
   )

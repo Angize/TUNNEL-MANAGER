@@ -806,3 +806,7 @@
   color: var(--sub);
   font-size: 12px;
 }
+.cdnedge .edgecount.bad {
+  margin-top: 4px;
+  color: var(--bad-tx);
+}
