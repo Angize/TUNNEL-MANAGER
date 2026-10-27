@@ -7,43 +7,27 @@ import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
+import IpField from '../../components/IpField.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { endIp, ipItems, nodeIps, nodeItemsForEdit, nodeLabel, seedIp } from '../../lib/nodes.js'
+import { endIp, nodeIps, nodeItemsForEdit, nodeLabel, seedIp } from '../../lib/nodes.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
-import Msg from '../../components/Msg.jsx'
+import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
-import '../core/coreform.css'
 
 const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
 
 function EndIpField({ label, ips, current, value, onChange }) {
   const list = ips && ips.length ? ips : current ? [current] : []
-  if (list.length > 1) {
-    return (
-      <Field label={label} first>
-        <Select
-          items={ipItems(list)}
-          value={seedIp(list, value, current)}
-          placeholder={T('ip')}
-          onChange={onChange}
-        />
-      </Field>
-    )
-  }
-  return (
-    <Field label={label} first>
-      <input className="mono" value={list[0] || '—'} disabled style={{ opacity: 0.6 }} />
-    </Field>
-  )
+  return <IpField label={label} ips={list} value={seedIp(list, value, current)} onChange={onChange} />
 }
 
 export default function TunnelEditModal({ link, onClose, onSaved }) {
@@ -249,7 +233,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
               </Field>
 
               <Field label={T('subnet')}>
-                <input {...LTR_TEXT} value={subnet} onChange={(e) => setSubnet(e.target.value)} />
+                <input
+                  className="mono"
+                  {...LTR_TEXT}
+                  value={subnet}
+                  onChange={(e) => setSubnet(e.target.value)}
+                />
               </Field>
 
               <div className="fldhint">
@@ -279,9 +268,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
           ),
         }}
       />
-      <div className="fmsg">
-        <Msg text={message} />
-      </div>
+      <FormMsg text={message} />
     </Modal>
   )
 }

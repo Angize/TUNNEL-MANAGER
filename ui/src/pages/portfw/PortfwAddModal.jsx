@@ -14,10 +14,9 @@ import { nodeIps } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
-import Msg from '../../components/Msg.jsx'
+import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
-import '../core/coreform.css'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   const [busy, guard] = useBusy()
@@ -119,9 +118,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
         onRotate={setRotate}
         onMinutes={setRotateMinutes}
       />
-      <div className="fmsg">
-        <Msg text={message} />
-      </div>
+      <FormMsg text={message} />
     </Modal>
   )
 }

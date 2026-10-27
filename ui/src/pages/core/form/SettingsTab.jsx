@@ -158,7 +158,10 @@ export default function SettingsTab({
       <DesyncSection form={form} limits={cfg.limits} patch={patch} />
 
       <Reveal show={form.Tr !== 'raw'}>
-        <Field label={rangeLabel(T('core_port_lbl'), ...cfg.limits.port)}>
+        <Field
+          label={rangeLabel(T('core_port_lbl'), ...cfg.limits.port)}
+          hint={form.Tr !== 'ws' ? T(link ? 'core_port_hint_edit' : 'core_port_hint') : null}
+        >
           <NumberInput
             placeholder={T(form.Tr !== 'ws' ? 'port_band_ph' : !cdnAuto(form) ? 'port_ws_ph' : 'cdn_port_ph')}
             value={form.port}

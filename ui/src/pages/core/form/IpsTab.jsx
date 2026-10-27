@@ -3,7 +3,8 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import Select from '../../../components/Select.jsx'
 import { Seg2, SegOpt} from './controls.jsx'
-import RotIpPool, { IpField } from './RotIpPool.jsx'
+import IpField from '../../../components/IpField.jsx'
+import RotIpPool from './RotIpPool.jsx'
 import PeerLive from './PeerLive.jsx'
 import { rotIntervalItems } from './presets.js'
 import { rotMulti } from './gates.js'
@@ -62,7 +63,7 @@ function SubnetExtra({ form, link, patch }) {
     return (
       <Field label={T('custom_subnet')}>
         <input
-          className={link ? 'mono' : 'phrtl'}
+          className="mono"
           {...LTR_TEXT}
           placeholder={link ? undefined : T('ph_subnet')}
           value={form.subnet}

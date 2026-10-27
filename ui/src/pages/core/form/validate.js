@@ -106,7 +106,7 @@ export function cdnShapeErr(form, enums) {
     if (!cdnShapeApplies(field, form.Cdn, enums)) continue
     const value = cdnShapeValue(form, name, enums)
     if (isNaN(value) || value < field.lo || value > field.hi) {
-      return T('cdn_bad') + ' ' + cdnLabel(name) + ' ' + field.lo + '–' + field.hi
+      return TF('cf_range_bad', { f: cdnLabel(name), lo: field.lo, hi: field.hi })
     }
   }
   return ''

@@ -14,7 +14,7 @@ import { cdnShapeOn, wsProfOf } from './gates.js'
 import { CDN_FIELD_NAMES, cdnLabel, cdnShape, poolRotateItems, wsProfiles } from './presets.js'
 import { cdnShapeErr } from './validate.js'
 import { T } from '../../../i18n/fa.js'
-import { LTR_TEXT } from '../../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
 import { toast } from '../../../lib/toast.js'
 
 function Shape({ form, enums, patch }) {
@@ -29,7 +29,7 @@ function Shape({ form, enums, patch }) {
         aria-label={T('cdn_shape_lbl')}
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(104px,1fr))',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
           gap: 8,
         }}
       >
@@ -40,14 +40,7 @@ function Shape({ form, enums, patch }) {
             <Field
               key={name}
               className="cshape"
-              label={
-                <>
-                  {cdnLabel(name)}{' '}
-                  <span className="muted" dir="ltr">
-                    {field.lo + '–' + field.hi}
-                  </span>
-                </>
-              }
+              label={rangeLabel(cdnLabel(name), field.lo, field.hi)}
               style={{
                 display: hidden ? 'none' : 'flex',
                 flexDirection: 'column',

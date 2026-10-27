@@ -331,7 +331,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
                 <div className="cdnlabel">
                   <input
                     {...LTR_TEXT}
-                    className="mono"
+                    className={multi ? 'mono phrtl' : 'mono'}
                     value={label}
                     disabled={phase === 'making'}
                     placeholder={T(multi ? 'cdn_label_ph_multi' : 'cdn_label_ph')}
