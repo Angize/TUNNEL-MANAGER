@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Field from '../../components/Field.jsx'
+import Select from '../../components/Select.jsx'
 import SwitchRow from '../../components/SwitchRow.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
@@ -10,22 +11,29 @@ import { postError, translateError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { T, TF } from '../../i18n/fa.js'
 
-function EdgeChip({ edge }) {
-  if (!edge.on) return <span className="cdnchip off">{T('edge_chip_off')}</span>
-  if (!edge.online) return <span className="cdnchip bad">{T('edge_chip_down')}</span>
-  if (!edge.routes) return <span className="cdnchip warn">{T('edge_chip_idle')}</span>
-  if (!edge.front) return <span className="cdnchip bad">{T('edge_chip_front_down')}</span>
-  return <span className="cdnchip ok">{TF('edge_chip_routes', { n: edge.routes })}</span>
+function edgeState(edge) {
+  if (!edge.on) return ['off', T('edge_chip_off')]
+  if (!edge.online) return ['bad', T('edge_chip_down')]
+  if (!edge.routes) return ['warn', T('edge_chip_idle')]
+  if (!edge.front) return ['bad', T('edge_chip_front_down')]
+  return ['ok', TF('edge_chip_routes', { n: edge.routes })]
 }
 
-function EdgeRow({ edge, onToggle, onSave, busy }) {
-  const [open, setOpen] = useState(false)
+function edgeItems(edges) {
+  return [...edges.filter((e) => e.on), ...edges.filter((e) => !e.on)].map((e) => ({
+    v: e.id,
+    label: e.name,
+    sub: [e.host, e.on ? TF('edge_port_note', { p: e.port }) : '', edgeState(e)[1]].filter(Boolean).join(' · '),
+  }))
+}
+
+function EdgeCard({ edge, onToggle, onSave, busy }) {
   const [decoy, setDecoy] = useState(edge.decoy)
   const [port, setPort] = useState(String(edge.port))
-  const bodyId = useId()
   const n = Number(port)
   const portError = port && n >= 1 && n <= 65535 ? '' : T('edge_port_bad')
   const decoyError = decoy.trim() ? '' : T('edge_decoy_bad')
+  const [tone, chip] = edgeState(edge)
 
   useEffect(() => {
     setDecoy(edge.decoy)
@@ -33,7 +41,7 @@ function EdgeRow({ edge, onToggle, onSave, busy }) {
   }, [edge.decoy, edge.port])
 
   return (
-    <div className={'edgerow' + (open && edge.on ? ' open' : '')}>
+    <div className={'edgerow' + (edge.on ? ' open' : '')}>
       <div className="edgehd">
         <SwitchRow
           on={edge.on}
@@ -42,23 +50,10 @@ function EdgeRow({ edge, onToggle, onSave, busy }) {
           note={edge.host + (edge.on ? ' · ' + TF('edge_port_note', { p: edge.port }) : '')}
           onToggle={() => onToggle(edge)}
         />
-        <EdgeChip edge={edge} />
-        {edge.on ? (
-          <button
-            type="button"
-            className="edgecfg"
-            aria-expanded={open}
-            aria-controls={bodyId}
-            onClick={() => setOpen((v) => !v)}
-            aria-label={TF('edge_settings_of', { n: edge.name })}
-            title={T('edge_settings')}
-          >
-            <Icon name="chev" />
-          </button>
-        ) : null}
+        <span className={'cdnchip ' + tone}>{chip}</span>
       </div>
-      <Reveal show={open && edge.on}>
-        <div className="edgebody" id={bodyId}>
+      <Reveal show={edge.on}>
+        <div className="edgebody">
           <div className="edgegrid">
             <Field label={T('edge_decoy')} hint={T('edge_decoy_hint')} error={decoyError}>
               <input value={decoy} onChange={(e) => setDecoy(e.target.value)} dir="ltr" spellCheck={false} />
@@ -90,6 +85,7 @@ function EdgeRow({ edge, onToggle, onSave, busy }) {
 
 export default function CdnEdgeTab() {
   const [edges, setEdges] = useState(null)
+  const [pick, setPick] = useState('')
   const [busy, setBusy] = useState([])
   const box = useRef(null)
   useRiseIn(box, true)
@@ -97,7 +93,9 @@ export default function CdnEdgeTab() {
   const load = async () => {
     const r = await apiPost('cdn-edge', { act: 'state' })
     if (r.ok) {
-      setEdges(r.d.edges || [])
+      const list = r.d.edges || []
+      setEdges(list)
+      setPick((v) => v || (list.find((e) => e.on) || {}).id || '')
     } else {
       toast(postError(r), 'err')
       setEdges((v) => v || [])
@@ -127,6 +125,7 @@ export default function CdnEdgeTab() {
   const save = (edge, decoy, port) => run(edge, { act: 'on', decoy, port }, 'edge_toast_saved')
 
   const on = (edges || []).filter((e) => e.on)
+  const picked = (edges || []).find((e) => e.id === pick)
 
   return (
     <div className="cdnedge" ref={box}>
@@ -137,11 +136,16 @@ export default function CdnEdgeTab() {
         ) : !edges.length ? (
           <p className="edgemuted">{T('edge_no_nodes')}</p>
         ) : (
-          <div className="edgelist">
-            {edges.map((e) => (
-              <EdgeRow key={e.id} edge={e} busy={busy.includes(e.id)} onToggle={toggle} onSave={save} />
-            ))}
-          </div>
+          <>
+            <Field label={T('edge_pick')}>
+              <Select items={edgeItems(edges)} value={pick} placeholder={T('edge_pick_ph')} onChange={setPick} />
+            </Field>
+            {picked ? (
+              <EdgeCard key={picked.id} edge={picked} busy={busy.includes(picked.id)} onToggle={toggle} onSave={save} />
+            ) : (
+              <p className="edgemuted">{T('edge_pick_hint')}</p>
+            )}
+          </>
         )}
         {on.length ? <p className="edgecount">{TF('edge_active_count', { n: on.length })}</p> : null}
       </SettingsGroup>
