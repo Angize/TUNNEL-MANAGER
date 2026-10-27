@@ -19,6 +19,7 @@ const PAGE_LABEL = {
 }
 
 const EXIT_MS = 260
+const LIMIT = 10
 
 function strayKey(stray) {
   return stray.node + ':' + stray.name
@@ -36,6 +37,10 @@ function alertKey(alert) {
             ? alert.msg
             : ''
   return alert.kind + ':' + alert.level + ':' + who
+}
+
+function visible(alerts, all) {
+  return all ? alerts : alerts.slice(0, LIMIT)
 }
 
 function merge(prev, alerts) {
@@ -56,15 +61,18 @@ function merge(prev, alerts) {
   return next.map((row) => (had.has(row.key) ? row : { ...row, fresh: true }))
 }
 
-export default function AlertList({ alerts, total, onNavigate }) {
+export default function AlertList({ alerts, onNavigate }) {
   const [busy, setBusy] = useState('')
-  const [rows, setRows] = useState(() => merge([], alerts).map((row) => ({ ...row, fresh: false })))
-  const [from, setFrom] = useState(alerts)
+  const [all, setAll] = useState(false)
+  const [rows, setRows] = useState(() =>
+    merge([], visible(alerts, false)).map((row) => ({ ...row, fresh: false }))
+  )
+  const [from, setFrom] = useState({ alerts, all })
   const [won, setWon] = useState(false)
 
-  if (alerts !== from) {
-    setFrom(alerts)
-    setRows(merge(rows, alerts))
+  if (alerts !== from.alerts || all !== from.all) {
+    setFrom({ alerts, all })
+    setRows(merge(rows, visible(alerts, all)))
     if (alerts.length) setWon(false)
   }
 
@@ -118,8 +126,8 @@ export default function AlertList({ alerts, total, onNavigate }) {
                   aria-busy={deleting}
                   onClick={() => dropStray(alert.stray)}
                 >
-                  {deleting ? <span className="bspin ink sm" /> : <Icon name="trash" />}
-                  {T('ov_stray_del')}
+                  <span className="gol">{T('ov_stray_del')}</span>
+                  {deleting ? <span className="bspin ink sm" /> : null}
                 </button>
               ) : null}
               <button type="button" className="go" onClick={jump}>
@@ -130,9 +138,12 @@ export default function AlertList({ alerts, total, onNavigate }) {
           </Reveal>
         )
       })}
-      {total > alerts.length ? (
-        <div className="oalert">
-          <span className="msg muted">{TF('ov_more_alerts', { n: total - alerts.length })}</span>
+      {alerts.length > LIMIT ? (
+        <div className="oalert omore">
+          <button type="button" className="go" aria-expanded={all} onClick={() => setAll(!all)}>
+            {all ? T('ov_less_alerts') : TF('ov_more_alerts', { n: alerts.length - LIMIT })}
+            <Icon name="chev" />
+          </button>
         </div>
       ) : null}
     </div>

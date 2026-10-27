@@ -3366,7 +3366,7 @@ def api_summary(d):
         for c in _pf_node_configs(nid)[0]:
             if c.get("enabled", True) is not False and _pf_lip_gone(c, ips):
                 alerts.append({"level": "warn", "kind": "portfw", "tab": "portfw", "id": _pf_key(nid, c.get("name")),
-                               "msg": tx("پورت‌فورواردِ «{0}» روی نودِ «{1}» فقط روی آی‌پیِ {2} گوش می‌دهد که دیگر روی نود نیست",
+                               "q": c.get("name"), "msg": tx("پورت‌فورواردِ «{0}» روی نودِ «{1}» فقط روی آی‌پیِ {2} گوش می‌دهد که دیگر روی نود نیست",
                                          "port forward '{0}' on node '{1}' listens only on {2}, which the node no longer has",
                                          c.get("name"), nm, c.get("listen_ip"))})
 
@@ -3451,7 +3451,7 @@ def api_summary(d):
             "central": central_stats(),
             "heat": heat, "worst": worst,
             "crit": len(crit),
-            "alerts": alerts[:10], "alert_count": len(alerts),
+            "alerts": alerts, "alert_count": len(alerts),
             "link_up": up, "link_noping": noping, "link_down": down, "link_drift": drift_n,
             "link_off": off_n,
             "link_types": types, "worst_tunnel": worst_tun,
@@ -9523,9 +9523,10 @@ def api_portfw_list(d):
         tf = _tf_read(n["id"])
         for c in cfgs:
             if q:
-                hay = (n["name"].lower(), str(c.get("listen_port", "")), str(c.get("dst_port", "")),
-                       str(c.get("iface") or "").lower(), c.get("listen_ip") or node_ip, *c.get("dst_ips", []))
-                if not any(q in v for v in hay if v):
+                hay = (n["name"].lower(), str(c.get("name") or "").lower(), str(c.get("listen_port", "")),
+                       str(c.get("dst_port", "")), str(c.get("iface") or "").lower(), c.get("listen_ip") or node_ip,
+                       *c.get("dst_ips", []))
+                if not _q_match(q, [v for v in hay if v]):
                     continue
             t = tf.get("pf:" + str(c.get("name") or ""))
             bw = ({"rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"], "rx_total": t["crx"], "tx_total": t["ctx"]}

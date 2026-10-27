@@ -96,8 +96,12 @@ export default function TunnelBreakdown({ summary }) {
   return (
     <div className="card">
       <div className="tst">
-        <StateTile value={up} label={T('tst_connected')} color="var(--ok-tx)" />
-        <StateTile value={noPing} label={T('tst_noping')} color="var(--gold-tx)" />
+        <StateTile value={up} label={T('tst_connected')} color={up ? 'var(--ok-tx)' : 'var(--tx)'} />
+        <StateTile
+          value={noPing}
+          label={T('tst_noping')}
+          color={noPing ? 'var(--gold-tx)' : 'var(--tx)'}
+        />
         <StateTile value={down} label={T('tst_down')} color={down ? 'var(--bad-tx)' : 'var(--tx)'} />
         <StateTile
           value={drift}
@@ -130,7 +134,7 @@ export default function TunnelBreakdown({ summary }) {
         worst={summary.worst_tunnel}
         fleetPing={summary.fleet_avg_ping}
         trouble={down + drift + noPing > 0}
-        hard={down + drift > 0}
+        hard={down > 0}
         counted={up + noPing + down + drift > 0}
       />
     </div>

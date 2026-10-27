@@ -38,8 +38,8 @@
 .oalert {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 2px;
+  gap: 8px;
+  padding: 10px 0;
 }
 
 .oalert + .oalert,
@@ -61,22 +61,38 @@
 }
 
 .oalert .go {
+  position: relative;
+  z-index: 0;
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 5px;
-  min-height: 40px;
-  margin-block: -9px;
-  padding: 0 10px;
+  gap: 3px;
+  padding: 0;
   border: 0;
-  border-radius: 10px;
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   color: var(--acc-tx);
   white-space: nowrap;
   cursor: pointer;
+}
+
+.oalert .go::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -11px -4px;
+  border-radius: 10px;
+}
+
+.oalert .go:focus-visible {
+  outline: 0;
+}
+
+.oalert .go:focus-visible::before {
+  outline: 2px solid var(--acc);
+  outline-offset: -2px;
 }
 
 .oalert .go .ic {
@@ -88,6 +104,16 @@
   color: var(--bad-tx);
 }
 
+.oalert .go > .bspin {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+
+.oalert .go[aria-busy='true'] > .gol {
+  opacity: 0;
+}
+
 .oalert .go:disabled {
   cursor: default;
 }
@@ -97,9 +123,21 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .oalert .go:hover:not(:disabled) {
+  .oalert .go:hover:not(:disabled)::before {
     background: color-mix(in srgb, currentColor 9%, transparent);
   }
+}
+
+.oalert.omore {
+  justify-content: center;
+}
+
+.omore .go .ic {
+  transition: transform .2s var(--ease-out);
+}
+
+.omore .go[aria-expanded='true'] .ic {
+  transform: rotate(180deg);
 }
 
 .ogm {
@@ -120,7 +158,6 @@
 }
 
 .otile {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -133,11 +170,18 @@
   font: inherit;
   text-align: start;
   cursor: pointer;
-  transition: filter .12s;
+  transition: transform .12s var(--ease-out), box-shadow .25s var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .otile:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--dsh-hi);
+  }
 }
 
 .otile:active {
-  filter: brightness(1.12);
+  transform: scale(.985);
 }
 
 .otile:focus-visible {
@@ -369,6 +413,7 @@
   min-width: 0;
   font-weight: 800;
   font-size: 12.5px;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -616,11 +661,13 @@
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
+    justify-content: center;
   }
 
   .otraf .tf-spk {
     flex: 1 1 auto;
     height: auto;
     min-height: 96px;
+    max-height: 180px;
   }
 }

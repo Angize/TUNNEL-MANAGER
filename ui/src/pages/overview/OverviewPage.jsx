@@ -51,7 +51,7 @@ function WorstRow({ label, entry, crit }) {
   return (
     <div className="wrow">
       <span className="wk">{label}</span>
-      <span className="wnm" title={entry.name}>
+      <span className="wnm" dir="auto" title={entry.name}>
         {entry.name}
       </span>
       <span className="wbar">
@@ -107,7 +107,7 @@ export default function OverviewPage({ onNavigate }) {
     ? T('ov_no_tunnel')
     : linksOff
       ? TF('ov_kpi_tun_off', { n: linksOff })
-      : T('ov_kpi_tun_allon')
+      : null
   const uptimeWindow = num(summary.uptime_window) || 1
 
   return (
@@ -140,7 +140,7 @@ export default function OverviewPage({ onNavigate }) {
 
         <div className="ogrid oduo">
           <Section icon="warn" titleKey="ov_attention">
-            <AlertList alerts={alerts} total={alertCount} onNavigate={onNavigate} />
+            <AlertList alerts={alerts} onNavigate={onNavigate} />
           </Section>
 
           <Section
