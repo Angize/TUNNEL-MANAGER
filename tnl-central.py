@@ -6470,8 +6470,8 @@ def _edge_live(nid):
                   "نودِ لبهٔ اختصاصیِ این تونل در پنل نیست — لبهٔ دیگری انتخاب کن یا لبه را از تونل بردار",
                   "this tunnel's private-CDN edge node is not in the panel — pick another edge or take the edge off the tunnel")
     if not _edge_of(N).get("on"):
-        raise Bad("edge_off", "نودِ «{0}» لبهٔ روشن نیست — اول در «تنظیمات › CDNِ اختصاصی» روشنش کن",
-                  "node '{0}' is not a live edge — turn it on under Settings › private CDN first", N["name"])
+        raise Bad("edge_off", "نودِ «{0}» لبهٔ روشن نیست — اول در «تنظیمات › CDN › CDNِ اختصاصی» روشنش کن",
+                  "node '{0}' is not a live edge — turn it on under Settings › CDN › private CDN first", N["name"])
     return N
 
 
@@ -11546,9 +11546,9 @@ def _edge_sync(*nids):
             bad.append(tx("«{0}»: {1}", "'{0}': {1}", N["name"], why))
     if not bad:
         return ""
-    return tx(" — ولی جدولِ مسیرِ لبه به‌روز نشد ({0})؛ وقتی لبه در دسترس شد در «تنظیمات › CDNِ اختصاصی» دوباره ذخیره‌اش کن",
+    return tx(" — ولی جدولِ مسیرِ لبه به‌روز نشد ({0})؛ وقتی لبه در دسترس شد در «تنظیمات › CDN › CDNِ اختصاصی» دوباره ذخیره‌اش کن",
               " — but the edge route table was not updated ({0}); when the edge is reachable, save it again under "
-              "Settings › private CDN", tx_join("؛ ", bad, "; "))
+              "Settings › CDN › private CDN", tx_join("؛ ", bad, "; "))
 
 
 _edge_locks_guard = threading.Lock()

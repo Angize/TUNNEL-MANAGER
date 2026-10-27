@@ -39,7 +39,7 @@ function pageTop(el) {
   return top
 }
 
-export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNavigate, snug }) {
+export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNavigate, snug, nested, active = true }) {
   const { counts } = useSummary()
   const index = Math.max(0, kinds.findIndex((k) => k.id === kind))
   const pager = useRef(null)
@@ -96,11 +96,11 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
     const el = pager.current
     const pane = panes.current[indexRef.current]
     if (!el || !pane) return
-    const next = Math.max(pane.offsetHeight, Math.floor(window.innerHeight - pageTop(el))) + 'px'
+    const next = (nested ? pane.offsetHeight : Math.max(pane.offsetHeight, Math.floor(window.innerHeight - pageTop(el)))) + 'px'
     if (el.style.height === next) return
     el.classList.toggle('glide', glide === true)
     el.style.height = next
-  }, [])
+  }, [nested])
 
   useEffect(() => {
     const el = pager.current
@@ -209,9 +209,9 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
 
   return (
     <>
-      <PageHead icon={icon} titleKey={titleKey} />
+      {nested ? null : <PageHead icon={icon} titleKey={titleKey} />}
 
-      <div className={'lseg' + (snug ? ' snug' : '')} ref={seg}>
+      <div className={'lseg' + (snug ? ' snug' : '') + (nested ? ' nested' : '')} ref={seg}>
         <span className="lthumb" ref={thumb} />
         {kinds.map((k, i) => (
           <button
@@ -227,17 +227,21 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
         ))}
       </div>
 
-      <div className="ldots" ref={dots} aria-hidden="true">
-        {kinds.map((k, i) => (
-          <i key={k.id} className={i === index ? 'on' : ''} />
-        ))}
-      </div>
+      {nested ? null : (
+        <>
+          <div className="ldots" ref={dots} aria-hidden="true">
+            {kinds.map((k, i) => (
+              <i key={k.id} className={i === index ? 'on' : ''} />
+            ))}
+          </div>
 
-      <p className="sub lsub" ref={sub}>
-        {T(kinds[index].subKey)}
-      </p>
+          <p className="sub lsub" ref={sub}>
+            {T(kinds[index].subKey)}
+          </p>
+        </>
+      )}
 
-      <div className="lpager" ref={pager}>
+      <div className={'lpager' + (nested ? ' nested' : '')} ref={pager}>
         {kinds.map((k, i) => (
           <section
             key={k.id}
@@ -247,7 +251,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
             }}
             inert={i !== index}
           >
-            <k.Page active={i === index} onNavigate={onNavigate} />
+            <k.Page active={active && i === index} onNavigate={onNavigate} />
           </section>
         ))}
       </div>

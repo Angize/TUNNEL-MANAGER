@@ -1152,7 +1152,7 @@
    [
     400,
     "edge_off",
-    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+    "node '…' is not a live edge — turn it on under Settings › CDN › private CDN first"
    ],
    [
     400,
@@ -1988,7 +1988,7 @@
    [
     400,
     "edge_off",
-    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+    "node '…' is not a live edge — turn it on under Settings › CDN › private CDN first"
    ],
    [
     400,
@@ -3557,7 +3557,7 @@
    [
     400,
     "edge_off",
-    "node '…' is not a live edge — turn it on under Settings › private CDN first"
+    "node '…' is not a live edge — turn it on under Settings › CDN › private CDN first"
    ],
    [
     400,
