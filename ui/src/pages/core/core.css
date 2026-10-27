@@ -1,8 +1,8 @@
 .rl {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
-  border-radius: 5px;
-  padding: 1px 4px;
+  border-radius: 6px;
+  padding: 1px 5px;
   letter-spacing: .2px;
   flex: 0 0 auto;
 }
@@ -67,11 +67,6 @@
   height: 13px;
 }
 
-.enmeta .emcol > div.tagrow {
-  overflow: visible;
-  white-space: nowrap;
-}
-
 .enmeta.cgrid {
   row-gap: 0;
   align-items: stretch;
@@ -111,8 +106,13 @@
   unicode-bidi: isolate;
 }
 
-.cgrid .cgc .tag + .tag {
-  margin-inline-start: 4px;
+.cgrid .cgc.wrap {
+  white-space: normal;
+  overflow: visible;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 4px;
 }
 
 .cgrid .encval {
@@ -319,10 +319,11 @@
   flex-direction: column;
   min-width: 0;
   margin: 0;
-  padding: 0 10px;
-  border-radius: 10px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  padding: 0;
+}
+
+.cdxin > * + .cdxkv {
+  border-top: 1px dashed var(--bord);
 }
 
 .cdxkv > div {
@@ -374,10 +375,6 @@
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: var(--badw);
-  border: 1px solid color-mix(in srgb, var(--bad) 26%, transparent);
   color: var(--bad-tx);
   font-size: 11.5px;
   line-height: 1.85;
@@ -481,10 +478,7 @@
   flex-direction: column;
   min-width: 0;
   margin: 0;
-  padding: 0 10px;
-  border-radius: 10px;
-  background: var(--field);
-  border: 1px solid var(--bord);
+  padding: 0;
 }
 
 .cdxhosts > li {
@@ -530,7 +524,12 @@
 
 .cdxhosts > li > .cdxerr {
   grid-column: 1 / -1;
-  margin-top: 6px;
+  margin-top: 2px;
+  padding-inline-start: 22px;
+}
+
+.cdxhosts > li > .cdxerr > .ic {
+  display: none;
 }
 
 @media (hover: hover) and (pointer: fine) {

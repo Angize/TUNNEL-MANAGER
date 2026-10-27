@@ -31,7 +31,7 @@ export function movedTo(link, side) {
 }
 
 export function linkSideState(link, side) {
-  if (link.enabled === false) return { kind: 'na', word: T('st_off'), title: T('st_off'), off: true }
+  if (link.enabled === false) return { kind: 'na', word: '', title: T('st_off') }
   if (link.building && !link[side + '_health']) return { kind: 'na', word: '…', title: T('checking') }
   return sideState(link[side + '_online'], link[side + '_health'])
 }

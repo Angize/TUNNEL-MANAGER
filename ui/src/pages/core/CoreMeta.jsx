@@ -8,7 +8,6 @@ import {
   RAW_ROT_LO,
   RAW_SPORT_FIXED,
   carrierFamily,
-  carrierLabel,
   carrierProfile,
   edgePool,
 } from './carrier.js'
@@ -20,8 +19,6 @@ import { num } from '../../lib/num.js'
 
 const SERVER_HOST = 1
 const CLIENT_HOST = 2
-const CAPS_PER_CELL = 2
-const SHORT_CAP = 4
 const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 })
 
 function capabilities(link) {
@@ -59,8 +56,8 @@ function ConntrackWarning({ link, ported }) {
   )
 }
 
-function cell(label, value) {
-  return { label, value }
+function cell(label, value, wrap) {
+  return { label, value, wrap }
 }
 
 function mono(value) {
@@ -113,20 +110,17 @@ function sidePorts(link, rungTransports, ported) {
 function capCells(link) {
   const tags = capabilities(link)
   if (!tags.length) return []
-  const short = (tag) => !!tag && tag.length <= SHORT_CAP
-  const first = short(tags[0]) && short(tags[1]) ? CAPS_PER_CELL : 1
-  const chunks = [tags.slice(0, first)]
-  for (let i = first; i < tags.length; i += CAPS_PER_CELL) chunks.push(tags.slice(i, i + CAPS_PER_CELL))
-  return chunks.map((chunk, i) =>
+  return [
     cell(
-      i ? '' : T('caps'),
-      chunk.map((tag) => (
+      T('caps'),
+      tags.map((tag) => (
         <span key={tag} className="tag obfs">
           {tag}
         </span>
-      ))
-    )
-  )
+      )),
+      true
+    ),
+  ]
 }
 
 function rawCells(link, ported) {
@@ -158,12 +152,7 @@ function sharedCells(link, ported) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
-    cell(
-      T('ttype'),
-      <span className={'ctag c-' + carrierFamily(link)}>
-        {carrierLabel(link) + (profile ? ' · ' + profile : '')}
-      </span>
-    ),
+    ...(profile ? [cell(T('raw_prof'), <span className={'ctag c-' + carrierFamily(link)}>{profile}</span>)] : []),
     cell(
       T('enc_short'),
       cipher ? (
@@ -189,7 +178,7 @@ function pairs(cells) {
 
 function Cell({ c }) {
   return (
-    <div className="cgc">
+    <div className={'cgc' + (c && c.wrap ? ' wrap' : '')}>
       {c && c.label ? c.label + ': ' : null}
       {c ? c.value : null}
     </div>

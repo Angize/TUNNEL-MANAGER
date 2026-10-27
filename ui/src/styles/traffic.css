@@ -16,10 +16,15 @@
   padding-top: 9px;
   border-top: 1px dashed var(--bord);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 13px;
+  gap: 4px 12px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.ltraf > * {
+  white-space: nowrap;
 }
 
 .ltraf .tot {

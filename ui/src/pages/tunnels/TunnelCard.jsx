@@ -47,14 +47,6 @@ function Chevron() {
 
 function SideStatus({ link, side }) {
   const state = linkSideState(link, side)
-  if (state.off) {
-    return (
-      <>
-        <span className="stw na">{state.word}</span>
-        <span className="sdot na" />
-      </>
-    )
-  }
   return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
 }
 
@@ -63,7 +55,9 @@ function SideBox({ link, side }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title}>
       <div className="tnhead">
-        <span className="tnn">{link[side + '_name']}</span>
+        <span className="tnn" dir="auto" title={link[side + '_name']}>
+          {link[side + '_name']}
+        </span>
         <span className="stat">
           <SideStatus link={link} side={side} />
         </span>
@@ -190,7 +184,7 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
           className="chead"
           {...(sel
             ? pressable(() => sel.pick(link.id))
-            : { ...hold, ...pressable(() => toggleCard(link.id), () => setPicking(true)) })}
+            : { ...hold, ...pressable(() => toggleCard(link.id), () => setPicking(true)), 'aria-expanded': open })}
         >
           <Grip />
           {sel ? (
@@ -207,16 +201,15 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
             <div className="hrow1">
               <span className="hname">{link.name}</span>
               <span className={'ctag ' + (link.type || '')}>{(link.type || '').toUpperCase()}</span>
-              {enabled ? null : (
-                <span className="offtxt" style={{ fontSize: 11 }}>
-                  {T('st_off')}
-                </span>
-              )}
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side="a" />
-                <span className="pn">{link.a_name}</span>
+                <span className="pn" title={link.a_name}>
+                  {link.a_name}
+                </span>
                 <Icon name="arrows" />
-                <span className="pn">{link.b_name}</span>
+                <span className="pn" title={link.b_name}>
+                  {link.b_name}
+                </span>
                 <SideDot link={link} side="b" />
               </span>
             </div>
@@ -239,7 +232,7 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
 
           {link.enabled === false ? (
             <div className="offbadge">
-              <Icon name="warn" color="var(--bad-tx)" />
+              <Icon name="plugoff" />
               <span>{T('tun_off_note')}</span>
             </div>
           ) : (

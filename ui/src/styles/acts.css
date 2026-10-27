@@ -3,12 +3,30 @@
   padding: 9px 12px;
   border-radius: 14px;
   background: var(--accw);
-  display: flex;
-  align-items: center;
-  gap: 9px;
   font-size: 11.5px;
   color: var(--sub);
-  flex-wrap: wrap;
+  container-type: inline-size;
+}
+
+.arin {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(36px, auto) auto auto;
+  grid-template-areas:
+    'st . end'
+    'step step step'
+    'bar bar bar';
+  align-items: center;
+  gap: 7px 9px;
+}
+
+@container (min-width: 480px) {
+  .arin {
+    grid-template-rows: minmax(36px, auto) auto;
+    grid-template-areas:
+      'st step end'
+      'bar bar bar';
+  }
 }
 
 .ast {
@@ -17,7 +35,8 @@
   font-weight: 800;
   padding: 3px 9px;
   border-radius: 20px;
-  flex: 0 0 auto;
+  grid-area: st;
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -49,7 +68,7 @@
 }
 
 .astep {
-  flex: 1 1 auto;
+  grid-area: step;
   min-width: 0;
   line-height: 1.7;
   color: var(--tx);
@@ -71,11 +90,17 @@
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--sub);
-  flex: 0 0 auto;
+}
+
+.aend {
+  grid-area: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
 }
 
 .abar {
-  flex: 1 1 100%;
+  grid-area: bar;
   height: 4px;
   border-radius: 3px;
   background: var(--ctl);
@@ -121,11 +146,16 @@
 
 .abtn {
   flex: 0 0 auto;
+  min-width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: inherit;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  padding: 5px 11px;
+  padding: 0 11px;
   border-radius: 9px;
   border: 1px solid var(--edge);
   background: var(--card);
@@ -141,6 +171,15 @@
 .abtn:hover {
   color: var(--tx);
   border-color: var(--sub);
+}
+
+.abtn.x {
+  padding: 0;
+}
+
+.abtn.x .ic {
+  width: 14px;
+  height: 14px;
 }
 
 .abtn.danger {
