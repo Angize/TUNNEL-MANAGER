@@ -142,9 +142,9 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
             onChange={(e) => setUser(e.target.value)}
           />
         </Field>
-        <Field label={T('px_pass')}>
+        <Field label={T('px_pass')} hint={proxy && proxy.has_pass ? T('px_pass_keep') : undefined}>
           <SecretInput
-            placeholder={proxy && proxy.has_pass ? T('px_pass_keep') : T('px_opt')}
+            placeholder={proxy && proxy.has_pass ? undefined : T('px_opt')}
             value={pass}
             onChange={setPass}
           />

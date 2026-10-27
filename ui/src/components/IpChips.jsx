@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import Icon from './Icon.jsx'
 import { T } from '../i18n/fa.js'
-import { pressable } from '../lib/keys.js'
 
 function LinkMark() {
   return (
@@ -22,20 +20,14 @@ function LinkMark() {
 }
 
 function PeerChip({ peer }) {
-  const [shown, setShown] = useState(false)
   return (
-    <span
-      className={'ippeer' + (shown ? ' show' : '')}
-      title={T('ip_toggle_hint')}
-      {...pressable((e) => {
-        e.stopPropagation()
-        setShown((v) => !v)
-      })}
-    >
-      <span className="ipn">
-        <LinkMark /> {peer.node}
+    <span className="ippeer">
+      <LinkMark />
+      <bdi>{peer.name || peer.type}</bdi>
+      <span className="ipo">
+        <Icon name="arrows" />
+        <bdi>{peer.node}</bdi>
       </span>
-      <span className="ipi">{peer.name || peer.type}</span>
     </span>
   )
 }
@@ -48,7 +40,9 @@ export default function IpChips({ entry }) {
       ))}
       {(entry.pf || []).map((name) => (
         <span className="ippf" key={'pf:' + name}>
-          <Icon name="globe" /> {T('nd_portfw') + ' · ' + name}
+          <Icon name="globe" />
+          {T('nd_portfw') + ' ·'}
+          <bdi>{name}</bdi>
         </span>
       ))}
       {entry.free ? <span className="ipfree">{T('free')}</span> : null}

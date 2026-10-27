@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import IpChips from '../../components/IpChips.jsx'
+import SaveLabel from '../../components/SaveLabel.jsx'
 import Gauge from '../overview/Gauge.jsx'
 import Sparkline from '../overview/Sparkline.jsx'
 import { T } from '../../i18n/fa.js'
@@ -10,12 +11,18 @@ import { readError, translateError } from '../../lib/errors.js'
 import { getUiInterval } from '../../lib/poll.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
+import useBusy from '../../lib/useBusy.js'
 
 const SPARK_POINTS = 30
 
+function gb(mb) {
+  const v = num(mb) / 1024
+  return v < 10 ? v.toFixed(1) : Math.round(v)
+}
+
 function Tile({ icon, label, children, wide, ltr }) {
   return (
-    <div className={'nd-tile' + (wide ? ' nd-wide' : '')}>
+    <div className={'nd-tile' + (wide ? ' nd-wide nd-line' : '')}>
       <span className="medi">
         <Icon name={icon} />
       </span>
@@ -37,7 +44,9 @@ function TrafficRow({ row }) {
   return (
     <div className="tf-row">
       <div className="tf-nm">
-        <span className="mono">{row.name}</span>
+        <span className="mono" title={row.name}>
+          {row.name}
+        </span>
       </div>
       <div className="tf-fig">
         <span className="din iso">↓{fmtRate(row.rx_bps)}</span>
@@ -60,6 +69,7 @@ export default function NodeDetailsModal({ node, onClose }) {
   const [ipsError, setIpsError] = useState('')
   const rxHistory = useRef([])
   const txHistory = useRef([])
+  const [testing, guard] = useBusy()
 
   useEffect(() => {
     if (!node.online) return undefined
@@ -130,22 +140,21 @@ export default function NodeDetailsModal({ node, onClose }) {
     ? Math.round((num(stats.mem_used_mb) / num(stats.mem_total_mb)) * 100)
     : 0
 
-  const subtitle = node.online ? (
-    <>
-      <span className="lpill">
-        <span className="pd" />
-        {T('live')}
-      </span>{' '}
-      {shownOnline ? T('refresh2s') : T('nd_off_last')}
-    </>
-  ) : (
+  const subtitle = !node.online ? (
     T('nd_status')
+  ) : shownOnline ? (
+    <span className="lpill">
+      <span className="pd" />
+      {T('refresh2s')}
+    </span>
+  ) : (
+    T('nd_off_last')
   )
 
   const footer = (
     <>
-      <button className="primary" onClick={retest}>
-        {T('nd_conn_test')}
+      <button className="primary" disabled={testing} onClick={guard(retest)}>
+        <SaveLabel busy={testing}>{T('nd_conn_test')}</SaveLabel>
       </button>
       <button className="ghost" onClick={onClose}>
         {T('close')}
@@ -159,7 +168,6 @@ export default function NodeDetailsModal({ node, onClose }) {
       title={T('nd_title')}
       subtitle={subtitle}
       footer={footer}
-      cls="ndsheet"
       onClose={onClose}
     >
       <div className="nd-head">
@@ -191,18 +199,18 @@ export default function NodeDetailsModal({ node, onClose }) {
             <Gauge
               label={T('ram')}
               pct={ramPct}
-              sub={num(stats.mem_used_mb) + ' / ' + num(stats.mem_total_mb) + ' ' + T('unit_mb')}
+              sub={
+                stats.mem_used_mb != null
+                  ? gb(stats.mem_used_mb) + ' / ' + gb(stats.mem_total_mb) + ' ' + T('unit_gb')
+                  : '—'
+              }
             />
             <Gauge
               label={T('disk')}
               pct={stats.disk_pct}
               sub={
                 stats.disk_used_mb != null
-                  ? Math.round(num(stats.disk_used_mb) / 1024) +
-                    ' / ' +
-                    Math.round(num(stats.disk_total_mb) / 1024) +
-                    ' ' +
-                    T('unit_gb')
+                  ? gb(stats.disk_used_mb) + ' / ' + gb(stats.disk_total_mb) + ' ' + T('unit_gb')
                   : '—'
               }
             />
@@ -211,10 +219,6 @@ export default function NodeDetailsModal({ node, onClose }) {
           <div className="nd-sec">
             <Icon name="traf" />
             {T('nd_traffic')}
-            <span className="lpill" style={{ marginInlineStart: 'auto' }}>
-              <span className="pd" />
-              {T('live')}
-            </span>
           </div>
           <div className="tf-chart">
             <div className="tf-top">
@@ -271,9 +275,6 @@ export default function NodeDetailsModal({ node, onClose }) {
             <Tile icon="server" label={T('host')} wide ltr>
               {info.hostname || '?'}
             </Tile>
-            <Tile icon="pin" label={T('ip')} wide ltr>
-              {node.host}
-            </Tile>
             <Tile icon="globe" label={T('nd_central')} wide ltr>
               <CentralCell node={node} />
             </Tile>
@@ -284,11 +285,19 @@ export default function NodeDetailsModal({ node, onClose }) {
           <div className="nd-sec">
             <Icon name="pin" />
             {T('nd_ips')}
-            <span
-              className="muted"
-              style={{ marginInlineStart: 'auto', fontSize: 11, fontWeight: 500 }}
-            >
-              {T('ip_leg')}
+            <span className="iplg">
+              <span>
+                <i className="tun" />
+                {T('ip_leg_tun')}
+              </span>
+              <span>
+                <i className="pf" />
+                {T('nd_portfw')}
+              </span>
+              <span>
+                <i />
+                {T('free')}
+              </span>
             </span>
           </div>
           <div className="ndips">

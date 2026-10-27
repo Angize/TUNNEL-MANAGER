@@ -17,7 +17,7 @@ import { isNodeNameValid } from './nodeName.js'
 import { copyText } from '../../components/CopyValue.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError } from '../../lib/errors.js'
+import { postError, readError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
@@ -49,6 +49,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   const [manual, setManual] = useState({ name: '', host: '', port: '', token: '' })
   const [manualProxy, setManualProxy] = useState(EMPTY_PROXY)
   const [manualCmd, setManualCmd] = useState('')
+  const [cmdErr, setCmdErr] = useState('')
+  const [cmdTry, setCmdTry] = useState(0)
 
   useEffect(() => {
     if (mode !== 'manual') return undefined
@@ -56,14 +58,22 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
     const port = String(manual.port || '').trim() || '8099'
     const t = setTimeout(() => {
       apiGet('node-install-cmd?port=' + encodeURIComponent(port))
-        .then((r) => alive && setManualCmd(r.cmd || ''))
-        .catch(() => alive && setManualCmd(''))
+        .then((r) => {
+          if (!alive) return
+          setManualCmd(r.cmd || '')
+          setCmdErr('')
+        })
+        .catch((e) => {
+          if (!alive) return
+          setManualCmd('')
+          setCmdErr(readError(e))
+        })
     }, 250)
     return () => {
       alive = false
       clearTimeout(t)
     }
-  }, [mode, manual.port])
+  }, [mode, manual.port, cmdTry])
 
   const onFinished = useCallback(
     (success, banner) => {
@@ -271,6 +281,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
             <div className="grid2">
               <Field label={T('nadd_node_name')} first>
                 <input
+                  {...LTR_TEXT}
                   placeholder="DE02"
                   value={auto.name}
                   onChange={(e) => setAuto({ ...auto, name: e.target.value })}
@@ -345,25 +356,49 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
               <Icon name="info" />
               <span>{T('nadd_manual_note')}</span>
             </div>
-            {manualCmd ? (
+            {cmdErr ? (
+              <div className="msg loadfail instfail">
+                <span>{T('nadd_cmd_load_fail') + ' ' + cmdErr}</span>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setCmdErr('')
+                    setCmdTry((n) => n + 1)
+                  }}
+                >
+                  <Icon name="redo" />
+                  {T('retry')}
+                </button>
+              </div>
+            ) : (
               <div className="instcmd">
-                <pre className="mono" dir="ltr">
-                  {manualCmd}
-                </pre>
+                {manualCmd ? (
+                  <pre className="mono" dir="ltr">
+                    {manualCmd}
+                  </pre>
+                ) : (
+                  <div className="instwait">
+                    <span className="bspin ink sm" />
+                    {T('loading')}
+                  </div>
+                )}
                 <button
                   type="button"
                   className="instcp"
                   title={T('tip_copy')}
                   aria-label={T('tip_copy')}
+                  disabled={!manualCmd}
                   onClick={(e) => copyText(manualCmd, e)}
                 >
                   <Icon name="copy" />
                 </button>
               </div>
-            ) : null}
+            )}
             <div className="grid2">
               <Field label={T('nadd_manual_name')} first>
                 <input
+                  {...LTR_TEXT}
                   placeholder="frankfurt-1"
                   value={manual.name}
                   onChange={(e) => setManual({ ...manual, name: e.target.value })}

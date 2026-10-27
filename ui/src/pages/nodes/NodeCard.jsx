@@ -5,7 +5,7 @@ import ActBtn from '../../components/ActBtn.jsx'
 import { useActionBusy } from '../../lib/useBusy.js'
 import UptimeBar from './UptimeBar.jsx'
 import { coreVersionName } from '../agent/versions.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
@@ -13,15 +13,6 @@ import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, num } from '../../lib/num.js'
 import { checkable } from '../../lib/keys.js'
 import Msg from '../../components/Msg.jsx'
-
-const PENDING_DEL_STYLE = {
-  fontSize: 9,
-  padding: '1px 5px',
-  background: 'color-mix(in srgb, #e0894f 18%, transparent)',
-  color: '#e0894f',
-}
-
-const PROXY_TAG_STYLE = { fontSize: 9.5, padding: '1px 6px' }
 
 function NodeTraffic({ traffic }) {
   if (!traffic) return null
@@ -109,48 +100,47 @@ function NodeCard({
       <div
         className={'tsw' + (enabled ? ' on' : '') + (toggleBusy ? ' busy' : '')}
         aria-busy={!!toggleBusy}
+        aria-label={T('nd_toggle')}
         title={T('nd_toggle')}
         {...checkable('switch', enabled, toggle)}
       />
-      {node.moved_to ? (
-        <button
-          className="mvwarn"
-          title={T('nd_moved_t')}
-          onClick={(e) => {
-            e.stopPropagation()
-            onMovedIp(node)
-          }}
-        >
-          <Icon name="warn" />
-        </button>
-      ) : null}
-      <span className="grow" />
-      <div
-        className="hmain"
-        style={{ direction: 'ltr', alignItems: 'flex-start', gap: 2, flex: '0 1 auto', minWidth: 0 }}
-      >
-        <div className="name nmrow">
-          <span className="nmtxt">{node.name}</span>
-          {node.pending_del > 0 ? (
-            <span className="tag" style={PENDING_DEL_STYLE} title={T('pend_del_t')}>
-              <Icon name="trash" />
-              {num(node.pending_del)}
-            </span>
-          ) : null}
-          {node.proxy_on ? (
-            <span className="tag" style={PROXY_TAG_STYLE}>
-              {T('proxy')}
-            </span>
-          ) : null}
-        </div>
-        <div className="muted mono nmtxt" style={{ fontSize: 12 }}>
-          {node.host}:{node.port}
-        </div>
-      </div>
       <span
         className={'ndot ' + dot}
         title={node.online ? T('online') : node.pending ? T('pending_check') : T('offline')}
       />
+      <div className="hmain" style={{ alignItems: 'flex-start', gap: 2 }}>
+        <div className="name nmrow">
+          <span className="nmtxt" dir="ltr">
+            {node.name}
+          </span>
+          {node.pending_del > 0 ? (
+            <span className="tag pdel" title={T('pend_del_t')}>
+              <Icon name="trash" />
+              {TF('pend_del_n', { n: num(node.pending_del) })}
+            </span>
+          ) : null}
+          {node.proxy_on ? <span className="tag">{T('proxy')}</span> : null}
+        </div>
+        <div className="nmhost">
+          <span className="muted mono nmtxt" dir="ltr">
+            {node.host}:{node.port}
+          </span>
+          {node.moved_to ? (
+            <button
+              type="button"
+              className="mvwarn"
+              aria-label={T('nd_moved_t')}
+              title={T('nd_moved_t')}
+              onClick={(e) => {
+                e.stopPropagation()
+                onMovedIp(node)
+              }}
+            >
+              <Icon name="warn" />
+            </button>
+          ) : null}
+        </div>
+      </div>
     </>
   )
 
@@ -175,7 +165,7 @@ function NodeCard({
           {info.version ? (
             <span className="nchip">
               <Icon name="server" />
-              {T('nd_agent')} <b className="mono">{info.version}</b>
+              {T('nd_agent')} <b>{info.version}</b>
             </span>
           ) : null}
           {info.core_sha && String(info.core_sha).length ? (
@@ -203,7 +193,7 @@ function NodeCard({
       <div className="nact iconly">
         <ActBtn cls="ok" icon="bolt" title={T('tip_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         {node.online ? (
-          <ActBtn icon="gauge" title={T('tip_tune')} locked={!!busyAct} onClick={() => onTune(node)} />
+          <ActBtn cls="tune" icon="gauge" title={T('tip_tune')} locked={!!busyAct} onClick={() => onTune(node)} />
         ) : null}
         <ActBtn cls="reset" icon="reset" title={T('tip_nreset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
         <ActBtn cls="info" icon="info" title={T('tip_details')} locked={!!busyAct} onClick={() => onDetails(node)} />

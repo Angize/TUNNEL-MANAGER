@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
-import Icon from '../../components/Icon.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
 import CdnSteps from '../../components/CdnSteps.jsx'
-import { TF } from '../../i18n/fa.js'
+import { WarnCap } from '../core/form/controls.jsx'
 
 export default function DeleteNodeModal({ node, onClose, onDeleted }) {
   const [busy, setBusy] = useState(false)
@@ -55,28 +54,28 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
   }
 
   const footer = (
-    <button className="ghost" onClick={onClose}>
-      {T(done ? 'close' : 'cancel')}
-    </button>
+    <>
+      {done ? null : (
+        <button type="button" className="ghost tone tone-del" disabled={busy} onClick={() => wipe(offline)}>
+          {busy ? <span className="bspin ink" /> : offline ? T('del_wipe_force_yes') : T('del_wipe_t')}
+        </button>
+      )}
+      <button type="button" className="ghost" onClick={onClose}>
+        {T(done ? 'close' : 'cancel')}
+      </button>
+    </>
   )
 
   return (
     <Modal icon="trash" title={T('nd_del')} subtitle={node.name} footer={footer} onClose={onClose}>
-      <div className="muted" style={{ fontSize: 12.5, marginBottom: 13 }}>
-        {T('del_how')}
-      </div>
-      <button
-        type="button"
-        className="delopt danger"
-        disabled={busy || done}
-        onClick={() => wipe(offline)}
-      >
-        <div className="do-t">
-          {busy ? <span className="bspin ink sm" /> : <Icon name="warn" />}
-          {offline ? T('del_wipe_force_yes') : T('del_wipe_t')}
-        </div>
-        <div className="do-s">{offline ? T('del_wipe_force_s') : T('del_wipe_s')}</div>
-      </button>
+      {done ? null : (
+        <>
+          <div className="muted" style={{ fontSize: 12.5 }}>
+            {T('del_how')}
+          </div>
+          <WarnCap text={offline ? T('del_wipe_force_s') : T('del_wipe_s')} />
+        </>
+      )}
       <Msg text={message} />
       <CdnSteps steps={steps} />
     </Modal>

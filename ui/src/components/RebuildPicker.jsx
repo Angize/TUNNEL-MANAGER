@@ -111,7 +111,7 @@ export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
                     )}
                   >
                     <span className="rbdot" />
-                    <span className="mono" style={{ direction: 'ltr', fontSize: 13 }}>
+                    <span className="mono ipv" dir="ltr" style={{ fontSize: 13 }}>
                       {entry.ip}
                     </span>
                     <span className="rbtags">
