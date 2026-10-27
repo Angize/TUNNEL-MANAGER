@@ -7543,10 +7543,10 @@ def api_pool_select(d):
     return {"ok": True}
 
 
-def _pool_client(d, flag, missing):
+def _pool_client(d, has, missing):
     _require(d, ["id"])
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
-    if not L or L.get("type") != "core" or not L.get(flag):
+    if not L or L.get("type") != "core" or not has(L):
         raise missing
     node = _client_node(L)
     if not node:
@@ -7555,11 +7555,11 @@ def _pool_client(d, flag, missing):
 
 
 def _ws_pool_client(d):
-    return _pool_client(d, "ws_pool", Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
+    return _pool_client(d, _pooled, Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
 
 
 def _peer_pool_client(d):
-    return _pool_client(d, "ip_rotate", Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
+    return _pool_client(d, lambda L: L.get("ip_rotate"), Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
 
 
 _PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")
@@ -8852,6 +8852,21 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
+def _edge_named(L, events, name):
+    inner = (L.get("edge_route") or {}).get("inner") if L.get("edge_node") else ""
+    if not inner or not isinstance(events, list):
+        return events
+    out = []
+    for e in events:
+        if not isinstance(e, dict):
+            continue
+        d = str(e.get("detail") or "")
+        if d.startswith("sni:"):
+            continue
+        out.append(dict(e, detail=d.replace(inner, name)) if inner in d else e)
+    return out
+
+
 def _core_event_marks(events):
     return sorted((((_sint(e.get("ts")), _sint(e.get("seq"))), e)
                    for e in (events if isinstance(events, list) else []) if isinstance(e, dict)),
@@ -9254,8 +9269,7 @@ def _events_once():
         if at is None:
             continue
         nm = L.get("name", "")
-        precise_core = L.get("type") == "core" and (
-            bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)
+        precise_core = L.get("type") == "core" and str(L.get("transport") or "").lower() in CORE_TRANSPORTS
         if up:
             _ev_state["coarse_hold"].pop(lid, None)
             if not precise_core or lid in _ev_state["links_coarse_down"]:
@@ -9273,7 +9287,7 @@ def _events_once():
 
     seen = set()
     todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
-            and (bool(L.get("ws_pool")) or str(L.get("transport") or "").lower() in CORE_TRANSPORTS)]
+            and str(L.get("transport") or "").lower() in CORE_TRANSPORTS]
 
     srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
                and not _ev_state["rotip"].get(L["id"] + ":src")]
@@ -9302,8 +9316,7 @@ def _events_once():
     for L in links:
         if L.get("type") != "core" or not L.get("enabled", True):
             continue
-        tr = str(L.get("transport") or "").lower()
-        if not _pooled(L) and tr not in CORE_TRANSPORTS:
+        if str(L.get("transport") or "").lower() not in CORE_TRANSPORTS:
             continue
         lid = L["id"]
         seen.add(lid)
@@ -9317,7 +9330,7 @@ def _events_once():
             try:
                 if end == "cli":
                     _ev_seed_axes(L, r.get("active"))
-                _ingest_core_events(lid, end, nm, r.get("events"))
+                _ingest_core_events(lid, end, nm, _edge_named(L, r.get("events"), nmap.get(L.get("edge_node"), "")))
             except Exception:
                 continue
     for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:

@@ -33,6 +33,10 @@ export function carrierProfile(link) {
   return (link.transport || 'udp') === 'raw' ? rawProfileTag(link) : ''
 }
 
+export function edgePool(link) {
+  return link.transport === 'ws' && (!!link.ws_pool || (link.edge_ips || []).length > 1)
+}
+
 export function edgeHost(value) {
   const text = String(value || '')
   const last = text.lastIndexOf(':')
