@@ -34,7 +34,7 @@ function ExtraRow({ link }) {
       <div className="wrap">
         {T('enc')}:{' '}
         <span className="enc">
-          <Icon name="lock" color="var(--bad-tx)" />
+          <Icon name="lock" />
           {T('encrypted')}
         </span>
       </div>

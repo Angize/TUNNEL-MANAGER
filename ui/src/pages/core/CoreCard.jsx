@@ -69,7 +69,9 @@ function SideBox({ link, side, activeIp, rotating }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title}>
       <div className="tnhead">
-        <span className="tnn" dir="auto">{link[side + '_name']}</span>
+        <span className="tnn" dir="auto" title={link[side + '_name']}>
+          {link[side + '_name']}
+        </span>
         <span className="tnend">
           <span className={'rl ' + (isServer ? 'srv' : 'cli')}>
             {isServer ? T('server') : T('client')}
@@ -258,9 +260,13 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
               <span className={'ctag c-' + carrierFamily(link)}>{carrierLabel(link)}</span>
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side={first} />
-                <span className="pn">{link[first + '_name']}</span>
+                <span className="pn" title={link[first + '_name']}>
+                  {link[first + '_name']}
+                </span>
                 <Icon name="arrows" />
-                <span className="pn">{link[second + '_name']}</span>
+                <span className="pn" title={link[second + '_name']}>
+                  {link[second + '_name']}
+                </span>
                 <SideDot link={link} side={second} />
               </span>
             </div>

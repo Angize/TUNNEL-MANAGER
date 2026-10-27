@@ -115,11 +115,6 @@
   height: 15px;
 }
 
-.bulkbar .go:disabled {
-  opacity: .45;
-  cursor: default;
-}
-
 .bulkrun {
   flex: 1 1 auto;
   min-width: 0;

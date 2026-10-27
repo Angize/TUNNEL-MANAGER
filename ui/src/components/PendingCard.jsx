@@ -13,7 +13,9 @@ export default function PendingCard({ act, tagClass }) {
             <span className="hname">{TITLE[act.state] ? T(TITLE[act.state]) : act.name || T('a_pending')}</span>
             {family ? <span className={'ctag ' + tagClass(family)}>{family.toUpperCase()}</span> : null}
             <span className="hpeers" dir="ltr">
-              <span className="pn">{act.target || ''}</span>
+              <span className="pn" title={act.target || undefined}>
+                {act.target || ''}
+              </span>
             </span>
           </div>
         </div>

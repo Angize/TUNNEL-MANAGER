@@ -55,7 +55,9 @@ function SideBox({ link, side }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title}>
       <div className="tnhead">
-        <span className="tnn" dir="auto">{link[side + '_name']}</span>
+        <span className="tnn" dir="auto" title={link[side + '_name']}>
+          {link[side + '_name']}
+        </span>
         <span className="stat">
           <SideStatus link={link} side={side} />
         </span>
@@ -201,9 +203,13 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
               <span className={'ctag ' + (link.type || '')}>{(link.type || '').toUpperCase()}</span>
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side="a" />
-                <span className="pn">{link.a_name}</span>
+                <span className="pn" title={link.a_name}>
+                  {link.a_name}
+                </span>
                 <Icon name="arrows" />
-                <span className="pn">{link.b_name}</span>
+                <span className="pn" title={link.b_name}>
+                  {link.b_name}
+                </span>
                 <SideDot link={link} side="b" />
               </span>
             </div>

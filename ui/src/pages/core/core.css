@@ -106,8 +106,13 @@
   unicode-bidi: isolate;
 }
 
-.cgrid .cgc .tag + .tag {
-  margin-inline-start: 4px;
+.cgrid .cgc.wrap {
+  white-space: normal;
+  overflow: visible;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 4px;
 }
 
 .cgrid .encval {

@@ -52,7 +52,9 @@ function Box({ name, state, text, copy, rotating }) {
   return (
     <div className={'tnnode st-' + state.kind} title={state.title || undefined}>
       <div className="tnhead">
-        <span className="tnn" dir="auto">{name}</span>
+        <span className="tnn" dir="auto" title={name}>
+          {name}
+        </span>
         <span className="tnend">
           <span className="cprot">
             {rotating ? (
@@ -166,9 +168,13 @@ function PortfwCard({ item, onEdit, onChanged }) {
           </span>
           <span className="hpeers" dir="ltr">
             <span className={'sdot ' + node.kind} title={node.title || undefined} />
-            <span className="pn">{item.node}</span>
+            <span className="pn" title={item.node}>
+              {item.node}
+            </span>
             <Icon name="arrows" />
-            <span className="pn">{destIp}</span>
+            <span className="pn" title={destIp}>
+              {destIp}
+            </span>
             <span className={'sdot ' + dest.kind} title={dest.title || undefined} />
           </span>
         </div>
