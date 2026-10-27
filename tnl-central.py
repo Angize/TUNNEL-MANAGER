@@ -3335,11 +3335,11 @@ def api_summary(d):
             heat.append({"name": nm, "pct": None, "online": False, "pending": not _cache_get(nid),
                          "disabled": bool(n.get("disabled"))})
             if _cache_get(nid):
-                alerts.append({"level": "bad", "kind": "node", "node": nid,
+                alerts.append({"level": "bad", "kind": "node", "node": nid, "q": nm,
                                "msg": tx("نودِ «{0}» آفلاین است", "node '{0}' is offline", nm)})
             mv = moved_addr(nid)
             if mv:
-                alerts.append({"level": "warn", "kind": "node", "node": nid, "msg": tx(
+                alerts.append({"level": "warn", "kind": "node", "node": nid, "q": nm, "msg": tx(
                     "نودِ «{0}» از {1} جواب می‌دهد — نشانی‌اش را عوض کن",
                     "node '{0}' answers from {1} — change its address", nm, mv)})
             continue
@@ -3356,8 +3356,8 @@ def api_summary(d):
             if worst[key] is None or val > worst[key]["pct"]:
                 worst[key] = {"name": nm, "pct": val}
             if val >= UP_CRIT:
-                alerts.append({"level": "bad", "kind": key, "node": nid,
-                               "msg": tx("{0} «{1}» به {2}٪ رسیده", "{0} of '{1}' is at {2}%", lab, nm, val)})
+                alerts.append({"level": "bad", "kind": key, "node": nid, "q": nm,
+                               "msg": tx("{0} «\u2068{1}\u2069» به {2}٪ رسیده", "{0} of '{1}' is at {2}%", lab, nm, val)})
         w = max(cpu, ram, disk)
         heat.append({"name": nm, "pct": w, "online": True, "disabled": bool(n.get("disabled"))})
         if w >= UP_CRIT:
@@ -3388,7 +3388,7 @@ def api_summary(d):
         tab = "core" if L.get("type") == "core" else "tunnels"
         if link_drift(L["id"]):
             drift_n += 1
-            alerts.append({"level": "warn", "kind": "drift", "tab": tab, "id": L["id"], "msg": tx(
+            alerts.append({"level": "warn", "kind": "drift", "tab": tab, "id": L["id"], "q": L.get("name"), "msg": tx(
                 "تونلِ «{0}» نیازمندِ بازسازی است", "tunnel '{0}' needs a rebuild", L.get("name"))})
             continue
         if not state:
@@ -3396,7 +3396,7 @@ def api_summary(d):
             leak = _leak_end(L, nmap)
             msg = tx("تونلِ «{0}» قطع است — روی «{1}» مسیر به {2} می‌رود", "tunnel '{0}' is down — on '{1}' the route goes to {2}",
                      L.get("name"), *leak) if leak else tx("تونلِ «{0}» قطع است", "tunnel '{0}' is down", L.get("name"))
-            alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "msg": msg})
+            alerts.append({"level": "bad", "kind": "link", "tab": tab, "id": L["id"], "q": L.get("name"), "msg": msg})
             continue
         sides = [h for h in (ah, bh) if isinstance(h, dict)]
         if any(h.get("alive") is True for h in sides):
@@ -3415,7 +3415,7 @@ def api_summary(d):
             if worst_tun is None or (cand["loss"], cand["rtt"]) > (worst_tun["loss"], worst_tun["rtt"]):
                 worst_tun = cand
     for nid, who, nm in _stray_snapshot():
-        alerts.append({"level": "warn", "kind": "stray", "tab": "nodes", "stray": {"node": nid, "name": nm},
+        alerts.append({"level": "warn", "kind": "stray", "tab": "nodes", "q": who, "stray": {"node": nid, "name": nm},
                        "msg": tx("تونلِ «{0}» روی نودِ «{1}» هست ولی در پنل ثبت نیست",
                                  "tunnel '{0}' is on node '{1}' but not registered in the panel", nm, who)})
     if outdated:
