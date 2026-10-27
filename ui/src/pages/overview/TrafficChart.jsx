@@ -103,43 +103,33 @@ function useWidth(ref) {
 }
 
 function RangePicker({ ranges, value, onChange }) {
-  const units = [
-    ['h', T('bw_hours')],
-    ['d', T('bw_days')],
-  ]
+  const strip = useRef(null)
+  const unit = { h: T('bw_hours'), d: T('bw_days') }
+
+  useEffect(() => {
+    const row = strip.current
+    const on = row && row.querySelector('.on')
+    if (!on) return
+    const a = on.getBoundingClientRect()
+    const b = row.getBoundingClientRect()
+    if (a.left < b.left) row.scrollBy({ left: a.left - b.left - 24, behavior: 'smooth' })
+    else if (a.right > b.right) row.scrollBy({ left: a.right - b.right + 24, behavior: 'smooth' })
+  }, [value])
+
   return (
-    <div className="tf-rng" role="group" aria-label={T('bw_range')}>
-      <button
-        type="button"
-        className={'tf-live' + (value === 'live' ? ' on' : '')}
-        aria-pressed={value === 'live'}
-        onClick={() => onChange('live')}
-      >
-        <span className="pd" />
-        {T('live')}
-      </button>
-      {units.map(([unit, word]) => {
-        const group = ranges.filter((r) => r.endsWith(unit))
-        return (
-          <div className="tf-grp" key={unit} style={{ flexGrow: group.length }}>
-            <div className="tf-btns">
-              {group.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={value === r ? 'on' : ''}
-                  aria-pressed={value === r}
-                  aria-label={parseInt(r, 10) + ' ' + word}
-                  onClick={() => onChange(r)}
-                >
-                  {parseInt(r, 10)}
-                </button>
-              ))}
-            </div>
-            <small aria-hidden="true">{word}</small>
-          </div>
-        )
-      })}
+    <div className="tf-rng" role="group" aria-label={T('bw_range')} ref={strip}>
+      {['live', ...ranges].map((r) => (
+        <button
+          key={r}
+          type="button"
+          className={(r === 'live' ? 'tf-live' : '') + (value === r ? ' on' : '')}
+          aria-pressed={value === r}
+          onClick={() => onChange(r)}
+        >
+          {r === 'live' ? <span className="pd" /> : null}
+          {r === 'live' ? T('live') : parseInt(r, 10) + ' ' + unit[r.slice(-1)]}
+        </button>
+      ))}
     </div>
   )
 }
