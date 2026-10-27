@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CARD_TAGS } from '../lib/cardTags.js'
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 
 const ARM_MS = 300
@@ -75,6 +75,8 @@ export default function TagPicker({ current, onPick, onClose }) {
               key={i}
               type="button"
               className={'tagdot' + (current === i + 1 ? ' on' : '')}
+              aria-label={TF('tag_pick_n', { n: i + 1 })}
+              aria-pressed={current === i + 1}
               style={{ background: `linear-gradient(140deg,${colors.a},${colors.b})`, '--i': i }}
               onClick={() => pick(i + 1)}
             />

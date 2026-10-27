@@ -7,18 +7,19 @@ import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
+import IpField from '../../components/IpField.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { ipItems, nodeIps } from '../../lib/nodes.js'
+import { nodeIps } from '../../lib/nodes.js'
 import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
 import { TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
-import Msg from '../../components/Msg.jsx'
+import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
 
@@ -27,15 +28,15 @@ const PORT_TYPES = ['l2tpv3', 'fou']
 function TypeExtra({ type, port, onPort }) {
   if (PORT_TYPES.includes(type)) {
     return (
-      <Field label={rangeLabel(T('ttype_port_auto_lbl'), 1, PORT_MAX)} hint={T('ttype_l2_note')}>
+      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_l2_note')}>
         <NumberInput placeholder={T('ttype_port_ph')} value={port} onChange={onPort} />
       </Field>
     )
   }
   if (type === 'vxlan') {
     return (
-      <Field label={T('ttype_vxlan_lbl')} hint={T('ttype_vxlan_note')}>
-        <NumberInput placeholder="4789" value={port} onChange={onPort} />
+      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_vxlan_note')}>
+        <NumberInput placeholder={T('ttype_vxlan_ph')} value={port} onChange={onPort} />
       </Field>
     )
   }
@@ -69,21 +70,6 @@ function TypeExtraBox({ type, port, onPort }) {
         <TypeExtra type={type} port={port} onPort={onPort} />
       </div>
     </Reveal>
-  )
-}
-
-function IpField({ label, ips, value, onChange }) {
-  if (ips.length > 1) {
-    return (
-      <Field label={label} first>
-        <Select items={ipItems(ips)} value={value || ips[0]} placeholder={T('ip')} onChange={onChange} />
-      </Field>
-    )
-  }
-  return (
-    <Field label={label} first>
-      <input className="mono" value={ips[0] || '—'} disabled style={{ opacity: 0.6 }} />
-    </Field>
   )
 }
 
@@ -243,8 +229,8 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
               </div>
 
               <div className="grid2" style={{ marginTop: 11 }}>
-                <IpField label={T('src_ip')} ips={aIps} value={aIp} onChange={setAIp} />
-                <IpField label={T('dst_ip')} ips={bIps} value={bIp} onChange={setBIp} />
+                <IpField label={T('src_ip')} ips={aIps} value={aIp || aIps[0]} onChange={setAIp} />
+                <IpField label={T('dst_ip')} ips={bIps} value={bIp || bIps[0]} onChange={setBIp} />
               </div>
 
               <Field label={T('local_range')}>
@@ -258,9 +244,9 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
               <Reveal show={range === 'custom'}>
                 <Field label={T('custom_subnet')}>
                   <input
-                    className="phrtl"
+                    className="mono"
                     {...LTR_TEXT}
-                    placeholder={T('custom_subnet_ph')}
+                    placeholder={T(type === 'sit' ? 'custom_subnet_ph6' : 'custom_subnet_ph')}
                     value={customSubnet}
                     onChange={(e) => setCustomSubnet(e.target.value)}
                   />
@@ -279,7 +265,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
         }}
       />
 
-      <Msg text={message} />
+      <FormMsg text={message} />
     </Modal>
   )
 }

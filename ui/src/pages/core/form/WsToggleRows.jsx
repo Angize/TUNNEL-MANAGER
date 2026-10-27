@@ -21,11 +21,7 @@ function EchProxyPicker({ proxies, value, patch, ...aria }) {
   }, [value, first, patch])
 
   if (!proxies.length) {
-    return (
-      <div className="muted" style={{ fontSize: 12 }}>
-        {T('nd_proxy_none')}
-      </div>
-    )
+    return <div className="fldhint">{T('nd_proxy_none')}</div>
   }
   return (
     <Select
@@ -69,7 +65,7 @@ function Toggles({ form, cfg, proxies, patch }) {
       <SwitchRow
         on={form.WsTls}
         title={T('wstls_t')}
-        note={T('wstls_d')}
+        note={T(locked ? 'wstls_lk' : 'wstls_d')}
         locked={locked}
         onToggle={toggleTls}
       />

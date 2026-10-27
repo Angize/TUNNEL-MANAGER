@@ -26,7 +26,7 @@ import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 import useBusy from '../../../lib/useBusy.js'
 import SwapCascade from '../../../components/SwapCascade.jsx'
 import { T } from '../../../i18n/fa.js'
-import Msg from '../../../components/Msg.jsx'
+import FormMsg from '../../../components/FormMsg.jsx'
 import SaveLabel from '../../../components/SaveLabel.jsx'
 import useSaved from '../../../lib/useSaved.js'
 import '../coreform.css'
@@ -399,7 +399,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         }}
       />
 
-      <Msg text={message} />
+      <FormMsg text={message} />
     </Modal>
   )
 }

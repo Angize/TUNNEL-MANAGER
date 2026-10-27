@@ -67,7 +67,6 @@ DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
 DESYNC_INJECT_TTL_MAX = 8
 SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
-FAKE_TTL_MAX = 255
 FAKE_COUNT_MAX = 64
 SPLIT_POS_MAX = 1400
 CORE_MAX_WORKERS = 8
@@ -6079,10 +6078,10 @@ def _desync_fields(d, shape, cur=None, is_http=False):
     if not on:
         return out
     out["fake_desync"] = True
-    ttl = _int_in(d.get("fake_ttl") or cur.get("fake_ttl") or 4, 1, FAKE_TTL_MAX,
-                  Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا {0} باشد", "the decoy TTL must be from 1 to {0}", FAKE_TTL_MAX))
+    ttl = _int_in(d.get("fake_ttl") or cur.get("fake_ttl") or 4, 1, DESYNC_INJECT_TTL_MAX,
+                  Bad("bad_fake_ttl", "TTL طعمه باید بین 1 تا {0} باشد", "the decoy TTL must be from 1 to {0}", DESYNC_INJECT_TTL_MAX))
     if _shape_consumes("fake_ttl", *shape):
-        out["fake_ttl"] = min(ttl, DESYNC_INJECT_TTL_MAX)
+        out["fake_ttl"] = ttl
     cnt = _int_in(d.get("fake_count") or cur.get("fake_count") or 2, 1, FAKE_COUNT_MAX,
                   Bad("bad_fake_count", "تعدادِ طعمه باید بین 1 تا {0} باشد", "the decoy count must be from 1 to {0}", FAKE_COUNT_MAX))
     out["fake_count"] = cnt
@@ -12414,7 +12413,7 @@ def ui_config():
         "ev_groups": [list(x) for x in EV_GROUPS],
         "settings_defaults": dict(_SETTINGS_RESET),
         "split_ttl_max": SPLIT_TTL_MAX,
-        "limits": {"fake_ttl": [1, FAKE_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
+        "limits": {"fake_ttl": [1, DESYNC_INJECT_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
                    "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [0, PORT_TRIES_MAX],
                    "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN,
                    "install_parallel": _INSTALL_PARALLEL},

@@ -1,6 +1,3 @@
-import Field from '../../../components/Field.jsx'
-import Select from '../../../components/Select.jsx'
-import { T } from '../../../i18n/fa.js'
 import { checkable } from '../../../lib/keys.js'
 
 const CHECKED = (
@@ -40,22 +37,5 @@ export default function RotIpPool({ label, ips, selected, onToggle }) {
         })}
       </div>
     </>
-  )
-}
-
-export function IpField({ label, ips, value, onChange }) {
-  return (
-    <Field label={label} first>
-      {ips.length > 1 ? (
-        <Select
-          items={ips.map((ip) => ({ v: ip, label: ip }))}
-          value={value}
-          placeholder={T('ip')}
-          onChange={onChange}
-        />
-      ) : (
-        <input className="mono" value={ips[0] || '—'} disabled style={{ opacity: 0.6 }} />
-      )}
-    </Field>
   )
 }

@@ -156,7 +156,7 @@ const TUNNEL_FIELDS = [
   ['a_workers', 0, N, 'parallel queues on end a (1 to 8), any carrier but not with FEC; on tcp and ws (http and grpc included) each queue is its own connection and the panel form sets both ends to one number'],
   ['b_workers', 0, N, 'parallel queues on end b (1 to 8)'],
   ['fake_desync', 0, B, 'send decoy packets before the handshake — raw, tcp and ws'],
-  ['fake_ttl', 0, N, 'decoy TTL (default 4)'],
+  ['fake_ttl', 0, N, 'decoy TTL (1 to 8, default 4)'],
   ['fake_count', 0, N, 'number of decoys (1 to 64, default 2)'],
   ['fake_mode', 0, S, 'ttl, badsum or both'],
   ['ip_rotate', 0, B, 'rotate between several node IPs — udp, tcp and raw'],

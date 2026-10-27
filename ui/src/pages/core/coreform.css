@@ -152,10 +152,22 @@
   background: var(--fill);
   color: #fff;
   border: none;
-  border-radius: 9px;
-  min-width: 42px;
-  font-size: 18px;
+  border-radius: 13px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
   cursor: pointer;
+}
+
+.padd .ic {
+  width: 18px;
+  height: 18px;
+}
+
+.cdnlabel input.phrtl:placeholder-shown {
+  font-family: inherit;
 }
 
 .erow {
@@ -258,14 +270,31 @@
 }
 
 @media (max-width: 840px) {
-  .eib {
+  .eib,
+  .cdnpclear,
+  .ghost.cdnx {
     position: relative;
   }
 
-  .eib::before {
+  .eib::before,
+  .cdnpclear::before,
+  .ghost.cdnx::before {
     content: "";
     position: absolute;
-    inset: -3px;
+    inset: -6px;
+  }
+
+  .eacts {
+    gap: 8px;
+  }
+
+  .eib {
+    width: 32px;
+    height: 32px;
+  }
+
+  .eib::before {
+    inset: -6px -4px;
   }
 }
 

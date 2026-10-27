@@ -1,0 +1,5 @@
+.ipro {
+  background: var(--field);
+  box-shadow: none;
+  cursor: default;
+}

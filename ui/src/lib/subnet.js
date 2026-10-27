@@ -68,11 +68,15 @@ export function subnetFree(base, free) {
   return subnetCap(base)
 }
 
+function freeSub(base, free) {
+  return '\u2067' + TF('snr_free', { n: subnetFree(base, free) }) + '\u2069'
+}
+
 export function subnetRangeItems(free) {
   return [
-    { v: '192.168', label: T('snr_192'), sub: '(' + subnetFree('192.168', free) + ')' },
-    { v: '10', label: T('snr_10'), sub: '(' + subnetFree('10', free) + ')' },
-    { v: '172.16', label: T('snr_172'), sub: '(' + subnetFree('172.16', free) + ')' },
+    { v: '192.168', label: T('snr_192'), sub: freeSub('192.168', free) },
+    { v: '10', label: T('snr_10'), sub: freeSub('10', free) },
+    { v: '172.16', label: T('snr_172'), sub: freeSub('172.16', free) },
     { v: 'custom', label: T('snr_custom') },
   ]
 }

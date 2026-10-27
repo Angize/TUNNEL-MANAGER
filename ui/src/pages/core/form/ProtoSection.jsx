@@ -40,9 +40,7 @@ function Proto({ form, enums, patch }) {
         value={form.rawProto}
         onChange={(v) => patch({ rawProto: v })}
       />
-      <div className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 6 }}>
-        {T('raw_proto_hint')}
-      </div>
+      <div className="fldhint">{T('raw_proto_hint')}</div>
       <WarnCap text={rawProtoErr(form.rawProto, enums)} style={{ marginTop: 8 }} />
     </div>
   )
