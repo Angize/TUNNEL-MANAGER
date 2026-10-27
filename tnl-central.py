@@ -2872,12 +2872,12 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                     "ws_rotate_secs", "ws_port_roll", "gso",
-                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route",
+                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
 _PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool", "ws_pool_auto",
-                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route")
+                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate")
 
 
 def _node_extra(extra):
@@ -2958,19 +2958,42 @@ def _self_ech_bodies(src, a_body, b_body):
                 body["ws_ca"] = mat["ws_ca"]
 
 
-def _edge_addr(N):
-    return "%s:%d" % (N["host"], _edge_port(_edge_of(N)))
+def _edge_choices(N):
+    ips = [N["host"]] + _flat_ips(_cached_ping(N["id"]))
+    return [ip for ip in dict.fromkeys(ips) if is_ipv4(ip) and ipaddress.ip_address(ip).is_global]
+
+
+def _edge_dials(N, ips):
+    port = _edge_port(_edge_of(N))
+    if not ips:
+        return ["%s:%d" % (N["host"], port)]
+    gone = [ip for ip in ips if ip not in _edge_choices(N)]
+    if gone:
+        raise Bad("edge_ip_gone",
+                  "آی‌پیِ «{0}» روی نودِ لبهٔ «{1}» دیده نمی‌شود (نود جواب نمی‌دهد یا آی‌پی‌اش عوض شده) — "
+                  "اگر عوض شده، تونل را ویرایش کن و آی‌پی‌های لبه را دوباره انتخاب کن",
+                  "IP '{0}' is not seen on edge node '{1}' (the node does not answer or its IPs changed) — "
+                  "if they changed, edit the tunnel and pick the edge IPs again",
+                  tx_join("»، «", gone, "', '"), N["name"])
+    return ["%s:%d" % (ip, port) for ip in ips]
 
 
 def _edge_bodies(src, a_body, b_body):
     N = get_node(src.get("edge_node") or "")
     if not N:
         return
+    dials = _edge_dials(N, src.get("edge_ips"))
+    ech = _edge_of(N)["ws_ech"]
     for body in (a_body, b_body):
         if body.get("role") == "client":
-            body["edge_ip"] = _edge_addr(N)
             body["ws_ca"] = src["edge_route"]["cert"]
-            body["ws_ech"] = _edge_of(N)["ws_ech"]
+            if len(dials) == 1:
+                body["edge_ip"] = dials[0]
+                body["ws_ech"] = ech
+            else:
+                body["ws_edge_ips"] = dials
+                body["ws_edge_snis"] = [{"host": src["edge_route"]["inner"], "ech": ech}]
+                body["ws_rotate_secs"] = src["edge_rotate"]
 
 
 def _core_end_bodies(src, a_body, b_body):
@@ -5784,7 +5807,7 @@ def api_fleet(d):
                **tfl.get(L["id"], {})}
         EN = get_node(L.get("edge_node") or "")
         if EN:
-            rec["edge_at"] = {"name": EN["name"], "addr": _edge_addr(EN)}
+            rec["edge_at"] = {"name": EN["name"], "addrs": L["edge_route"]["front"]}
         if L.get("type") == "core":
             _ct = [t for t in ((L["a_name"], la.get("ct") or {}), (L["b_name"], lb.get("ct") or {}))
                    if t[1].get("max")]
@@ -6473,20 +6496,28 @@ def _edge_fields(d, cur, out):
     if not r:
         inner = "t%s.internal" % secrets.token_hex(6)
         r = dict(_gen_name_cert(inner), inner=inner)
+    ips = d["edge_ips"] if "edge_ips" in d else cur.get("edge_ips")
+    if not isinstance(ips or [], list) or not all(is_ipv4(str(ip)) for ip in ips or []):
+        raise Bad("bad_edge_ips", "فهرستِ آی‌پی‌های لبه باید فهرستی از آی‌پی‌های IPv4 باشد",
+                  "the edge IP list must be a list of IPv4 addresses")
     out["edge_node"] = _edge_pick(d, cur)
+    out["edge_ips"] = list(dict.fromkeys(str(ip) for ip in ips or []))
+    out["edge_rotate"] = _rotate_secs(d["edge_rotate"] if "edge_rotate" in d else cur.get("edge_rotate", 600),
+                                      28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval"))
     out["edge_route"] = {"inner": r["inner"], "cert": r["cert"], "key": r["key"]}
     out["ws_host"] = r["inner"]
     _own_tls_into(out, d, cur, _cdn_carrier(d, cur))
     return out
 
 
-def _edge_target(nid, srv_ip, port):
-    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_addr(get_node(nid))}
+def _edge_target(nid, srv_ip, port, ips):
+    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_dials(get_node(nid), ips)}
 
 
 def _edge_backend(extra, srv_ip):
     if extra.get("edge_route"):
-        extra["edge_route"] = dict(extra["edge_route"], **_edge_target(extra["edge_node"], srv_ip, extra["port"]))
+        extra["edge_route"] = dict(extra["edge_route"], **_edge_target(extra["edge_node"], srv_ip, extra["port"],
+                                                                       extra["edge_ips"]))
 
 
 _edge_holds = {}
@@ -6778,7 +6809,7 @@ _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
                   "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                   "ws_rotate_secs", "ws_port_roll", "sni_split", "split_pos", "sni_mode", "split_ttl",
-                  "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route",
+                  "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
@@ -7966,7 +7997,7 @@ def _rebuild_link_impl(d, h):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     if L.get("edge_node"):
         _edge_live(L["edge_node"])
-        edge_want = _edge_target(L["edge_node"], a_ip if _srv_is_a(L) else b_ip, L["port"])
+        edge_want = _edge_target(L["edge_node"], a_ip if _srv_is_a(L) else b_ip, L["port"], L.get("edge_ips"))
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
@@ -11475,7 +11506,12 @@ def _edge_follow(L, want):
 
 def _edge_current(L):
     N = get_node(L.get("edge_node") or "")
-    return not N or (L.get("edge_route") or {}).get("front") == _edge_addr(N)
+    if not N or not _node_answered(N["id"]):
+        return True
+    try:
+        return L["edge_route"].get("front") == _edge_dials(N, L.get("edge_ips"))
+    except Bad:
+        return False
 
 
 def _edge_sync(*nids):
@@ -11525,7 +11561,7 @@ def _edge_list():
         out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
                     "port": _edge_port(e), "decoy": e.get("decoy") or "", "routes": len(table.get(n["id"], [])),
                     "online": _node_answered(n["id"]), "front": bool(_cached_ping(n["id"]).get("front")),
-                    "hidden": bool(n.get("disabled"))})
+                    "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
     return out
 
 

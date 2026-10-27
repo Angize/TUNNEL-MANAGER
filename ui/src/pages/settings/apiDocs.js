@@ -187,6 +187,8 @@ const TUNNEL_FIELDS = [
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
   ['edge_node', 0, S, "id of a node that is a live private-CDN edge (cdn-edge): the client dials that node, which ends TLS and ECH and forwards to the server by a hidden inner name the panel makes, so the client never learns the server IP. any cdn_carrier (ws, http or grpc); not with ws_pool, ech, self_ech, edge_ip or cdn; not one of the tunnel's two ends. On an edit empty = take the tunnel off its edge. Only from inside the panel: with a token a non-empty edge_node gets 403 token_cdn"],
+  ['edge_ips', 0, L, "with edge_node: which of the edge node's public IPv4 addresses the client dials (from ips in cdn-edge). Empty = the node's own address. Two or more make an edge pool: the client rotates every edge_rotate seconds and moves on at once when the current IP fails. An IP the node no longer has refuses the save or rebuild with edge_ip_gone"],
+  ['edge_rotate', 0, N, 'with two or more edge_ips: rotation interval in seconds, 0 = only on failure (default 600)'],
 ]
 
 const CDN_PARAM =
@@ -741,7 +743,7 @@ export const DOCS = {
   },
   'cdn-edge': {
     t: 'Private-CDN edges',
-    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, routes (the enabled tunnels on it), online, front (whether the edge process is running) and hidden (the node is hidden from the tunnel lists). on and off answer with the same edges, plus msg when the node itself could not be updated.",
+    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, routes (the enabled tunnels on it), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the node itself could not be updated.",
     p: [
       ['act', 0, S, 'state (default), on (turn on, or save a new port or decoy) or off'],
       ['id', 0, S, 'node id — needed for on and off'],

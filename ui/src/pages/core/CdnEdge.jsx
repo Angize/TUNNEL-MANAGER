@@ -35,7 +35,14 @@ function edgeView(link, activeEdge) {
     const parts = String(activeEdge || '').split(' · ')
     return { live: true, ip: edgeHost(parts[0] || ''), domain: parts.slice(1).join(' · ') }
   }
-  if (link.edge_at) return { live: false, ip: edgeHost(link.edge_at.addr), domain: link.edge_at.name }
+  if (link.edge_at) {
+    const addrs = link.edge_at.addrs
+    return {
+      live: false,
+      ip: edgeHost(addrs[0]) + (addrs.length > 1 ? ' +' + (addrs.length - 1) : ''),
+      domain: link.edge_at.name,
+    }
+  }
   const ip = link.edge_ip ? edgeHost(link.edge_ip) : ''
   const domain = link.ws_host || ''
   return ip || domain ? { live: false, ip, domain } : null
