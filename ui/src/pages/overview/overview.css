@@ -547,68 +547,54 @@
   font-weight: 800;
 }
 
-.tf-when {
-  margin-inline-start: auto;
-  font-size: 11.5px;
-  color: var(--sub);
-}
-
 .tf-rng {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  margin-bottom: 8px;
-}
-
-.tf-grp {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 4px;
+  max-width: 460px;
+  padding: 3px;
+  margin-bottom: 10px;
+  border-radius: 13px;
+  background: var(--ctl);
 }
 
 .tf-rng button {
   border: 0;
+  border-radius: 9px;
   background: none;
   font-family: inherit;
-  font-size: 12px;
-  font-weight: 700;
   color: var(--sub);
-  min-width: 26px;
-  min-height: 28px;
-  padding: 0 5px;
-  border-radius: 9px;
   cursor: pointer;
-  font-variant-numeric: tabular-nums;
   touch-action: manipulation;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
 .tf-rng button:hover {
   color: var(--tx);
-  background: var(--ctl);
 }
 
 .tf-rng button.on {
   color: var(--acc-tx);
-  background: color-mix(in srgb, var(--acc) 15%, transparent);
-}
-
-.tf-unit {
-  font-size: 11px;
-  color: var(--sub);
-  margin-inline-start: 2px;
+  background: var(--accw);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 40%, var(--edge));
 }
 
 .tf-live {
-  display: inline-flex;
+  flex: none;
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 5px;
+  min-height: 44px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 700;
 }
 
 .tf-live .pd {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--sub);
 }
@@ -616,11 +602,46 @@
 .tf-rng .tf-live.on {
   color: var(--ok-tx);
   background: var(--okw);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, var(--edge));
 }
 
 .tf-live.on .pd {
   background: var(--ok);
   animation: lpulse 1.4s infinite;
+}
+
+.tf-grp {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-inline-start: 4px;
+  border-inline-start: 1px solid var(--edge);
+}
+
+.tf-btns {
+  display: flex;
+  gap: 2px;
+}
+
+.tf-btns button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-grp small {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--sub);
+  text-align: center;
+  padding-bottom: 3px;
 }
 
 .tf-plot {
@@ -668,6 +689,70 @@
 
 .tf-y.mid {
   top: calc(50% + 2px);
+}
+
+.tf-tip {
+  position: absolute;
+  top: 4px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: var(--modal);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
+  font-size: 11.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  direction: rtl;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-tip-t {
+  font-size: 10.5px;
+  color: var(--sub);
+}
+
+.tf-tip b {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.tf-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  border: 2px solid var(--modal);
+  pointer-events: none;
+}
+
+.tf-dot.rx {
+  background: var(--ok);
+}
+
+.tf-dot.tx {
+  background: var(--acc);
+}
+
+.tf-since {
+  position: absolute;
+  left: 0;
+  top: 52%;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--sub);
+  text-align: center;
+  direction: rtl;
+  pointer-events: none;
 }
 
 .tf-empty {

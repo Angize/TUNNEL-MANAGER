@@ -85,6 +85,7 @@ function histSeries(h, slots) {
       day: dated ? fmtDay(starts[i]) : '',
       clock: fmtClock(starts[i], fine) + '–' + fmtClock(starts[i] + step, fine),
     }),
+    since: (i) => ({ day: dated ? fmtDay(starts[i]) : '', clock: fmtClock(starts[i]) }),
     ticks: [dated && !long ? fmtDay(from) + ' ' + fmtClock(from) : tick(from), tick(from + (n * base) / 2), tick(end)],
   }
 }
@@ -117,27 +118,28 @@ function RangePicker({ ranges, value, onChange }) {
         <span className="pd" />
         {T('live')}
       </button>
-      {units.map(([unit, word]) => (
-        <span className="tf-grp" key={unit}>
-          {ranges
-            .filter((r) => r.endsWith(unit))
-            .map((r) => (
-              <button
-                key={r}
-                type="button"
-                className={value === r ? 'on' : ''}
-                aria-pressed={value === r}
-                aria-label={parseInt(r, 10) + ' ' + word}
-                onClick={() => onChange(r)}
-              >
-                {parseInt(r, 10)}
-              </button>
-            ))}
-          <span className="tf-unit" aria-hidden="true">
-            {word}
-          </span>
-        </span>
-      ))}
+      {units.map(([unit, word]) => {
+        const group = ranges.filter((r) => r.endsWith(unit))
+        return (
+          <div className="tf-grp" key={unit} style={{ flexGrow: group.length }}>
+            <div className="tf-btns">
+              {group.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={value === r ? 'on' : ''}
+                  aria-pressed={value === r}
+                  aria-label={parseInt(r, 10) + ' ' + word}
+                  onClick={() => onChange(r)}
+                >
+                  {parseInt(r, 10)}
+                </button>
+              ))}
+            </div>
+            <small aria-hidden="true">{word}</small>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -186,13 +188,16 @@ export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
   const max = niceMax(peak)
   const rx = n ? trace(s.rx, max) : null
   const tx = n ? trace(s.tx, max) : null
-  const cur = at != null ? { rx: s.rx[at], tx: s.tx[at] } : now
   const show = (v) => (v == null ? '—' : fmtRate(v))
   const focus = at == null ? n - 1 : at
   const sp = at != null ? s.span(at) : null
+  const atX = at != null ? (pointX(at, n) / W) * 100 : 0
+  const atY = (v) => ((H - PAD - (v / max) * (H - 2 * PAD)) / H) * 100
   const okColor = cssVar('--ok')
   const accColor = cssVar('--acc')
   const note = !s ? T(failed === range ? 'bw_failed' : 'bw_loading') : !vals.length && range !== 'live' ? T('bw_empty') : ''
+  const first = s && s.since && vals.length ? s.rx.findIndex((v, i) => v != null || s.tx[i] != null) : -1
+  const since = first > n * 0.15 ? s.since(first) : null
   const said = (i) => {
     const p = s.span(i)
     return (p.day ? p.day + ' ' : '') + p.clock + ' · ↓ ' + show(s.rx[i]) + ' ↑ ' + show(s.tx[i])
@@ -202,18 +207,11 @@ export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
     <div className="tf-chart">
       <div className="tf-top">
         <span className="din iso">
-          ↓ <b>{show(cur && cur.rx)}</b>
+          ↓ <b>{show(now && now.rx)}</b>
         </span>
         <span className="dout iso">
-          ↑ <b>{show(cur && cur.tx)}</b>
+          ↑ <b>{show(now && now.tx)}</b>
         </span>
-        {sp ? (
-          <span className="tf-when">
-            {sp.day ? <bdi>{sp.day}</bdi> : null}
-            {sp.day ? ' ' : null}
-            <bdi dir="ltr">{sp.clock}</bdi>
-          </span>
-        ) : null}
       </div>
       <RangePicker ranges={ranges} value={range} onChange={setRange} />
       <div
@@ -275,7 +273,41 @@ export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
             <span className="tf-y mid">{fmtRate(max / 2)}</span>
           </>
         ) : null}
+        {sp && s.rx[at] != null ? (
+          <i className="tf-dot rx" style={{ left: atX + '%', top: atY(s.rx[at]) + '%' }} />
+        ) : null}
+        {sp && s.tx[at] != null ? (
+          <i className="tf-dot tx" style={{ left: atX + '%', top: atY(s.tx[at]) + '%' }} />
+        ) : null}
+        {sp ? (
+          <span
+            className="tf-tip"
+            style={atX < 50 ? { left: `calc(${atX}% + 10px)` } : { right: `calc(${100 - atX}% + 10px)` }}
+          >
+            <span className="tf-tip-t">
+              {sp.day ? <bdi>{sp.day}</bdi> : null}
+              {sp.day ? ' ' : null}
+              <bdi dir="ltr">{sp.clock}</bdi>
+            </span>
+            <span className="din iso">
+              ↓ <b>{show(s.rx[at])}</b>
+            </span>
+            <span className="dout iso">
+              ↑ <b>{show(s.tx[at])}</b>
+            </span>
+          </span>
+        ) : null}
         {note ? <span className="tf-empty">{note}</span> : null}
+        {since ? (
+          <span className="tf-since" style={{ width: (first / n) * 100 + '%' }}>
+            <span>
+              {T('bw_since') + ' '}
+              {since.day ? <bdi>{since.day}</bdi> : null}
+              {since.day ? ' ' : null}
+              <bdi dir="ltr">{since.clock}</bdi>
+            </span>
+          </span>
+        ) : null}
       </div>
       <div className="tf-x" aria-hidden="true">
         {(s ? s.ticks : ['', '', '']).map((t, i) => (
