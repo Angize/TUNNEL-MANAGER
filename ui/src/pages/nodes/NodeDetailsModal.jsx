@@ -15,6 +15,11 @@ import useBusy from '../../lib/useBusy.js'
 
 const SPARK_POINTS = 30
 
+function gb(mb) {
+  const v = num(mb) / 1024
+  return v < 10 ? v.toFixed(1) : Math.round(v)
+}
+
 function Tile({ icon, label, children, wide, ltr }) {
   return (
     <div className={'nd-tile' + (wide ? ' nd-wide nd-line' : '')}>
@@ -39,7 +44,9 @@ function TrafficRow({ row }) {
   return (
     <div className="tf-row">
       <div className="tf-nm">
-        <span className="mono">{row.name}</span>
+        <span className="mono" title={row.name}>
+          {row.name}
+        </span>
       </div>
       <div className="tf-fig">
         <span className="din iso">↓{fmtRate(row.rx_bps)}</span>
@@ -192,18 +199,18 @@ export default function NodeDetailsModal({ node, onClose }) {
             <Gauge
               label={T('ram')}
               pct={ramPct}
-              sub={num(stats.mem_used_mb) + ' / ' + num(stats.mem_total_mb) + ' ' + T('unit_mb')}
+              sub={
+                stats.mem_used_mb != null
+                  ? gb(stats.mem_used_mb) + ' / ' + gb(stats.mem_total_mb) + ' ' + T('unit_gb')
+                  : '—'
+              }
             />
             <Gauge
               label={T('disk')}
               pct={stats.disk_pct}
               sub={
                 stats.disk_used_mb != null
-                  ? Math.round(num(stats.disk_used_mb) / 1024) +
-                    ' / ' +
-                    Math.round(num(stats.disk_total_mb) / 1024) +
-                    ' ' +
-                    T('unit_gb')
+                  ? gb(stats.disk_used_mb) + ' / ' + gb(stats.disk_total_mb) + ' ' + T('unit_gb')
                   : '—'
               }
             />

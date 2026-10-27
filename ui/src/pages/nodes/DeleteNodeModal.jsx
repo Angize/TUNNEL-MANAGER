@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
-import Icon from '../../components/Icon.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, translateError } from '../../lib/errors.js'
 import { alertBox, confirmBox } from '../../lib/dialog.js'
@@ -9,7 +8,6 @@ import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
 import CdnSteps from '../../components/CdnSteps.jsx'
 import { WarnCap } from '../core/form/controls.jsx'
-import { TF } from '../../i18n/fa.js'
 
 export default function DeleteNodeModal({ node, onClose, onDeleted }) {
   const [busy, setBusy] = useState(false)
@@ -59,8 +57,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
     <>
       {done ? null : (
         <button type="button" className="ghost tone tone-del" disabled={busy} onClick={() => wipe(offline)}>
-          {busy ? <span className="bspin ink sm" /> : <Icon name="trash" />}
-          {offline ? T('del_wipe_force_yes') : T('del_wipe_t')}
+          {busy ? <span className="bspin ink" /> : offline ? T('del_wipe_force_yes') : T('del_wipe_t')}
         </button>
       )}
       <button type="button" className="ghost" onClick={onClose}>
@@ -71,10 +68,14 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
 
   return (
     <Modal icon="trash" title={T('nd_del')} subtitle={node.name} footer={footer} onClose={onClose}>
-      <div className="muted" style={{ fontSize: 12.5 }}>
-        {T('del_how')}
-      </div>
-      <WarnCap text={offline ? T('del_wipe_force_s') : T('del_wipe_s')} />
+      {done ? null : (
+        <>
+          <div className="muted" style={{ fontSize: 12.5 }}>
+            {T('del_how')}
+          </div>
+          <WarnCap text={offline ? T('del_wipe_force_s') : T('del_wipe_s')} />
+        </>
+      )}
       <Msg text={message} />
       <CdnSteps steps={steps} />
     </Modal>

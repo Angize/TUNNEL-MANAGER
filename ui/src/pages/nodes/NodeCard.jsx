@@ -120,6 +120,11 @@ function NodeCard({
             </span>
           ) : null}
           {node.proxy_on ? <span className="tag">{T('proxy')}</span> : null}
+        </div>
+        <div className="nmhost">
+          <span className="muted mono nmtxt" dir="ltr">
+            {node.host}:{node.port}
+          </span>
           {node.moved_to ? (
             <button
               type="button"
@@ -134,9 +139,6 @@ function NodeCard({
               <Icon name="warn" />
             </button>
           ) : null}
-        </div>
-        <div className="muted mono nmtxt" dir="ltr" style={{ fontSize: 12 }}>
-          {node.host}:{node.port}
         </div>
       </div>
     </>

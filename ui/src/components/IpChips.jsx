@@ -40,7 +40,9 @@ export default function IpChips({ entry }) {
       ))}
       {(entry.pf || []).map((name) => (
         <span className="ippf" key={'pf:' + name}>
-          <Icon name="globe" /> {T('nd_portfw') + ' · ' + name}
+          <Icon name="globe" />
+          {T('nd_portfw') + ' ·'}
+          <bdi>{name}</bdi>
         </span>
       ))}
       {entry.free ? <span className="ipfree">{T('free')}</span> : null}
