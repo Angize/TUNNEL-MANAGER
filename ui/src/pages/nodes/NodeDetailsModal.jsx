@@ -13,7 +13,7 @@ import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 import useBusy from '../../lib/useBusy.js'
 
-const SPARK_POINTS = 30
+const LIVE_POINTS = 30
 
 function gb(mb) {
   const v = num(mb) / 1024
@@ -102,7 +102,7 @@ export default function NodeDetailsModal({ node, onClose }) {
               live.current = [
                 ...live.current,
                 { t: Date.now(), rx: num(r.node.rx_bps), tx: num(r.node.tx_bps) },
-              ].slice(-SPARK_POINTS)
+              ].slice(-LIVE_POINTS)
               setRows(r.tunnels.concat(r.portfw))
             })
             .catch(() => {}),

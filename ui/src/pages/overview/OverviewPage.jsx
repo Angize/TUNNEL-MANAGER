@@ -15,7 +15,7 @@ import { fmtBytes, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
-const SPARK_POINTS = 26
+const LIVE_POINTS = 26
 
 function Section({ icon, titleKey, children }) {
   return (
@@ -78,7 +78,7 @@ export default function OverviewPage({ onNavigate }) {
     live.current = [
       ...live.current,
       { t: Date.now(), rx: num(summary.fleet_rx_bps), tx: num(summary.fleet_tx_bps) },
-    ].slice(-SPARK_POINTS)
+    ].slice(-LIVE_POINTS)
     return summary
   }, [])
 
