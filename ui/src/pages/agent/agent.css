@@ -52,6 +52,12 @@
   align-items: stretch;
 }
 
+@media (min-width: 841px) {
+  #agList {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
 .nx {
   display: flex;
   flex-direction: column;
@@ -337,6 +343,19 @@ body.pushing .savedock:not(.docked) {
 @media (max-width: 840px) {
   .pfab {
     bottom: 80px;
+  }
+
+  .minisg .seg2 .segopt {
+    min-height: 38px;
+  }
+
+  .nxa .ib {
+    height: 40px;
+  }
+
+  .pfb {
+    width: 38px;
+    height: 38px;
   }
 
   body.pushing .toasts {

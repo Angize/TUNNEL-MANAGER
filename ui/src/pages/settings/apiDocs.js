@@ -12,6 +12,7 @@ export const TEXT = {
   ref: 'API reference',
   refN: '{n} routes',
   base: 'Base URL',
+  guideT: 'How the API works',
   guide: [
     'Every request needs the header <b>Authorization: Bearer TOKEN</b>. Create the token above and turn external API access on.',
     'GET routes take their input in the query string, POST routes in a JSON body with <b>Content-Type: application/json</b>. GET routes also answer a POST with a JSON body.',

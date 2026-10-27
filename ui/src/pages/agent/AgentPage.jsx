@@ -95,6 +95,7 @@ export default function AgentPage({ headless }) {
   const [gitMsg, setGitMsg] = useState(null)
   const [coreMsg, setCoreMsg] = useState(null)
   const [gitBusy, setGitBusy] = useState(false)
+  const [readFail, setReadFail] = useState({ agent: false, core: false })
   const [open, setOpen] = useState({ agent: false, core: false })
   const agentFile = useRef(null)
   const coreFile = useRef(null)
@@ -102,24 +103,32 @@ export default function AgentPage({ headless }) {
   const staging = useRef(false)
   const adoptStage = useRef(null)
 
+  const markRead = useCallback((kind, failed) => {
+    setReadFail((prev) => (prev[kind] === failed ? prev : { ...prev, [kind]: failed }))
+  }, [])
+
   const loadAgentInfo = useCallback(async () => {
     let info
     try {
       info = await apiGet('agent-info')
     } catch {
+      markRead('agent', true)
       return
     }
+    markRead('agent', false)
     setAgentMeta(info)
     setDelivery((prev) => ({ ...prev, agent: info.delivery }))
-  }, [])
+  }, [markRead])
 
   const loadCoreVersions = useCallback(async () => {
     let r
     try {
       r = await apiGet('core-versions')
     } catch {
+      markRead('core', true)
       return
     }
+    markRead('core', false)
     setVersions(r.versions)
     setStaged(r.staged)
     setCoreReady({ ready: !!r.ready, missing: r.missing || [] })
@@ -130,7 +139,7 @@ export default function AgentPage({ headless }) {
       const release = r.versions.find((v) => !v.custom)
       return release ? release.id : ''
     })
-  }, [])
+  }, [markRead])
 
   const loadNodes = useCallback(
     async (onProgress) => {
@@ -270,6 +279,8 @@ export default function AgentPage({ headless }) {
     await push.start('update-agent', { ids }, ids)
   }
 
+  const stageLabel = T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')
+
   const checkCore = async () => {
     setCoreMsg({ cls: '', text: T('cor_checking') })
     const res = await apiPost('core-check', {})
@@ -280,7 +291,6 @@ export default function AgentPage({ headless }) {
       return
     }
     await loadCoreVersions()
-    const button = T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')
     setCoreMsg({
       cls: 'ok',
       text: !d.count
@@ -290,8 +300,8 @@ export default function AgentPage({ headless }) {
           : d.first_check
             ? T('cor_check_first').replace('{n}', d.count)
             : d.newer
-              ? TF('cor_check_new', { b: button })
-              : TF('cor_check_avail', { v: d.latest, b: button }),
+              ? TF('cor_check_new', { b: stageLabel })
+              : TF('cor_check_avail', { v: d.latest, b: stageLabel }),
     })
   }
 
@@ -479,8 +489,10 @@ export default function AgentPage({ headless }) {
   const stagedSize = (staged && staged.size && staged.size[stagedArch]) || 0
   const pushNodes = (push.state && push.state.nodes) || {}
   const toggle = (kind) => setOpen((prev) => ({ ...prev, [kind]: !prev[kind] }))
+  const unknownSub = (kind) => T(readFail[kind] ? 'ag_read_fail' : 'loading')
+  const unknownFact = (kind) => T(readFail[kind] ? 'ag_read_retry' : 'loading')
   const agentFacts = agentUnknown
-    ? [{ text: T('loading') }]
+    ? [{ text: unknownFact('agent') }]
     : agentReady
       ? [
           { text: String(agentMeta.sha256 || '').slice(0, 12), mono: true },
@@ -489,7 +501,7 @@ export default function AgentPage({ headless }) {
       : [{ text: T('ag_no_agent_loaded') }]
   const coreName = staged ? staged.version : custom ? T('cor_custom') : ''
   const coreFacts = coreUnknown
-    ? [{ text: T('loading') }]
+    ? [{ text: unknownFact('core') }]
     : staged
       ? [
           stagedSize ? { text: mbText(stagedSize) } : null,
@@ -501,7 +513,7 @@ export default function AgentPage({ headless }) {
             custom.size ? { text: mbText(custom.size) } : null,
             custom.sha256 ? { text: custom.sha256, mono: true } : null,
           ].filter(Boolean)
-        : [{ text: T('ag_no_core_staged') }]
+        : [{ text: TF('ag_no_core_staged', { b: stageLabel }) }]
 
   return (
     <>
@@ -511,10 +523,11 @@ export default function AgentPage({ headless }) {
         <UpdateRow
           icon="server"
           title={T('ag_word_agent')}
-          sub={agentUnknown ? T('loading') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
+          sub={agentUnknown ? unknownSub('agent') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
           state={agentUnknown ? null : agentReady ? { cls: 'ok', text: T('ag_ready') } : { cls: 'na', text: T('ag_empty') }}
           goIcon="redo"
           goLabel={T('ag_push_all')}
+          goDisabled={agentUnknown}
           onGo={() => pushAgent('all')}
           open={open.agent}
           onToggle={() => toggle('agent')}
@@ -522,8 +535,14 @@ export default function AgentPage({ headless }) {
           <Facts items={agentFacts} />
           <DeliverySegment value={delivery.agent} onChange={(v) => changeDelivery('agent', v)} />
           <div className="oprow">
-            <button className="ghost tone" disabled={gitBusy} onClick={fetchAgentFromGit}>
-              <Icon name="download" />
+            <button
+              type="button"
+              className="ghost tone"
+              disabled={gitBusy}
+              aria-busy={gitBusy}
+              onClick={fetchAgentFromGit}
+            >
+              {gitBusy ? <span className="bspin ink sm" /> : <Icon name="download" />}
               {T('ag_fetch_git')}
             </button>
             <button className="ghost tone tone-put opfit" onClick={() => agentFile.current.click()}>
@@ -542,7 +561,7 @@ export default function AgentPage({ headless }) {
           title={T('ag_word_core')}
           sub={
             coreUnknown ? (
-              T('loading')
+              unknownSub('core')
             ) : coreName ? (
               <>
                 <bdi className={staged ? 'mono' : undefined}>{coreName}</bdi>
@@ -563,6 +582,7 @@ export default function AgentPage({ headless }) {
           }
           goIcon="redo"
           goLabel={T('ag_install_all')}
+          goDisabled={coreUnknown}
           onGo={pushCoreAll}
           open={open.core}
           onToggle={() => toggle('core')}
@@ -583,9 +603,7 @@ export default function AgentPage({ headless }) {
                   onChange={setWanted}
                 />
               ) : (
-                <div className="muted" style={{ fontSize: 12 }}>
-                  {T(coreUnknown ? 'loading' : 'cor_ver_empty')}
-                </div>
+                <div className="opnote">{coreUnknown ? unknownSub('core') : T('cor_ver_empty')}</div>
               )}
             </div>
             <button type="button" className="ghost tone tone-check corcheck" onClick={checkCore}>
@@ -595,16 +613,22 @@ export default function AgentPage({ headless }) {
           </div>
           <DeliverySegment value={delivery.core} onChange={(v) => changeDelivery('core', v)} />
           <div className="oprow">
-            <button className="ghost tone" onClick={stageCore}>
+            <button type="button" className="ghost tone" onClick={stageCore}>
               <Icon name="download" />
-              {T(delivery.core === 'github' ? 'cor_pick_git' : 'ag_fetch_git')}
+              {stageLabel}
             </button>
             <button className="ghost tone tone-put opfit" onClick={() => coreFile.current.click()}>
               <Icon name="upload" />
               {T('ag_binary')}
             </button>
             {custom ? (
-              <button className="ghost tone tone-del opdel" title={T('cor_del_blob')} onClick={deleteCoreBlob}>
+              <button
+                type="button"
+                className="ghost tone tone-del opdel"
+                title={T('cor_del_blob')}
+                aria-label={T('cor_del_blob')}
+                onClick={deleteCoreBlob}
+              >
                 <Icon name="trash" />
               </button>
             ) : null}

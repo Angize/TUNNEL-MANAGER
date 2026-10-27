@@ -47,9 +47,9 @@ function Bar({ count, busy, leaving, onRevert, onSave }) {
         <Icon name="undo" />
         {T('set_revert')}
       </button>
-      <button type="button" className="primary" onClick={onSave} disabled={busy}>
-        <Icon name="check" />
-        {busy ? T('saving') : T('save')}
+      <button type="button" className="primary" onClick={onSave} disabled={busy} aria-busy={busy}>
+        {busy ? <span className="bspin sm" /> : <Icon name="check" />}
+        {T('save')}
       </button>
     </div>
   )

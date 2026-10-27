@@ -83,7 +83,7 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
 
   const footer = (
     <>
-      <button className="primary bkgo" disabled={busy} onClick={onRestore}>
+      <button type="button" className="primary danger" disabled={busy} onClick={onRestore}>
         {busy ? (
           <span className="bspin" />
         ) : (
@@ -93,7 +93,7 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
           </>
         )}
       </button>
-      <button className="ghost" disabled={busy} onClick={onClose}>
+      <button type="button" className="ghost" disabled={busy} onClick={onClose}>
         {T('cancel')}
       </button>
     </>

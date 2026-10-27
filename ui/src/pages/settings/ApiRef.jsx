@@ -153,7 +153,13 @@ function Body({ cmd, method, token, base }) {
         <>
           <h5>
             {TEXT.example}
-            <button type="button" className="apcopy" title={TEXT.copy} onClick={(e) => copyText(curl, e)}>
+            <button
+              type="button"
+              className="apcopy"
+              title={TEXT.copy}
+              aria-label={TEXT.copy}
+              onClick={(e) => copyText(curl, e)}
+            >
               <Icon name="copy" />
             </button>
           </h5>
@@ -235,6 +241,8 @@ export default function ApiRef() {
   const { api } = useUiConfig()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(() => new Set())
+  const [guide, setGuide] = useState(false)
+  const [guideKb, setGuideKb] = useState(false)
   const base = window.location.origin + '/api/'
   const meta = new Map(api.map(([cmd, method, token]) => [cmd, { method, token }]))
   const rest = api.map(([cmd]) => cmd).filter((cmd) => !PLACED.has(cmd))
@@ -266,11 +274,27 @@ export default function ApiRef() {
           <span>{TEXT.base}</span>
           <CopyValue text={base} />
         </div>
-        {TEXT.guide.map((text) => (
-          <p key={text}>
-            <RichText text={text} />
-          </p>
-        ))}
+        <button
+          type="button"
+          className="apgtg"
+          aria-expanded={guide}
+          onClick={(e) => {
+            setGuideKb(!e.detail)
+            setGuide((v) => !v)
+          }}
+        >
+          <span>{TEXT.guideT}</span>
+          <Icon name="chev" />
+        </button>
+        <Reveal show={guide} instant={guideKb}>
+          <div className="apgbody">
+            {TEXT.guide.map((text) => (
+              <p key={text}>
+                <RichText text={text} />
+              </p>
+            ))}
+          </div>
+        </Reveal>
       </div>
 
       <div className="aplist">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
@@ -6,7 +6,6 @@ import { proxyItems } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
-import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { checkable } from '../../lib/keys.js'
 import KnobCheck from '../../components/KnobCheck.jsx'
@@ -17,6 +16,8 @@ export default function DownloadProxyCard() {
   const [error, setError] = useState('')
   const [pxPart, setPxPart] = useState(0)
   const [stPart, setStPart] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const inflight = useRef(false)
 
   const load = useCallback(async () => {
     setError('')
@@ -40,16 +41,21 @@ export default function DownloadProxyCard() {
   const loading = value === null && !error
   const picked = ready ? value.id || items[0].v : ''
 
-  const save = async () => {
-    const r = await apiPost('settings-set', {
-      dl_proxy_on: value.on,
-      dl_proxy_id: value.on ? picked : '',
-    })
+  const commit = async (next) => {
+    if (inflight.current) return
+    inflight.current = true
+    const was = value
+    setValue(next)
+    setBusy(true)
+    const r = await apiPost('settings-set', { dl_proxy_on: next.on, dl_proxy_id: next.on ? next.id : '' })
+    inflight.current = false
+    setBusy(false)
     if (r.ok && r.d.ok) {
       toast(T('set_saved'), 'ok')
       return
     }
-    alertBox(postError(r))
+    setValue(was)
+    toast(postError(r), 'err')
   }
 
   return (
@@ -66,7 +72,8 @@ export default function DownloadProxyCard() {
           <div
             className={'tglsw' + (value.on ? ' on' : '')}
             aria-label={T('dlpx_on')}
-            {...checkable('switch', value.on, () => setValue({ on: !value.on, id: picked }))}
+            aria-busy={busy}
+            {...checkable('switch', value.on, () => commit({ on: !value.on, id: picked }))}
           >
             <KnobCheck on={value.on} />
           </div>
@@ -76,12 +83,8 @@ export default function DownloadProxyCard() {
       {ready ? (
         <div className="oprow">
           <div className={'opsel' + (value.on ? '' : ' off')} inert={!value.on}>
-            <Select items={items} value={picked} onChange={(id) => setValue({ on: true, id })} />
+            <Select items={items} value={picked} onChange={(id) => id !== picked && commit({ on: true, id })} />
           </div>
-          <button type="button" className="primary glass opsave" onClick={save}>
-            <Icon name="check" />
-            {T('save')}
-          </button>
         </div>
       ) : loading ? null : value ? (
         <div className="muted" style={{ fontSize: 12 }}>

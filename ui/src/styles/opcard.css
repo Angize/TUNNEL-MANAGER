@@ -51,10 +51,14 @@
 
 .opc .ophd .hd2 small {
   font-size: 10.5px;
+  line-height: 1.6;
   color: var(--sub);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.opc .ophd > .tglsw::before {
+  content: '';
+  position: absolute;
+  inset: -10px -6px;
 }
 
 .oprow {
@@ -99,9 +103,13 @@
   opacity: .45;
 }
 
-.oprow > .opsave {
-  flex: 0 0 auto;
-  padding: 0 18px;
+.oprow > .opsel > .opnote {
+  display: flex;
+  align-items: center;
+  min-height: var(--sc-h);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sub);
 }
 
 .oprow > .opsel .msbtn {
@@ -226,4 +234,20 @@
   border-radius: 50%;
   background: var(--sub);
   opacity: .5;
+}
+
+@media (max-width: 840px) {
+  .opc,
+  .upmore {
+    --sc-h: 40px;
+  }
+
+  .uprow > .upgo {
+    height: 40px;
+  }
+
+  .uprow > .upx {
+    width: 40px;
+    height: 40px;
+  }
 }

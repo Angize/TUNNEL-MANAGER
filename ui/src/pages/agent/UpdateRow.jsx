@@ -3,7 +3,9 @@ import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import { T } from '../../i18n/fa.js'
 
-export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, goDisabled, onGo, open, onToggle, children }) {
+export default function UpdateRow({
+  icon, title, sub, state, goIcon, goLabel, goDisabled, goBusy, onGo, open, onToggle, children,
+}) {
   const [kb, setKb] = useState(false)
   return (
     <>
@@ -16,8 +18,14 @@ export default function UpdateRow({ icon, title, sub, state, goIcon, goLabel, go
           <b>{title}</b>
           <small>{sub}</small>
         </div>
-        <button type="button" className="primary glass upgo" disabled={goDisabled} onClick={onGo}>
-          <Icon name={goIcon} />
+        <button
+          type="button"
+          className="primary glass upgo"
+          disabled={goDisabled || goBusy}
+          aria-busy={!!goBusy}
+          onClick={onGo}
+        >
+          {goBusy ? <span className="bspin ink sm" /> : <Icon name={goIcon} />}
           {goLabel}
         </button>
         <button

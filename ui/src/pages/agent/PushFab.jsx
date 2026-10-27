@@ -42,16 +42,32 @@ function Fab({ state, leaving, onPause, onResume, onCancel }) {
         {num(done)}
         <s>/{num(order.length)}</s>
       </span>
-      <button className="pfb" disabled={paused} title={T('ag_p_pause')} onClick={onPause}>
+      <button
+        type="button"
+        className="pfb"
+        disabled={paused}
+        title={T('ag_p_pause')}
+        aria-label={T('ag_p_pause_a')}
+        onClick={onPause}
+      >
         <Icon name="pause" />
       </button>
-      <button className="pfb" disabled={!paused} title={T('ag_p_resume')} onClick={onResume}>
+      <button
+        type="button"
+        className="pfb"
+        disabled={!paused}
+        title={T('ag_p_resume')}
+        aria-label={T('ag_p_resume')}
+        onClick={onResume}
+      >
         <Icon name="play" />
       </button>
       <button
+        type="button"
         className="pfb stop"
         disabled={!stoppable}
         title={T(stoppable ? 'ag_p_cancel' : 'ag_p_cancel_none')}
+        aria-label={T('ag_p_cancel')}
         onClick={onCancel}
       >
         <Icon name="xc" />

@@ -14,7 +14,7 @@
   border-top: 1px solid var(--bord);
 }
 
-@container (min-width: 1120px) {
+@container (min-width: 860px) {
   .stpage > .card.sg:has(> .sgsec + .sgsec) {
     columns: 2;
     column-gap: 0;
@@ -228,6 +228,10 @@
 
   .sgb > .sr.half {
     grid-column: auto;
+  }
+
+  .sgb > .sr.half:has(+ .sr.half:last-child) {
+    border-bottom: 0;
   }
 
   .srlbl {
@@ -702,7 +706,15 @@
   border-top: 1px solid var(--bord);
 }
 
+.bkrow > span:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+}
+
 .bkval {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--gold-tx);
   font-weight: 700;
   text-align: end;
@@ -727,11 +739,6 @@
   text-align: left;
   font-family: ui-monospace, Consolas, monospace;
   user-select: all;
-}
-
-.mfoot .primary.bkgo {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bad) 92%, #fff), var(--bad));
-  box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--bad) 55%, transparent);
 }
 
 .cdnedge .edgeintro {
