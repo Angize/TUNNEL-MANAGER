@@ -33,7 +33,7 @@ export async function loadRebuild(id) {
     if (!r.d[side] || !r.d[side].drifted) continue
     chosen[key] = firstChoice(r.d[side])
   }
-  if (!Object.keys(chosen).length) {
+  if (!Object.keys(chosen).length && !r.d.edge) {
     toast(T('rb_no_drift'), 'ok')
     return false
   }
@@ -92,7 +92,9 @@ export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
       footer={footer}
       onClose={onClose}
     >
-      <div style={{ color: 'var(--sub)', fontSize: 12, marginBottom: 12 }}>{T('rb_info')}</div>
+      <div style={{ color: 'var(--sub)', fontSize: 12, marginBottom: 12 }}>
+        {T(Object.keys(start.picked).length ? 'rb_info' : 'rb_edge')}
+      </div>
       {SIDES.map(([side, key]) => {
         const block = info[side]
         if (!block || !block.drifted) return null

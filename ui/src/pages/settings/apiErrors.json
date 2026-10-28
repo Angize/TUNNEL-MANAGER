@@ -277,6 +277,11 @@
    ],
    [
     400,
+    "edge_not_taken",
+    "the edge did not take the new settings (…) — nothing was saved and its tunnels were left alone"
+   ],
+   [
+    400,
     "edge_port_agent",
     "port … is this node's agent port — pick another port for the edge"
    ],
@@ -284,6 +289,11 @@
     400,
     "edge_port_held",
     "port …/TCP on this node belongs to '…' — pick another port for the edge"
+   ],
+   [
+    400,
+    "edge_saving",
+    "the settings of edge '…' are being saved right now — try again in a few seconds"
    ],
    [
     400,
@@ -1166,6 +1176,11 @@
    ],
    [
     400,
+    "edge_saving",
+    "the settings of edge '…' are being saved right now — try again in a few seconds"
+   ],
+   [
+    400,
     "edge_vs_cdn",
     "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
    ],
@@ -2002,6 +2017,11 @@
    ],
    [
     400,
+    "edge_saving",
+    "the settings of edge '…' are being saved right now — try again in a few seconds"
+   ],
+   [
+    400,
     "edge_vs_cdn",
     "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
    ],
@@ -2683,6 +2703,11 @@
     400,
     "edge_in_use",
     "'…' is the private-CDN edge of … tunnels ('…') — …; take those tunnels off this edge first"
+   ],
+   [
+    400,
+    "edge_saving",
+    "the settings of edge '…' are being saved right now — try again in a few seconds"
    ],
    [
     400,
@@ -3568,6 +3593,11 @@
     400,
     "edge_port_taken",
     "port …/TCP on node '…' belongs to this node's private-CDN edge — use another port"
+   ],
+   [
+    400,
+    "edge_saving",
+    "the settings of edge '…' are being saved right now — try again in a few seconds"
    ],
    [
     400,

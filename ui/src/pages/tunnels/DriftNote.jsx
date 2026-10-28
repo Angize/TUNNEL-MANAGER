@@ -4,7 +4,8 @@ import { T, TF } from '../../i18n/fa.js'
 
 function heading(link, moved) {
   if (moved.length === 2) return T('drift_both')
-  return moved.length ? TF('drift_one', { a: link[moved[0][0] + '_name'] }) : T('drift_any')
+  if (moved.length) return TF('drift_one', { a: link[moved[0][0] + '_name'] })
+  return T(link.edge_stale ? 'drift_edge' : 'drift_any')
 }
 
 export default function DriftNote({ link, busy, locked, onRebuild }) {
