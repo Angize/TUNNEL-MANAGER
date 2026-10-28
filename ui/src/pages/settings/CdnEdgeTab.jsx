@@ -42,6 +42,7 @@ function EdgeCard({ edge, onToggle, onSave, busy }) {
   const portError = port && n >= 1 && n <= 65535 ? '' : T('edge_port_bad')
   const decoyError = decoy.trim() ? '' : T('edge_decoy_bad')
   const bufError = /^\d+$/.test(buf) && mb >= lo && mb <= hi ? '' : TF('edge_buf_bad', { lo, hi })
+  const reseat = edge.users && (decoy.trim().toLowerCase() !== edge.decoy || n !== edge.port)
 
   useEffect(() => {
     setDecoy(edge.decoy)
@@ -69,6 +70,7 @@ function EdgeCard({ edge, onToggle, onSave, busy }) {
             </Field>
           </div>
           <WarnCap tone="gold" text={T('edge_decoy_warn')} />
+          <WarnCap tone="gold" text={reseat ? TF('edge_reseat_hint', { n: edge.users }) : ''} />
           <Field
             label={T('edge_buf')}
             hint={T(edge.routes && mb !== edge.buf_mb ? 'edge_buf_restart' : 'edge_buf_hint')}
@@ -119,6 +121,7 @@ export default function CdnEdgeTab() {
   const done = (edge, r, okKey) => {
     if (!r.ok) toast(TF('edge_err_of', { n: edge.name, m: postError(r) }), 'err')
     else if (r.d.msg) toast(TF('edge_err_of', { n: edge.name, m: translateError(r.d.msg) }), 'err')
+    else if (r.d.note) toast(translateError(r.d.note))
     else toast(T(okKey))
   }
 

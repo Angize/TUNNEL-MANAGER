@@ -5975,6 +5975,7 @@ def api_fleet(d):
         EN = get_node(L.get("edge_node") or "")
         if EN:
             rec["edge_at"] = {"name": EN["name"], "addrs": L["edge_route"]["front"]}
+            rec["edge_stale"] = rec["drift"] and not _edge_current(L)
         if L.get("type") == "core":
             _ct = [t for t in ((L["a_name"], la.get("ct") or {}), (L["b_name"], lb.get("ct") or {}))
                    if t[1].get("max")]
@@ -6678,7 +6679,9 @@ def _edge_fields(d, cur, out):
 
 
 def _edge_target(nid, srv_ip, port, ips):
-    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_dials(get_node(nid), ips)}
+    N = get_node(nid)
+    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_dials(N, ips),
+            "ech": _edge_mark(_edge_of(N))}
 
 
 def _edge_backend(extra, srv_ip):
@@ -6691,9 +6694,16 @@ _edge_holds = {}
 _edge_dying = set()
 
 
+def _edge_saving(N):
+    return Bad("edge_saving", "همین حالا تنظیماتِ لبهٔ «{0}» در حالِ ذخیره است — چند ثانیه بعد دوباره بزن",
+               "the settings of edge '{0}' are being saved right now — try again in a few seconds", N["name"])
+
+
 def _hold_edge(nid, holder):
     with _reg_lock:
-        _edge_live(nid)
+        N = _edge_live(nid)
+        if ("save", nid) in _edge_holds.get(nid, ()):
+            raise _edge_saving(N)
         _edge_holds.setdefault(nid, set()).add(holder)
 
 
@@ -7562,7 +7572,7 @@ def api_reorder(d):
 RESTORE_RETRY_GAP = 3
 
 
-def _restore_link(A, B, L, extra=None):
+def _stored_bodies(A, B, L, extra=None):
     tid = int(L["tunnel_id"])
     if extra is None:
         extra = _tunnel_extra(L)
@@ -7585,22 +7595,30 @@ def _restore_link(A, B, L, extra=None):
         _core_end_bodies(L, a_body, b_body)
         _apply_core_tuning(a_body, b_body)
     _apply_probe_tuning(a_body, b_body)
+    return a_body, b_body
+
+
+def _put_back(N, body):
+    for attempt in (0, 1):
+        try:
+            r = node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
+        except Exception:
+            r = {"offline": True}
+        if r.get("ok"):
+            return True
+        if attempt == 0 and r.get("offline"):
+            time.sleep(RESTORE_RETRY_GAP)
+        else:
+            return False
+    return False
+
+
+def _restore_link(A, B, L, extra=None):
+    a_body, b_body = _stored_bodies(A, B, L, extra)
+
     def put_back(pair):
         N, body = pair
-        if not N:
-            return ""
-        for attempt in (0, 1):
-            try:
-                r = node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
-            except Exception:
-                r = {"offline": True}
-            if r.get("ok"):
-                return ""
-            if attempt == 0 and r.get("offline"):
-                time.sleep(RESTORE_RETRY_GAP)
-            else:
-                break
-        return N["name"]
+        return "" if not N or _put_back(N, body) else N["name"]
 
     return [x for x in parallel_map(put_back, ((A, a_body), (B, b_body))) if x]
 
@@ -8129,7 +8147,10 @@ def _rebuild_job(d):
     def rebuild(h):
         a, b = _link_nodes(d)
         with _PairLock(a, b):
-            return _rebuild_link_impl(d, h)
+            try:
+                return _rebuild_link_impl(d, h)
+            finally:
+                _release_edges(h["key"])
 
     return rebuild
 
@@ -8167,7 +8188,7 @@ def _rebuild_link_impl(d, h):
     _guard_server_ports(ttype, src, L.get("server_side"), tid, A, B, a_ip, b_ip, L, _own_ports(L, A, B))
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     if L.get("edge_node"):
-        _edge_live(L["edge_node"])
+        _hold_edge(L["edge_node"], h["key"])
         edge_want = _edge_target(L["edge_node"], a_ip if _srv_is_a(L) else b_ip, L["port"], L.get("edge_ips"))
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
@@ -8378,6 +8399,8 @@ def _reconcile_once():
             _drift.pop(k, None)
     todo = []
     for L in links:
+        if L.get("edge_node") in _edge_holds:
+            continue
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         if not pa.get("ok") or not pb.get("ok"):
             continue
@@ -9958,7 +9981,7 @@ def api_link_rebuild_info(d):
                 "drifted": bool(p.get("ok")) and L.get(ip_key) not in live,
                 "multi": len(live) > 1, "ips": _node_ip_tags(nid)}
 
-    return {"id": L["id"], "name": L.get("name"),
+    return {"id": L["id"], "name": L.get("name"), "edge": not _edge_current(L),
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
 
 
@@ -11666,11 +11689,18 @@ def _edge_users(node_id):
     return [L for L in load_links() if L.get("edge_node") == node_id]
 
 
-def _edge_unused(node, what=None):
-    if _edge_holds.get(node["id"]):
+def _edge_idle(node):
+    holders = _edge_holds.get(node["id"]) or ()
+    if ("save", node["id"]) in holders:
+        raise _edge_saving(node)
+    if holders:
         raise Bad("edge_busy",
                   "همین حالا یک ساخت یا ویرایشِ تونل روی لبهٔ «{0}» در جریان است — بگذار تمام شود، بعد دوباره بزن",
                   "a tunnel build or edit on edge '{0}' is running right now — let it finish, then try again", node["name"])
+
+
+def _edge_unused(node, what=None):
+    _edge_idle(node)
     users = _edge_users(node["id"])
     if users:
         raise Bad("edge_in_use",
@@ -11696,29 +11726,74 @@ def _edge_follow(L, want):
             store_edit(_LINKS, L["id"], lambda x: x.update(edge_route=dict(x["edge_route"], **want)))
 
 
+def _edge_mark(e):
+    return hashlib.sha256(str(e.get("ws_ech") or "").encode()).hexdigest()[:16]
+
+
+def _edge_stale(L, N):
+    try:
+        return (L["edge_route"].get("front") != _edge_dials(N, L.get("edge_ips"))
+                or L["edge_route"].get("ech") != _edge_mark(_edge_of(N)))
+    except Bad:
+        return True
+
+
 def _edge_current(L):
     N = get_node(L.get("edge_node") or "")
     if not N or not _node_answered(N["id"]):
         return True
+    return not _edge_stale(L, N)
+
+
+def _edge_reseat(nid):
+    N = get_node(nid)
+
+    def one(lid):
+        L = get_link(lid)
+        if not L:
+            return None
+        with _PairLock(L["a_node"], L["b_node"]):
+            L = get_link(lid)
+            if not L or L.get("edge_node") != nid or not _edge_stale(L, N):
+                return None
+            try:
+                A, B = get_node(L["a_node"]), get_node(L["b_node"])
+                if not A or not B:
+                    return L["name"], False
+                front = _edge_dials(N, L.get("edge_ips"))
+                a_body, b_body = _stored_bodies(A, B, L)
+                C, body = (A, a_body) if a_body.get("role") == "client" else (B, b_body)
+                if not _put_back(C, body):
+                    return L["name"], False
+                _edge_follow(L, {"front": front, "ech": _edge_mark(_edge_of(N))})
+                return L["name"], True
+            except Exception:
+                return L["name"], False
+
+    done = [x for x in parallel_map(one, [L["id"] for L in _edge_users(nid) if _edge_stale(L, N)], workers=8) if x]
+    return [n for n, ok in done if ok], [n for n, ok in done if not ok]
+
+
+def _front_push(N, e=None):
     try:
-        return L["edge_route"].get("front") == _edge_dials(N, L.get("edge_ips"))
-    except Bad:
-        return False
+        r = _front_sync(N, e)
+    except Exception as ex:
+        r = {"error": _why(ex)}
+    if r.get("ok"):
+        return ""
+    return tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or r.get("msg") or _FAILED)
+
+
+def _front_named(N, why):
+    return tx("«{0}»: {1}", "'{0}': {1}", N["name"], why)
 
 
 def _edge_sync(*nids):
-    bad = []
-    for nid in dict.fromkeys(n for n in nids if n):
-        N = get_node(nid)
-        if not N:
-            continue
-        try:
-            r = _front_sync(N)
-        except Exception as e:
-            r = {"error": _why(e)}
-        if not r.get("ok"):
-            why = tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or r.get("msg") or _FAILED)
-            bad.append(tx("«{0}»: {1}", "'{0}': {1}", N["name"], why))
+    nodes = [N for N in map(get_node, dict.fromkeys(n for n in nids if n)) if N]
+    return _edge_tail([_front_named(N, why) for N, why in ((N, _front_push(N)) for N in nodes) if why])
+
+
+def _edge_tail(bad):
     if not bad:
         return ""
     return tx(" — ولی جدولِ مسیرِ لبه به‌روز نشد ({0})؛ وقتی لبه در دسترس شد در «تنظیمات › CDN › CDNِ اختصاصی» دوباره ذخیره‌اش کن",
@@ -11735,10 +11810,10 @@ def _edge_lock(nid):
         return _edge_locks.setdefault(nid, threading.Lock())
 
 
-def _front_sync(node):
+def _front_sync(node, e=None):
     with _edge_lock(node["id"]):
         node = get_node(node["id"]) or node
-        e = _edge_of(node)
+        e = _edge_of(node) if e is None else e
         routes = _edge_table().get(node["id"], []) if e.get("on") else []
         body = ({"port": _edge_port(e), "routes": routes, "srv_ech_key": e["srv_ech_key"],
                  "srv_ech_conf": e["srv_ech_conf"], "tcp_buf": _buf_bytes(_edge_buf(e))} if routes else {"stop": True})
@@ -11747,12 +11822,13 @@ def _front_sync(node):
 
 def _edge_list():
     table = _edge_table()
+    used = [L.get("edge_node") for L in load_links()]
     out = []
     for n in load_nodes():
         e = _edge_of(n)
         out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
                     "port": _edge_port(e), "decoy": e.get("decoy") or "", "buf_mb": _edge_buf(e),
-                    "routes": len(table.get(n["id"], [])),
+                    "routes": len(table.get(n["id"], [])), "users": used.count(n["id"]),
                     "online": _node_answered(n["id"]), "front": bool(_cached_ping(n["id"]).get("front")),
                     "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
     return out
@@ -11781,11 +11857,9 @@ def api_cdn_edge(d):
             buf = _int_in(_edge_buf(e) if d.get("buf_mb") in (None, "") else d["buf_mb"], lo, hi,
                           Bad("bad_edge_buf", "بافرِ لبه باید بین {0} و {1} مگابایت باشد",
                               "the edge buffer must be from {0} to {1} MB", lo, hi))
+            _edge_idle(n2)
             if not e.get("on") or port != was:
                 _edge_port_free(n2, port)
-            if port != was or decoy != e.get("decoy"):
-                _edge_unused(n2, tx("کلاینت‌هایشان پورت و کلیدِ ECHِ فعلی را دارند و با عوض‌شدنش قطع می‌شوند",
-                                    "their clients hold the current port and ECH key and drop when it changes"))
             if not e.get("srv_ech_key") or e.get("decoy") != decoy:
                 mat = _gen_ech_key(decoy)
                 e["srv_ech_key"] = mat["srv_ech_key"]
@@ -11795,17 +11869,57 @@ def api_cdn_edge(d):
             e["port"] = port
             e["decoy"] = decoy
             e["buf_mb"] = buf
+            _edge_holds.setdefault(n2["id"], set()).add(("save", n2["id"]))
         elif act == "off":
             _edge_unused(n2, tx("خاموش‌کردنش همه را قطع می‌کند", "turning it off cuts them all"))
             e["on"] = False
+            n2["edge"] = e
+            with store_tx() as t:
+                t.put(_NODES, n2)
         else:
             raise Bad("bad_edge_act", "عملِ لبهٔ ناشناخته: {0}", "unknown edge action: {0}", act)
+    if act == "off":
+        return _edge_saved(_edge_sync(n2["id"]))
+    try:
+        return _edge_save(n2, e)
+    finally:
+        _release_edges(("save", n2["id"]))
+
+
+def _edge_saved(tail):
+    out = {"ok": True, "edges": _edge_list()}
+    if tail:
+        out["msg"] = tx_join("", [tx("لبه ذخیره شد", "the edge was saved"), tail])
+    return out
+
+
+def _edge_save(node, e):
+    bad = _front_push(node, e)
+    if bad and _edge_users(node["id"]):
+        raise Bad("edge_not_taken", "لبه تنظیماتِ تازه را نگرفت ({0}) — چیزی ذخیره نشد و تونل‌های روی آن دست نخوردند",
+                  "the edge did not take the new settings ({0}) — nothing was saved and its tunnels were left alone", bad)
+    with _reg_lock:
+        cur = get_node(node["id"])
+        if not cur:
+            raise _no_node()
+        n2 = _thaw(cur)
         n2["edge"] = e
         with store_tx() as t:
             t.put(_NODES, n2)
-    tail = _edge_sync(n2["id"])
-    return {"ok": True, "edges": _edge_list(),
-            **({"msg": tx_join("", [tx("لبه ذخیره شد", "the edge was saved"), tail])} if tail else {})}
+    if bad:
+        return _edge_saved(_edge_tail([_front_named(node, bad)]))
+    moved, stuck = _edge_reseat(node["id"])
+    out = _edge_saved("")
+    if stuck:
+        out["msg"] = tx("لبه ذخیره شد، ولی کلاینتِ {0} تونل از {1} تونلِ روی آن به‌روز نشد («{2}») — آن‌ها «نیازمندِ بازسازی» "
+                        "نشان داده می‌شوند؛ وقتی نودشان در دسترس شد لبه را دوباره ذخیره کن یا بازسازی‌شان کن",
+                        "the edge was saved, but the client of {0} of its {1} tunnels was not updated ('{2}') — they show "
+                        "as needing a rebuild; when their node is reachable, save the edge again or rebuild them",
+                        len(stuck), len(moved) + len(stuck), tx_join("»، «", stuck[:3], "', '"))
+    elif moved:
+        out["note"] = tx("لبه ذخیره شد و {0} تونلِ روی آن تنظیماتِ تازه را گرفتند",
+                         "the edge was saved and its {0} tunnels took the new settings", len(moved))
+    return out
 
 
 def api_cdn_test(d):

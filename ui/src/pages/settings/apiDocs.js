@@ -459,7 +459,7 @@ export const DOCS = {
   },
   'link-rebuild-info': {
     t: 'IPs to pick for a rebuild',
-    d: 'For each end of the tunnel: whether it is online, whether the saved IP is still on the node, and the IPs it has.',
+    d: 'For each end of the tunnel: whether it is online, whether the saved IP is still on the node, and the IPs it has. edge is true when the tunnel sits on a private-CDN edge whose port, IPs or ECH key changed after its client was last set up; a rebuild without new IPs brings it up to date.',
     p: [['id', 1, S, 'tunnel id']],
   },
   'restart-link': {
@@ -753,12 +753,12 @@ export const DOCS = {
   },
   'cdn-edge': {
     t: 'Private-CDN edges',
-    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, buf_mb, routes (the enabled tunnels on it), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the node itself could not be updated.",
+    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, buf_mb, routes (the enabled tunnels on it), users (every tunnel that picked it, enabled or not), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the edge node or a tunnel client could not be updated, or note when an on save pushed new edge settings to the tunnels on the edge.",
     p: [
       ['act', 0, S, 'state (default), on (turn on, or save a new port, decoy or buffer) or off'],
       ['id', 0, S, 'node id — needed for on and off'],
       ['port', 0, N, 'on: TCP port to listen on, default 443; refused when the agent, a tunnel or a port forward holds it on that node (edge_port_agent, edge_port_held)'],
-      ['decoy', 0, S, 'on: the public name sent in clear, default www.google.com; a new decoy makes a new ECH key. Port and decoy cannot change, and off is refused, while tunnels use the edge (edge_in_use)'],
+      ['decoy', 0, S, 'on: the public name sent in clear, default www.google.com; a new decoy makes a new ECH key. An on save goes to the edge node first and is stored only when the edge took it; when tunnels use the edge and it did not, nothing is stored (edge_not_taken). Then a new port or decoy is pushed to the client end of every tunnel on the edge, which reconnects within seconds; a client that cannot be reached is listed in msg and shows as needing a rebuild (drift with edge_stale in fleet). Refused while a tunnel build, edit or rebuild on the edge is running (edge_busy) or another save of the same edge is (edge_saving). off is refused while tunnels use the edge (edge_in_use)'],
       ['buf_mb', 0, N, 'on: TCP socket buffer of the edge in MB, 0..64, default 16; 0 leaves the size to the kernel (bad_edge_buf). A new value restarts the edge, so its tunnels drop for a few seconds and reconnect'],
     ],
   },

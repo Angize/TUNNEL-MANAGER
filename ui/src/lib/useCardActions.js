@@ -3,7 +3,7 @@ import { apiPost } from './api.js'
 import { postError, translateError } from './errors.js'
 import { askBox } from './dialog.js'
 import { toast } from './toast.js'
-import { sideText } from '../pages/tunnels/sideHealth.js'
+import { needsPick, sideText } from '../pages/tunnels/sideHealth.js'
 import { T } from '../i18n/fa.js'
 
 export default function useCardActions({ link, onReload, setMessage, withBusy, withToggle, pickRebuild, register }) {
@@ -75,7 +75,7 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
     reset: () => reset(true),
     toggle: (next) => setEnabled(next, true),
     restart: () => startAct('restart', 'restart_failed', true),
-    rebuild: () => (link.drift ? Promise.resolve({ err: T('bulk_drift') }) : startAct('rebuild', 'rebuild_failed', true)),
+    rebuild: () => (needsPick(link) ? Promise.resolve({ err: T('bulk_drift') }) : startAct('rebuild', 'rebuild_failed', true)),
   }
 
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
       if (await askBox(T('restart_confirm'), T('restart_yes'))) await startAct('restart', 'restart_failed', false)
     },
     rebuild: async () => {
-      if (link.drift) {
+      if (needsPick(link)) {
         await withBusy('rebuild', pickRebuild)
         return
       }

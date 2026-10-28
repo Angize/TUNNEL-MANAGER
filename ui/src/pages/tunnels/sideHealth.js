@@ -30,6 +30,10 @@ export function movedTo(link, side) {
   return now.length && !now.includes(link[side + '_ip']) ? now : null
 }
 
+export function needsPick(link) {
+  return !!link.drift && (!link.edge_stale || !!movedTo(link, 'a') || !!movedTo(link, 'b'))
+}
+
 export function linkSideState(link, side) {
   if (link.enabled === false) return { kind: 'na', word: '', title: T('st_off') }
   if (link.building && !link[side + '_health']) return { kind: 'na', word: '…', title: T('checking') }
