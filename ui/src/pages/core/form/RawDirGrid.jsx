@@ -1,0 +1,75 @@
+import Icon from '../../../components/Icon.jsx'
+import { ctbDefault } from './gates.js'
+import { rawProfiles } from './presets.js'
+import { T } from '../../../i18n/fa.js'
+
+function DirChip({ dir, on, profile, onPick }) {
+  const up = dir === 'up'
+  return (
+    <button
+      type="button"
+      className={'dirchip ' + dir + (on ? ' on' : '')}
+      aria-pressed={on ? 'true' : 'false'}
+      aria-label={T(up ? 'raw_dir_up_aria' : 'raw_dir_down_aria').replace('{p}', profile)}
+      onClick={onPick}
+    >
+      <Icon name={up ? 'upload' : 'download'} />
+      {T(up ? 'raw_dir_up' : 'raw_dir_down')}
+    </button>
+  )
+}
+
+export default function RawDirGrid({ form, cfg, sides, patch }) {
+  const client = sides[form.Srv === 'a' ? 'b' : 'a'].name
+  const server = sides[form.Srv === 'a' ? 'a' : 'b'].name
+
+  const pick = (key, current, value) => {
+    if (value === current) return
+    patch(ctbDefault(value, cfg.enums) ? { [key]: value, Ctb: true } : { [key]: value })
+  }
+
+  return (
+    <div>
+      <label>{T('raw_dir_lbl')}</label>
+      {client && server ? (
+        <div className="fldhint dirhint">{T('raw_dir_hint').replace('{c}', client).replace('{s}', server)}</div>
+      ) : null}
+      <div className="pgrid dirgrid" role="group" aria-label={T('raw_dir_lbl')}>
+        {rawProfiles().map((profile) => {
+          const up = profile.v === form.RawProfile
+          const down = profile.v === form.RawProfileDown
+          return (
+            <div key={profile.v} className={'ptile dirtile' + (up ? ' upon' : '') + (down ? ' dnon' : '')}>
+              <div className="pn">{profile.v}</div>
+              <div className="pmeta">{profile.m}</div>
+              <div className="dirchips">
+                <DirChip
+                  dir="up"
+                  on={up}
+                  profile={profile.v}
+                  onPick={() => pick('RawProfile', form.RawProfile, profile.v)}
+                />
+                <DirChip
+                  dir="down"
+                  on={down}
+                  profile={profile.v}
+                  onPick={() => pick('RawProfileDown', form.RawProfileDown, profile.v)}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="dirsum">
+        <span className="dirpick up">
+          <Icon name="upload" />
+          {T('raw_dir_up') + ' ' + form.RawProfile.toUpperCase()}
+        </span>
+        <span className="dirpick down">
+          <Icon name="download" />
+          {T('raw_dir_down') + ' ' + form.RawProfileDown.toUpperCase()}
+        </span>
+      </div>
+    </div>
+  )
+}

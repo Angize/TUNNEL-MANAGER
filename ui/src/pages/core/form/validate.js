@@ -1,7 +1,7 @@
 import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
-import { cdnShapeApplies, cdnShapeOn, sprotLive } from './gates.js'
+import { cdnShapeApplies, cdnShapeOn, rawUpPorted, sprotLive } from './gates.js'
 
 function blank(text) {
   return latinDigits(text).trim() === ''
@@ -66,6 +66,7 @@ export function sprotErr(form, enums) {
   if (!sprotLive(form, enums)) return ''
   const n = sprotOf(form)
   if (!(n >= 1 && n <= RAW_SPROT_MAX)) return T('raw_sprot_bad')
+  if (!rawUpPorted(form, enums)) return ''
   const dports = intOf(form.rawDports)
   return dports === 0 || (dports >= 1 && dports <= RAW_DPORTS_MAX)
     ? ''

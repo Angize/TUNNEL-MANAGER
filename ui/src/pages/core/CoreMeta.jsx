@@ -79,7 +79,7 @@ function TunnelIp({ subnet, host }) {
 }
 
 function rawPorted(link, ported) {
-  return link.transport === 'raw' && ported.includes(link.raw_profile)
+  return link.transport === 'raw' && (ported.includes(link.raw_profile) || ported.includes(link.raw_profile_down))
 }
 
 function rawRotating(link) {

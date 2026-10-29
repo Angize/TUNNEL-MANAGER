@@ -122,6 +122,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     ? [
         form.Tr,
         form.RawProfile,
+        form.RawProfileDown,
         form.Cdn,
         form.cipher,
         form.Ech,

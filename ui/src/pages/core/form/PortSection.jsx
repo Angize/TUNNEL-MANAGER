@@ -6,7 +6,7 @@ import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { rawPorted, sprotLive } from './gates.js'
+import { rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
@@ -47,26 +47,29 @@ function SourcePort({ form, enums, limits, patch }) {
   const id = useId()
   const locked = sprotLive(form, enums)
   const current = intOf(form.rawSport)
-  const presets = SPORT_PRESETS[form.RawProfile] || []
-  const label = rangeLabel(T('raw_sport_lbl'), ...limits.port)
+  const presets = SPORT_PRESETS[rawPortProfile(form, enums)] || []
+  const upPorted = rawUpPorted(form, enums)
+  const label = rangeLabel(T(upPorted ? 'raw_sport_lbl' : 'raw_cport_down_lbl'), ...limits.port)
 
   return (
     <div className={locked ? 'portlock' : undefined} inert={locked}>
       <label htmlFor={form.SportRandom ? undefined : id}>{label}</label>
-      <Seg2 label={label}>
-        <SegOpt
-          on={!form.SportRandom}
-          title={T('raw_sport_fixed_n')}
-          sub={T('raw_sport_fixed_m')}
-          onClick={() => patch({ SportRandom: false })}
-        />
-        <SegOpt
-          on={form.SportRandom}
-          title={T('raw_sport_rand_n')}
-          sub={T('raw_sport_rand_m')}
-          onClick={() => patch({ SportRandom: true })}
-        />
-      </Seg2>
+      {upPorted ? (
+        <Seg2 label={label}>
+          <SegOpt
+            on={!form.SportRandom}
+            title={T('raw_sport_fixed_n')}
+            sub={T('raw_sport_fixed_m')}
+            onClick={() => patch({ SportRandom: false })}
+          />
+          <SegOpt
+            on={form.SportRandom}
+            title={T('raw_sport_rand_n')}
+            sub={T('raw_sport_rand_m')}
+            onClick={() => patch({ SportRandom: true })}
+          />
+        </Seg2>
+      ) : null}
       <Reveal show={!form.SportRandom}>
         <div style={{ marginTop: 8 }}>
           {presets.length ? (
@@ -99,6 +102,7 @@ function SourcePort({ form, enums, limits, patch }) {
 
 function SportRotation({ form, enums, patch }) {
   const live = sprotLive(form, enums)
+  const upPorted = rawUpPorted(form, enums)
 
   const toggle = () => {
     if (live) {
@@ -115,7 +119,7 @@ function SportRotation({ form, enums, patch }) {
       <SwitchRow on={live} title={T('raw_sprot_t')} note={T('raw_sprot_d')} onToggle={toggle} />
       <Reveal show={live}>
         <div>
-          <div className="grid2">
+          <div className={upPorted ? 'grid2' : undefined}>
             <Field label={rangeLabel(T('raw_sprot_lbl'), 1, RAW_SPROT_MAX)}>
               <Stepper
                 min={1}
@@ -125,15 +129,17 @@ function SportRotation({ form, enums, patch }) {
                 onChange={(v) => patch({ rawSprot: v })}
               />
             </Field>
-            <Field label={rangeLabel(T('raw_dports_lbl'), 1, RAW_DPORTS_MAX)}>
-              <Stepper
-                min={1}
-                max={RAW_DPORTS_MAX}
-                placeholder="1"
-                value={form.rawDports}
-                onChange={(v) => patch({ rawDports: v })}
-              />
-            </Field>
+            {upPorted ? (
+              <Field label={rangeLabel(T('raw_dports_lbl'), 1, RAW_DPORTS_MAX)}>
+                <Stepper
+                  min={1}
+                  max={RAW_DPORTS_MAX}
+                  placeholder="1"
+                  value={form.rawDports}
+                  onChange={(v) => patch({ rawDports: v })}
+                />
+              </Field>
+            ) : null}
           </div>
           <WarnCap text={sprotErr(form, enums)} style={{ marginTop: 8 }} />
         </div>
@@ -145,7 +151,7 @@ function SportRotation({ form, enums, patch }) {
 function RawPort({ form, cfg, patch }) {
   const id = useId()
   const current = intOf(form.rawPort)
-  const label = rangeLabel(T('raw_port_lbl'), ...cfg.limits.port)
+  const label = rangeLabel(T(rawUpPorted(form, cfg.enums) ? 'raw_port_lbl' : 'raw_port_down_lbl'), ...cfg.limits.port)
   const draws = (
     <>
       <PortTriesSection form={form} cfg={cfg} patch={patch} />
@@ -159,7 +165,7 @@ function RawPort({ form, cfg, patch }) {
         {label}
       </label>
       <Seg2 label={label} style={{ marginBottom: 8 }}>
-        {(DPORT_PRESETS[form.RawProfile] || []).map((preset) => (
+        {(DPORT_PRESETS[rawPortProfile(form, cfg.enums)] || []).map((preset) => (
           <SegOpt
             key={preset.v}
             on={current === preset.v}

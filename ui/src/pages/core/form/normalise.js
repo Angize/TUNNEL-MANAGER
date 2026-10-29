@@ -4,6 +4,7 @@ import {
   fecDatagram,
   protoVisOn,
   rawPorted,
+  rawUpPorted,
   rotIsDirect,
   rotMulti,
   wkCarrier,
@@ -35,6 +36,10 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (!rawPorted(view, enums)) {
     set('Sprot', false)
     set('Ctb', false)
+  }
+  if (!rawUpPorted(view, enums)) {
+    set('SportRandom', false)
+    set('rawDports', '')
   }
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view, form.pool)) set('WsTls', true)
