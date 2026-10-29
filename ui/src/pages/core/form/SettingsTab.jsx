@@ -3,7 +3,8 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Select from '../../../components/Select.jsx'
-import { ScrollSeg, SegOpt, Tile, Tiles, WarnCap } from './controls.jsx'
+import { ScrollSeg, SegOpt, WarnCap } from './controls.jsx'
+import RawDirGrid from './RawDirGrid.jsx'
 import ProtoSection from './ProtoSection.jsx'
 import PortSection from './PortSection.jsx'
 import BandSection from './BandSection.jsx'
@@ -14,8 +15,8 @@ import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
 import CdnPortRules from './CdnPortRules.jsx'
-import { coverOk, ctbDefault, wkCarrier } from './gates.js'
-import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
+import { coverOk, wkCarrier } from './gates.js'
+import { TRANSPORTS, cipherItems } from './presets.js'
 import { portErr } from './validate.js'
 import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
 import { cdnAuto } from '../../../lib/cdn.js'
@@ -64,24 +65,7 @@ export default function SettingsTab({
 
       <Reveal show={form.Tr === 'raw'}>
         <div>
-          <label>{T('raw_prof_lbl')}</label>
-          <Tiles label={T('raw_prof_lbl')}>
-            {rawProfiles().map((profile) => (
-              <Tile
-                key={profile.v}
-                on={profile.v === form.RawProfile}
-                name={profile.v}
-                meta={profile.m}
-                onClick={() =>
-                  patch(
-                    profile.v !== form.RawProfile && ctbDefault(profile.v, cfg.enums)
-                      ? { RawProfile: profile.v, Ctb: true }
-                      : { RawProfile: profile.v }
-                  )
-                }
-              />
-            ))}
-          </Tiles>
+          <RawDirGrid form={form} cfg={cfg} sides={sides} patch={patch} />
           <ProtoSection form={form} enums={cfg.enums} patch={patch} />
           <PortSection form={form} cfg={cfg} patch={patch} />
         </div>

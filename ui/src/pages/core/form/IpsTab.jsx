@@ -98,6 +98,10 @@ export default function IpsTab({
   onNode,
 }) {
   const serverIsA = form.Srv === 'a'
+  const setServer = (side) => {
+    if (form.Srv === side) return
+    patch({ Srv: side, RawProfile: form.RawProfileDown, RawProfileDown: form.RawProfile })
+  }
   const aName = nodeLabel(items, form.aNode)
   const bName = nodeLabel(items, form.bNode)
   const multi = rotMulti(form, cfg.enums, aIps, bIps)
@@ -180,13 +184,13 @@ export default function IpsTab({
           on={serverIsA}
           title={aName + ' ' + T('role_server_word')}
           sub={bName + ' ' + T('role_client_word')}
-          onClick={() => patch({ Srv: 'a' })}
+          onClick={() => setServer('a')}
         />
         <SegOpt
           on={!serverIsA}
           title={bName + ' ' + T('role_server_word')}
           sub={aName + ' ' + T('role_client_word')}
-          onClick={() => patch({ Srv: 'b' })}
+          onClick={() => setServer('b')}
         />
       </Seg2>
 

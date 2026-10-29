@@ -1,5 +1,11 @@
+export function rawPortProfile(form, enums) {
+  const ported = (enums && enums.raw_ported) || []
+  if (ported.includes(form.RawProfile)) return form.RawProfile
+  return ported.includes(form.RawProfileDown) ? form.RawProfileDown : ''
+}
+
 export function rawPorted(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_ported) || []).includes(form.RawProfile)
+  return form.Tr === 'raw' && rawPortProfile(form, enums) !== ''
 }
 
 export function portTriesOn(form, enums) {
@@ -18,7 +24,7 @@ export function sprotLive(form, enums) {
 }
 
 export function protoVisOn(form) {
-  return form.Tr === 'raw' && form.RawProfile === 'bare'
+  return form.Tr === 'raw' && (form.RawProfile === 'bare' || form.RawProfileDown === 'bare')
 }
 
 export function fecDatagram(form) {

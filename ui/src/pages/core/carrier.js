@@ -24,9 +24,14 @@ export function tagClassForFamily(family) {
   return TAG_FAMILIES[String(family).toLowerCase()] ? 'c-' + family : 'c-sys'
 }
 
-function rawProfileTag(link) {
-  const profile = link.raw_profile || 'bare'
+function rawTag(profile, link) {
   return profile.toUpperCase() + (profile === 'bare' ? '(' + (num(link.raw_proto) || 253) + ')' : '')
+}
+
+function rawProfileTag(link) {
+  const up = link.raw_profile || 'bare'
+  const down = link.raw_profile_down || up
+  return down === up ? rawTag(up, link) : rawTag(up, link) + '/' + rawTag(down, link)
 }
 
 export function carrierProfile(link) {

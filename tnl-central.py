@@ -3002,7 +3002,7 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 _END_KEYS = ("a_workers", "b_workers", "ws_port_roll")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
+                    "raw_profile_down", "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
                     "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -3232,6 +3232,8 @@ def _tunnel_extra(src):
             e["cover_sni"] = src["cover_sni"]
     if src.get("raw_profile"):
         e["raw_profile"] = src["raw_profile"]
+    if src.get("raw_profile_down"):
+        e["raw_profile_down"] = src["raw_profile_down"]
     if src.get("raw_proto"):
         e["raw_proto"] = src["raw_proto"]
     if src.get("raw_port"):
@@ -6992,15 +6994,16 @@ _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
 
 
-def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
-    ported = transport == "raw" and profile in PORTED_RAW_PROFILES
+def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl", down=""):
+    pair = (profile, down or profile)
+    ported = transport == "raw" and any(p in PORTED_RAW_PROFILES for p in pair)
     if key == "fake_ttl":
         return transport in DESYNC_TRANSPORTS and not (transport == "raw" and dsmode == "badsum")
     if key in _SHAPE_RAW_PORTED:
         return ported
     if key == "raw_proto":
-        return transport == "raw" and profile == "bare"
-    if key == "raw_profile":
+        return transport == "raw" and "bare" in pair
+    if key in ("raw_profile", "raw_profile_down"):
         return transport == "raw"
     if key in _SHAPE_TCP_ONLY:
         return transport == "tcp"
@@ -7022,7 +7025,8 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
 def _shape_of(d, cur):
     transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
     profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
-    ported = profile in PORTED_RAW_PROFILES
+    down = _raw_down_of(d, cur, profile)
+    ported = profile in PORTED_RAW_PROFILES or down in PORTED_RAW_PROFILES
     if "raw_sport_random" in d:
         srand = bool(d["raw_sport_random"])
     else:
@@ -7032,7 +7036,12 @@ def _shape_of(d, cur):
     else:
         rot = bool(cur.get("raw_sport_rotate")) and ported
     dsmode = str((d.get("fake_mode") if "fake_mode" in d else cur.get("fake_mode")) or "ttl").strip().lower()
-    return transport, profile, srand, srand or rot, dsmode
+    return transport, profile, srand, srand or rot, dsmode, down
+
+
+def _raw_down_of(d, cur, profile):
+    down = d["raw_profile_down"] if "raw_profile_down" in d else cur.get("raw_profile_down")
+    return str(down or profile).strip().lower()
 
 
 def _carried(cur, shape):
@@ -7064,27 +7073,32 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             raise Bad("raw_needs_cipher", "حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",
                       "the raw carrier needs encryption (do not set the cipher to none)")
         profile = str(d.get("raw_profile") or cur.get("raw_profile") or "bare").strip().lower()
-        if profile not in CORE_RAW_PROFILES:
+        down = _raw_down_of(d, cur, profile)
+        if profile not in CORE_RAW_PROFILES or down not in CORE_RAW_PROFILES:
             raise Bad("bad_raw_profile", "پروفایلِ raw نامعتبر است", "invalid raw profile")
         ce["raw_profile"] = profile
+        if down != profile:
+            ce["raw_profile_down"] = down
+        ported = profile in PORTED_RAW_PROFILES or down in PORTED_RAW_PROFILES
+        pair_name = profile if down == profile else profile + "/" + down
         try:
             _rp = int((d["raw_proto"] if "raw_proto" in d else cur.get("raw_proto")) or 0)
         except (TypeError, ValueError):
             _rp = 0
-        if profile == "bare" and _rp:
+        if "bare" in (profile, down) and _rp:
             _check_raw_proto(_rp)
             ce["raw_proto"] = _rp
         try:
             _rport = int((d["raw_port"] if "raw_port" in d else cur.get("raw_port")) or 0)
         except (TypeError, ValueError):
             _rport = 0
-        if _rport and profile in PORTED_RAW_PROFILES:
+        if _rport and ported:
             if not 1 <= _rport <= 65535:
                 raise Bad("bad_raw_port", "پورتِ حامل باید بینِ 1 تا 65535 باشد", "the carrier port must be from 1 to 65535")
             ce["raw_port"] = _rport
         elif _rport and "raw_port" in d:
             raise Bad("raw_port_not_allowed", "«پورتِ حامل» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                      "raw_port is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+                      "raw_port is only for the udp, tcp and sctp profiles; '{0}' fakes no port", pair_name)
         _srand_req, _rsport_req = "raw_sport_random" in d, "raw_sport" in d
         _srand = bool(d["raw_sport_random"] if _srand_req else cur.get("raw_sport_random"))
         try:
@@ -7098,7 +7112,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             _srand = False
         if _srand_req and _srand and not _rsport_req:
             _rsport = 0
-        if profile in PORTED_RAW_PROFILES:
+        if ported:
             if _srand:
                 ce["raw_sport_random"] = True
             elif _rsport:
@@ -7108,15 +7122,15 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         else:
             if _srand and "raw_sport_random" in d:
                 raise Bad("raw_sport_not_allowed", "«پورتِ مبدأِ چرخان» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                          "raw_sport_random is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+                          "raw_sport_random is only for the udp, tcp and sctp profiles; '{0}' fakes no port", pair_name)
             if _rsport and "raw_sport" in d:
                 raise Bad("raw_sport_not_allowed", "«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                          "raw_sport is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+                          "raw_sport is only for the udp, tcp and sctp profiles; '{0}' fakes no port", pair_name)
         try:
             _rrot = int((d["raw_sport_rotate"] if "raw_sport_rotate" in d else cur.get("raw_sport_rotate")) or 0)
         except (TypeError, ValueError):
             _rrot = 0
-        if profile in PORTED_RAW_PROFILES:
+        if ported:
             if _rrot:
                 if not 1 <= _rrot <= RAW_SPROT_MAX:
                     raise Bad("bad_sport_rotate", "«چرخشِ پورتِ مبدأ» باید بینِ 1 تا {0} باشد (هر چند پکت یک پورتِ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)",
@@ -7141,17 +7155,18 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                           "in the same middlebox bucket. Turn rotation on first")
         elif _rrot and "raw_sport_rotate" in d:
             raise Bad("raw_sport_not_allowed", "«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
-                      "raw_sport_rotate is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+                      "raw_sport_rotate is only for the udp, tcp and sctp profiles; '{0}' fakes no port", pair_name)
         if "conntrack_bypass" in d:
             _ctb = bool(d["conntrack_bypass"])
         else:
             _ctb = bool(cur.get("conntrack_bypass")) or (
-                profile in CTB_DEFAULT_PROFILES and profile != cur.get("raw_profile"))
+                any(p in CTB_DEFAULT_PROFILES for p in (profile, down))
+                and (profile, down) != (cur.get("raw_profile"), cur.get("raw_profile_down") or cur.get("raw_profile")))
         if _ctb:
-            if profile not in PORTED_RAW_PROFILES:
+            if not ported:
                 raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp و sctp معنا دارد؛ «{0}» به‌ازای هر پکت جریانِ تازه نمی‌سازد",
                           "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '{0}' does not open a new flow per packet",
-                          profile)
+                          pair_name)
             ce["conntrack_bypass"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur, ech_later))

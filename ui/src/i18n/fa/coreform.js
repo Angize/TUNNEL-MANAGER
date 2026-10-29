@@ -42,7 +42,12 @@ export default {
   tr_raw_d: 'پکتِ خام',
   tr_ws_d: 'پشتِ ابر',
 
-  raw_prof_lbl: 'پروفایلِ کپسوله‌سازی (raw)',
+  raw_dir_lbl: 'پروفایلِ کپسوله‌سازی (raw) · برای هر جهت یکی را بزن',
+  raw_dir_hint: 'آپلود از «{c}» به «{s}» می‌رود، دانلود برعکس',
+  raw_dir_up: 'آپلود',
+  raw_dir_down: 'دانلود',
+  raw_dir_up_aria: 'آپلود با {p}',
+  raw_dir_down_aria: 'دانلود با {p}',
   rawp_bare_m: 'proto دلخواه · بدونِ هدر',
   rawp_icmp_m: 'proto 1 · شبیهِ ping',
   rawp_gre_m: 'proto 47 · GRE',

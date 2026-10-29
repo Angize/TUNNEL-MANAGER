@@ -7,6 +7,7 @@ import {
   dsTtlUsed,
   fecDatagram,
   portTriesOn,
+  protoVisOn,
   rawPorted,
   sprotLive,
   wkCarrier,
@@ -118,7 +119,8 @@ export function collectCarrier(form, cfg, body) {
   if (form.Tr === 'raw') {
     if (form.cipher === 'none') return T('raw_need_enc')
     body.raw_profile = form.RawProfile
-    if (form.RawProfile === 'bare') {
+    body.raw_profile_down = form.RawProfileDown !== form.RawProfile ? form.RawProfileDown : ''
+    if (protoVisOn(form)) {
       const protoError = rawProtoErr(form.rawProto, enums)
       if (protoError) return protoError
       body.raw_proto = intOf(form.rawProto) || 253
