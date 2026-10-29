@@ -1,5 +1,9 @@
+function rawIn(form, enums, key) {
+  return form.Tr === 'raw' && ((enums && enums[key]) || []).includes(form.RawProfile)
+}
+
 export function rawPorted(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_ported) || []).includes(form.RawProfile)
+  return rawIn(form, enums, 'raw_ported')
 }
 
 export function portTriesOn(form, enums) {
@@ -9,11 +13,11 @@ export function portTriesOn(form, enums) {
 }
 
 export function rawFlowID(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_flow_id) || []).includes(form.RawProfile)
+  return rawIn(form, enums, 'raw_flow_id')
 }
 
 export function rawRotatable(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_rotatable) || []).includes(form.RawProfile)
+  return rawIn(form, enums, 'raw_rotatable')
 }
 
 export function bandOn(form, enums) {

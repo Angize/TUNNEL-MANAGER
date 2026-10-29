@@ -36,7 +36,7 @@ function capabilities(link) {
 }
 
 function ConntrackWarning({ link, ported, flowIds }) {
-  const moving = (rawPorted(link, ported) && rawRotating(link)) || flowRotating(link, flowIds)
+  const moving = (rawIn(link, ported) && rawRotating(link)) || flowRotating(link, flowIds)
   if (!moving || link.conntrack_bypass) return null
 
   const ct = link.ct || {}
@@ -79,26 +79,22 @@ function TunnelIp({ subnet, host }) {
   )
 }
 
-function rawPorted(link, ported) {
-  return link.transport === 'raw' && ported.includes(link.raw_profile)
+function rawIn(link, profiles) {
+  return link.transport === 'raw' && profiles.includes(link.raw_profile)
 }
 
 function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
-function rawFlowID(link, flowIds) {
-  return link.transport === 'raw' && flowIds.includes(link.raw_profile)
-}
-
 function flowRotating(link, flowIds) {
-  return rawFlowID(link, flowIds) && !!num(link.raw_id_rotate)
+  return rawIn(link, flowIds) && !!num(link.raw_id_rotate)
 }
 
 function sidePorts(link, rungTransports, ported) {
   const transport = link.transport || 'udp'
   if (transport === 'raw') {
-    if (!rawPorted(link, ported)) return []
+    if (!rawIn(link, ported)) return []
     const live = link.rot_live || {}
     const dst = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
     if (!rawRotating(link)) {
@@ -153,7 +149,7 @@ function flowIdCells(link, flowIds) {
 }
 
 function rawCells(link, ported) {
-  if (!rawPorted(link, ported)) return []
+  if (!rawIn(link, ported)) return []
   const live = link.rot_live || {}
   const cells = []
   const dports = num(live.dports) || num(link.raw_dports)
