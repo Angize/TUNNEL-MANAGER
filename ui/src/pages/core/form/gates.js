@@ -12,8 +12,8 @@ export function rawFlowID(form, enums) {
   return form.Tr === 'raw' && ((enums && enums.raw_flow_id) || []).includes(form.RawProfile)
 }
 
-export function rawCtb(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_ctb) || []).includes(form.RawProfile)
+export function rawRotatable(form, enums) {
+  return form.Tr === 'raw' && ((enums && enums.raw_rotatable) || []).includes(form.RawProfile)
 }
 
 export function bandOn(form, enums) {

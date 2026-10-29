@@ -871,6 +871,11 @@
    ],
    [
     400,
+    "bad_id_rotate",
+    "raw_id_rotate must be from 1 to … (a fresh identity every few packets; under the middlebox per-tuple cap)"
+   ],
+   [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
@@ -1102,7 +1107,7 @@
    [
     400,
     "conntrack_not_allowed",
-    "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '…' does not open a new flow per packet"
+    "conntrack_bypass only makes sense for a profile that opens a flow every few packets (udp, tcp, sctp, icmp and gre); '…' mints one flow and keeps it"
    ],
    [
     400,
@@ -1318,6 +1323,11 @@
     400,
     "proxy_not_found",
     "the proxy on the … route is gone — change the route under Settings › CDN"
+   ],
+   [
+    400,
+    "raw_id_not_allowed",
+    "raw_id_rotate is only for the icmp and gre profiles; '…' carries no identity field a middlebox keys on"
    ],
    [
     400,
@@ -1712,6 +1722,11 @@
    ],
    [
     400,
+    "bad_id_rotate",
+    "raw_id_rotate must be from 1 to … (a fresh identity every few packets; under the middlebox per-tuple cap)"
+   ],
+   [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
@@ -1943,7 +1958,7 @@
    [
     400,
     "conntrack_not_allowed",
-    "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '…' does not open a new flow per packet"
+    "conntrack_bypass only makes sense for a profile that opens a flow every few packets (udp, tcp, sctp, icmp and gre); '…' mints one flow and keeps it"
    ],
    [
     400,
@@ -2154,6 +2169,11 @@
     400,
     "proxy_not_found",
     "the proxy on the … route is gone — change the route under Settings › CDN"
+   ],
+   [
+    400,
+    "raw_id_not_allowed",
+    "raw_id_rotate is only for the icmp and gre profiles; '…' carries no identity field a middlebox keys on"
    ],
    [
     400,

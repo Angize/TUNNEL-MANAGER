@@ -15,7 +15,7 @@ import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
 import CdnPortRules from './CdnPortRules.jsx'
-import { coverOk, ctbDefault, rawCtb, wkCarrier } from './gates.js'
+import { coverOk, ctbDefault, rawRotatable, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
@@ -86,7 +86,7 @@ export default function SettingsTab({
           <ProtoSection form={form} enums={cfg.enums} patch={patch} />
           <PortSection form={form} cfg={cfg} patch={patch} />
           <FlowIdSection form={form} cfg={cfg} patch={patch} />
-          <Reveal show={rawCtb(form, cfg.enums)}>
+          <Reveal show={rawRotatable(form, cfg.enums)}>
             <CtbRow form={form} patch={patch} />
           </Reveal>
         </div>

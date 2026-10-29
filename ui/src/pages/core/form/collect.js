@@ -8,7 +8,7 @@ import {
   fecDatagram,
   irotLive,
   portTriesOn,
-  rawCtb,
+  rawRotatable,
   rawPorted,
   sprotLive,
   wkCarrier,
@@ -134,7 +134,7 @@ export function collectCarrier(form, cfg, body) {
     const irotError = irotErr(form, enums)
     if (irotError) return irotError
     body.raw_id_rotate = irotLive(form, enums) ? irotOf(form) : 0
-    body.conntrack_bypass = rawCtb(form, enums) && !!form.Ctb
+    body.conntrack_bypass = rawRotatable(form, enums) && !!form.Ctb
     if (rawPorted(form, enums)) {
       const dportError = portErr(form.rawPort, limits)
       if (dportError) return dportError

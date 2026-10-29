@@ -79,7 +79,7 @@ export function irotOf(form) {
 export function irotErr(form, enums) {
   if (!irotLive(form, enums)) return ''
   const n = irotOf(form)
-  return n >= 1 && n <= RAW_SPROT_MAX ? '' : T('raw_irot_bad')
+  return n >= 1 && n <= RAW_SPROT_MAX ? '' : T('raw_sprot_bad')
 }
 
 export function bandErr(form, limits) {

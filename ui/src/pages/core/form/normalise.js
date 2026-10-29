@@ -3,7 +3,9 @@ import {
   desyncOk,
   fecDatagram,
   protoVisOn,
+  rawFlowID,
   rawPorted,
+  rawRotatable,
   rotIsDirect,
   rotMulti,
   wkCarrier,
@@ -32,11 +34,9 @@ export default function normalise(form, cfg, aIps, bIps) {
   }
   if (wkShared(view)) set('WorkersB', at('WorkersA'))
   if (!desyncOk(view)) set('Desync', false)
-  if (!rawPorted(view, enums)) {
-    set('Sprot', false)
-    set('Irot', false)
-    set('Ctb', false)
-  }
+  if (!rawPorted(view, enums)) set('Sprot', false)
+  if (!rawFlowID(view, enums)) set('Irot', false)
+  if (!rawRotatable(view, enums)) set('Ctb', false)
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view, form.pool)) set('WsTls', true)
 

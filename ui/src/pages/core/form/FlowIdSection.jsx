@@ -28,7 +28,7 @@ function FlowId({ form, cfg, patch }) {
       <SwitchRow on={live} title={T('raw_irot_t')} note={T('raw_irot_d')} onToggle={toggle} />
       <Reveal show={live}>
         <div>
-          <Field label={rangeLabel(T('raw_irot_lbl'), 1, RAW_SPROT_MAX)}>
+          <Field label={rangeLabel(T('raw_sprot_lbl'), 1, RAW_SPROT_MAX)}>
             <Stepper
               min={1}
               max={RAW_SPROT_MAX}

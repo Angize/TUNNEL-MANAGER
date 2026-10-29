@@ -63,7 +63,7 @@ DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
 PORTED_RAW_PROFILES   = ("udp", "tcp", "sctp")
 FLOW_ID_RAW_PROFILES  = ("icmp", "gre")
-CTB_RAW_PROFILES      = PORTED_RAW_PROFILES + FLOW_ID_RAW_PROFILES
+ROTATABLE_RAW_PROFILES = PORTED_RAW_PROFILES + FLOW_ID_RAW_PROFILES
 CTB_DEFAULT_PROFILES  = ("sctp",)
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
@@ -5998,6 +5998,7 @@ def api_fleet(d):
             if _rc or _rs:
                 rec["rot_live"] = {"cli": int((_rc.get("sport") or 0)), "srv": int((_rs.get("sport") or 0)),
                                    "dport": int(_rc.get("dport") or 0),
+                                   "id": int((_rc or _rs).get("id") or 0),
                                    "dports": int(_rc.get("dports") or 0),
                                    "every": int((_rc or _rs).get("every") or 0),
                                    "lo": int((_rc or _rs).get("lo") or 0),
@@ -7007,7 +7008,7 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
     if key in _SHAPE_RAW_FLOWID:
         return transport == "raw" and profile in FLOW_ID_RAW_PROFILES
     if key == "conntrack_bypass":
-        return transport == "raw" and profile in CTB_RAW_PROFILES
+        return transport == "raw" and profile in ROTATABLE_RAW_PROFILES
     if key == "raw_proto":
         return transport == "raw" and profile == "bare"
     if key == "raw_profile":
@@ -7021,7 +7022,7 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
     if key in _SHAPE_DESYNC:
         return transport != "udp"
     if key in ("sport_lo", "sport_hi"):
-        return (ported and moving) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
+        return (profile in ROTATABLE_RAW_PROFILES and moving) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
     if key == "port_tries":
         return (ported and srand) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
     if key in _ROTATION_KEYS:
@@ -7176,10 +7177,10 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             _ctb = bool(cur.get("conntrack_bypass")) or (
                 profile in CTB_DEFAULT_PROFILES and profile != cur.get("raw_profile"))
         if _ctb:
-            if profile not in CTB_RAW_PROFILES:
-                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلی معنا دارد که می‌تواند به‌ازای هر چند پکت جریانِ تازه بسازد ({1})؛ «{0}» یک جریان می‌سازد و همان را نگه می‌دارد",
-                          "conntrack_bypass only makes sense for a profile that can open a flow per packet ({1}); '{0}' mints one flow and keeps it",
-                          profile, "، ".join(CTB_RAW_PROFILES))
+            if profile not in ROTATABLE_RAW_PROFILES:
+                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلی معنا دارد که هر چند پکت جریانِ تازه می‌سازد (udp، tcp، sctp، icmp و gre)؛ «{0}» یک جریان می‌سازد و همان را نگه می‌دارد",
+                          "conntrack_bypass only makes sense for a profile that opens a flow every few packets (udp, tcp, sctp, icmp and gre); '{0}' mints one flow and keeps it",
+                          profile)
             ce["conntrack_bypass"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur, ech_later))
@@ -12736,7 +12737,7 @@ def ui_config():
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
             "raw_ported": list(PORTED_RAW_PROFILES), "raw_flow_id": list(FLOW_ID_RAW_PROFILES),
-            "raw_ctb": list(CTB_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
+            "raw_rotatable": list(ROTATABLE_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),
             "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
