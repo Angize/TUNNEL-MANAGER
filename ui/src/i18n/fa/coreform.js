@@ -43,7 +43,8 @@ export default {
   tr_ws_d: 'پشتِ ابر',
 
   raw_dir_lbl: 'پروفایلِ کپسوله‌سازی (raw) · برای هر جهت یکی را بزن',
-  raw_dir_hint: 'آپلود از «{c}» به «{s}» می‌رود، دانلود برعکس',
+  raw_dir_from: 'از',
+  raw_dir_to: 'به',
   raw_dir_up: 'آپلود',
   raw_dir_down: 'دانلود',
   raw_dir_up_aria: 'آپلود با {p}',

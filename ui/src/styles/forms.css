@@ -502,10 +502,6 @@ textarea:focus {
   color: var(--acc-tx);
 }
 
-.fldhint.dirhint {
-  margin: -2px 2px 9px;
-}
-
 .ptile.dirtile {
   cursor: default;
   padding-bottom: 8px;
@@ -567,20 +563,37 @@ textarea:focus {
 
 .dirsum {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
-  margin: 8px 2px 2px;
+  margin: 8px 0 2px;
 }
 
 .dirpick {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
   letter-spacing: .3px;
+}
+
+.dirpick > span {
+  min-width: 0;
+}
+
+.dirpick bdi {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.dirpick b {
+  font-weight: 800;
 }
 
 .dirpick.up {
