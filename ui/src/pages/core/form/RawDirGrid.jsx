@@ -31,7 +31,9 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
   return (
     <div>
       <label>{T('raw_dir_lbl')}</label>
-      <div className="fldhint dirhint">{T('raw_dir_hint').replace('{c}', client).replace('{s}', server)}</div>
+      {client && server ? (
+        <div className="fldhint dirhint">{T('raw_dir_hint').replace('{c}', client).replace('{s}', server)}</div>
+      ) : null}
       <div className="pgrid dirgrid" role="group" aria-label={T('raw_dir_lbl')}>
         {rawProfiles().map((profile) => {
           const up = profile.v === form.RawProfile

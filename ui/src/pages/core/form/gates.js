@@ -8,6 +8,10 @@ export function rawPorted(form, enums) {
   return form.Tr === 'raw' && rawPortProfile(form, enums) !== ''
 }
 
+export function rawUpPorted(form, enums) {
+  return form.Tr === 'raw' && ((enums && enums.raw_ported) || []).includes(form.RawProfile)
+}
+
 export function portTriesOn(form, enums) {
   if (form.Tr === 'raw') return rawPorted(form, enums) && !!form.SportRandom
   if (form.Tr === 'ws' && !form.PortRoll) return false

@@ -70,9 +70,11 @@ export default {
   raw_proto_owned: 'پروتکلِ {n} مالِ «{p}» است — پروفایلِ «{p}» را بزن',
 
   raw_port_lbl: 'پورتِ مقصد · سمتِ سرور',
+  raw_port_down_lbl: 'پورتِ سمتِ سرور · مبدأِ دانلود',
   raw_port_quic: 'QUIC',
   raw_port_bad: 'پورت باید بینِ 1 تا 65535 باشد',
   raw_sport_lbl: 'پورتِ مبدأ · سمتِ کلاینت',
+  raw_cport_down_lbl: 'پورتِ سمتِ کلاینت · مقصدِ دانلود',
   raw_sport_fixed_n: 'ثابت',
   raw_sport_fixed_m: 'پیش‌فرض 51820 · قابلِ تغییر',
   raw_sport_rand_n: 'رندومِ واکنشی',
