@@ -184,12 +184,6 @@ function RawPort({ form, cfg, patch }) {
         <SportRotation form={form} enums={cfg.enums} patch={patch} />
         <Reveal show={!form.SportRandom}>{draws}</Reveal>
       </SwapCascade>
-      <SwitchRow
-        on={!!form.Ctb}
-        title={T('ctb_t')}
-        note={T('ctb_d')}
-        onToggle={() => patch({ Ctb: !form.Ctb })}
-      />
     </div>
   )
 }

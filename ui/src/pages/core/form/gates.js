@@ -1,5 +1,9 @@
+function rawIn(form, enums, key) {
+  return form.Tr === 'raw' && ((enums && enums[key]) || []).includes(form.RawProfile)
+}
+
 export function rawPorted(form, enums) {
-  return form.Tr === 'raw' && ((enums && enums.raw_ported) || []).includes(form.RawProfile)
+  return rawIn(form, enums, 'raw_ported')
 }
 
 export function portTriesOn(form, enums) {
@@ -8,13 +12,27 @@ export function portTriesOn(form, enums) {
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
+export function rawFlowID(form, enums) {
+  return rawIn(form, enums, 'raw_flow_id')
+}
+
+export function rawRotatable(form, enums) {
+  return rawIn(form, enums, 'raw_rotatable')
+}
+
 export function bandOn(form, enums) {
-  if (form.Tr === 'raw') return rawPorted(form, enums) && (!!form.SportRandom || !!form.Sprot)
+  if (form.Tr === 'raw') {
+    return (rawPorted(form, enums) && (!!form.SportRandom || !!form.Sprot)) || irotLive(form, enums)
+  }
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
 export function sprotLive(form, enums) {
   return rawPorted(form, enums) && !!form.Sprot
+}
+
+export function irotLive(form, enums) {
+  return rawFlowID(form, enums) && !!form.Irot
 }
 
 export function protoVisOn(form) {

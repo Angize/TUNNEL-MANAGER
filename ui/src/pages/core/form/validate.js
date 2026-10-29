@@ -1,7 +1,7 @@
 import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
-import { cdnShapeApplies, cdnShapeOn, sprotLive } from './gates.js'
+import { cdnShapeApplies, cdnShapeOn, irotLive, sprotLive } from './gates.js'
 
 function blank(text) {
   return latinDigits(text).trim() === ''
@@ -58,18 +58,34 @@ export function sportErr(text, limits) {
   return outside(text, limits.port) ? T('raw_sport_bad') : ''
 }
 
+function everyOf(text) {
+  return blank(text) ? SPROT_DEFAULT : intOf(text)
+}
+
+function everyBad(text) {
+  const n = everyOf(text)
+  return !(n >= 1 && n <= RAW_SPROT_MAX)
+}
+
 export function sprotOf(form) {
-  return blank(form.rawSprot) ? SPROT_DEFAULT : intOf(form.rawSprot)
+  return everyOf(form.rawSprot)
 }
 
 export function sprotErr(form, enums) {
   if (!sprotLive(form, enums)) return ''
-  const n = sprotOf(form)
-  if (!(n >= 1 && n <= RAW_SPROT_MAX)) return T('raw_sprot_bad')
+  if (everyBad(form.rawSprot)) return T('raw_sprot_bad')
   const dports = intOf(form.rawDports)
   return dports === 0 || (dports >= 1 && dports <= RAW_DPORTS_MAX)
     ? ''
     : TF('raw_dports_bad', { n: RAW_DPORTS_MAX })
+}
+
+export function irotOf(form) {
+  return everyOf(form.rawIrot)
+}
+
+export function irotErr(form, enums) {
+  return irotLive(form, enums) && everyBad(form.rawIrot) ? T('raw_sprot_bad') : ''
 }
 
 export function bandErr(form, limits) {

@@ -35,8 +35,9 @@ function capabilities(link) {
   return tags
 }
 
-function ConntrackWarning({ link, ported }) {
-  if (!rawPorted(link, ported) || !rawRotating(link) || link.conntrack_bypass) return null
+function ConntrackWarning({ link, ported, flowIds }) {
+  const moving = (rawIn(link, ported) && rawRotating(link)) || flowRotating(link, flowIds)
+  if (!moving || link.conntrack_bypass) return null
 
   const ct = link.ct || {}
   const pct = num(ct.pct)
@@ -78,18 +79,22 @@ function TunnelIp({ subnet, host }) {
   )
 }
 
-function rawPorted(link, ported) {
-  return link.transport === 'raw' && ported.includes(link.raw_profile)
+function rawIn(link, profiles) {
+  return link.transport === 'raw' && profiles.includes(link.raw_profile)
 }
 
 function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
+function flowRotating(link, flowIds) {
+  return rawIn(link, flowIds) && !!num(link.raw_id_rotate)
+}
+
 function sidePorts(link, rungTransports, ported) {
   const transport = link.transport || 'udp'
   if (transport === 'raw') {
-    if (!rawPorted(link, ported)) return []
+    if (!rawIn(link, ported)) return []
     const live = link.rot_live || {}
     const dst = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
     if (!rawRotating(link)) {
@@ -123,8 +128,28 @@ function capCells(link) {
   ]
 }
 
+function bandCells(link, unit) {
+  const live = link.rot_live || {}
+  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
+  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
+  const drawn = num(live.drawn)
+  const cells = [cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>)]
+  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T(unit).replace('{n}', compact.format(drawn))}</b>))
+  return cells
+}
+
+function flowIdCells(link, flowIds) {
+  if (!flowRotating(link, flowIds)) return []
+  const id = num((link.rot_live || {}).id)
+  return [
+    cell(T('rot_id'), <b>{T('rot_every').replace('{n}', String(num(link.raw_id_rotate)))}</b>),
+    ...(id ? [cell(T('rot_id_now'), <b className="mono iso">{id}</b>)] : []),
+    ...bandCells(link, 'n_ids'),
+  ]
+}
+
 function rawCells(link, ported) {
-  if (!rawPorted(link, ported)) return []
+  if (!rawIn(link, ported)) return []
   const live = link.rot_live || {}
   const cells = []
   const dports = num(live.dports) || num(link.raw_dports)
@@ -132,13 +157,8 @@ function rawCells(link, ported) {
   if (!rawRotating(link)) return cells
 
   const every = num(link.raw_sport_rotate)
-  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
-  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
-  const drawn = num(live.drawn)
   cells.push(cell(T('rot_src'), <b>{every ? T('rot_every').replace('{n}', String(every)) : T('rot_on_fail')}</b>))
-  cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
-  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ports').replace('{n}', compact.format(drawn))}</b>))
-  return cells
+  return [...cells, ...bandCells(link, 'n_ports')]
 }
 
 function edgeRotation(link) {
@@ -148,7 +168,7 @@ function edgeRotation(link) {
   return item ? item.label : secs + 's'
 }
 
-function sharedCells(link, ported) {
+function sharedCells(link, ported, flowIds) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
@@ -165,6 +185,7 @@ function sharedCells(link, ported) {
     ),
     ...capCells(link),
     ...rawCells(link, ported),
+    ...flowIdCells(link, flowIds),
   ]
   if (edgePool(link)) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
@@ -189,13 +210,14 @@ export default function CoreMeta({ link }) {
   const { enums } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
   const ported = (enums && enums.raw_ported) || []
+  const flowIds = (enums && enums.raw_flow_id) || []
   const rows = [
     [
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
     ...sidePorts(link, rungTransports, ported),
-    ...pairs(sharedCells(link, ported)),
+    ...pairs(sharedCells(link, ported, flowIds)),
   ]
 
   return (
@@ -215,7 +237,7 @@ export default function CoreMeta({ link }) {
           </Fragment>
         ))}
       </div>
-      <ConntrackWarning link={link} ported={ported} />
+      <ConntrackWarning link={link} ported={ported} flowIds={flowIds} />
     </>
   )
 }
