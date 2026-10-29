@@ -34,6 +34,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   if (!desyncOk(view)) set('Desync', false)
   if (!rawPorted(view, enums)) {
     set('Sprot', false)
+    set('Irot', false)
     set('Ctb', false)
   }
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)

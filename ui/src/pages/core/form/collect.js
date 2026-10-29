@@ -6,7 +6,9 @@ import {
   desyncOk,
   dsTtlUsed,
   fecDatagram,
+  irotLive,
   portTriesOn,
+  rawCtb,
   rawPorted,
   sprotLive,
   wkCarrier,
@@ -18,6 +20,8 @@ import {
   cdnShapeErr,
   cdnShapeValue,
   intOf,
+  irotErr,
+  irotOf,
   limitErr,
   portErr,
   portTriesRangeErr,
@@ -127,7 +131,10 @@ export function collectCarrier(form, cfg, body) {
     if (sprotError) return sprotError
     body.raw_sport_rotate = sprotLive(form, enums) ? sprotOf(form) : 0
     body.raw_dports = sprotLive(form, enums) ? intOf(form.rawDports) : 0
-    body.conntrack_bypass = rawPorted(form, enums) && !!form.Ctb
+    const irotError = irotErr(form, enums)
+    if (irotError) return irotError
+    body.raw_id_rotate = irotLive(form, enums) ? irotOf(form) : 0
+    body.conntrack_bypass = rawCtb(form, enums) && !!form.Ctb
     if (rawPorted(form, enums)) {
       const dportError = portErr(form.rawPort, limits)
       if (dportError) return dportError

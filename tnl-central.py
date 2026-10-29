@@ -62,6 +62,8 @@ MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
 PORTED_RAW_PROFILES   = ("udp", "tcp", "sctp")
+FLOW_ID_RAW_PROFILES  = ("icmp", "gre")
+CTB_RAW_PROFILES      = PORTED_RAW_PROFILES + FLOW_ID_RAW_PROFILES
 CTB_DEFAULT_PROFILES  = ("sctp",)
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
@@ -3002,7 +3004,8 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 _END_KEYS = ("a_workers", "b_workers", "ws_port_roll")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate",
+                    "raw_id_rotate", "raw_dports",
                     "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -3244,6 +3247,8 @@ def _tunnel_extra(src):
         e["raw_sport"] = src["raw_sport"]
     if src.get("raw_sport_rotate"):
         e["raw_sport_rotate"] = src["raw_sport_rotate"]
+    if src.get("raw_id_rotate"):
+        e["raw_id_rotate"] = src["raw_id_rotate"]
     if src.get("raw_dports"):
         e["raw_dports"] = src["raw_dports"]
     if src.get("sport_lo") and src.get("sport_hi"):
@@ -6981,7 +6986,8 @@ PORT_TRIES_MAX = 60
 
 
 _SHAPE_RAW_PORTED = ("raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate",
-                     "raw_dports", "conntrack_bypass")
+                     "raw_dports")
+_SHAPE_RAW_FLOWID = ("raw_id_rotate",)
 _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
                   "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
@@ -6998,6 +7004,10 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl"):
         return transport in DESYNC_TRANSPORTS and not (transport == "raw" and dsmode == "badsum")
     if key in _SHAPE_RAW_PORTED:
         return ported
+    if key in _SHAPE_RAW_FLOWID:
+        return transport == "raw" and profile in FLOW_ID_RAW_PROFILES
+    if key == "conntrack_bypass":
+        return transport == "raw" and profile in CTB_RAW_PROFILES
     if key == "raw_proto":
         return transport == "raw" and profile == "bare"
     if key == "raw_profile":
@@ -7031,6 +7041,10 @@ def _shape_of(d, cur):
         rot = bool(d["raw_sport_rotate"])
     else:
         rot = bool(cur.get("raw_sport_rotate")) and ported
+    if "raw_id_rotate" in d:
+        rot = rot or bool(d["raw_id_rotate"])
+    else:
+        rot = rot or (bool(cur.get("raw_id_rotate")) and profile in FLOW_ID_RAW_PROFILES)
     dsmode = str((d.get("fake_mode") if "fake_mode" in d else cur.get("fake_mode")) or "ttl").strip().lower()
     return transport, profile, srand, srand or rot, dsmode
 
@@ -7142,16 +7156,30 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         elif _rrot and "raw_sport_rotate" in d:
             raise Bad("raw_sport_not_allowed", "«چرخشِ پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
                       "raw_sport_rotate is only for the udp, tcp and sctp profiles; '{0}' fakes no port", profile)
+        try:
+            _irot = int((d["raw_id_rotate"] if "raw_id_rotate" in d else cur.get("raw_id_rotate")) or 0)
+        except (TypeError, ValueError):
+            _irot = 0
+        if profile in FLOW_ID_RAW_PROFILES:
+            if _irot:
+                if not 1 <= _irot <= RAW_SPROT_MAX:
+                    raise Bad("bad_id_rotate", "«چرخشِ شناسهٔ جریان» باید بینِ 1 تا {0} باشد (هر چند پکت یک شناسهٔ تازه؛ زیرِ سقفِ per-tuple میدل‌باکس)",
+                              "raw_id_rotate must be from 1 to {0} (a fresh identity every few packets; under the middlebox per-tuple cap)",
+                              RAW_SPROT_MAX)
+                ce["raw_id_rotate"] = _irot
+        elif _irot and "raw_id_rotate" in d:
+            raise Bad("raw_id_not_allowed", "«چرخشِ شناسهٔ جریان» فقط برای پروفایلِ icmp و gre است؛ در «{0}» هیچ فیلدِ شناسه‌ای نیست که میدل‌باکس رویش جریان بسازد",
+                      "raw_id_rotate is only for the icmp and gre profiles; '{0}' carries no identity field a middlebox keys on", profile)
         if "conntrack_bypass" in d:
             _ctb = bool(d["conntrack_bypass"])
         else:
             _ctb = bool(cur.get("conntrack_bypass")) or (
                 profile in CTB_DEFAULT_PROFILES and profile != cur.get("raw_profile"))
         if _ctb:
-            if profile not in PORTED_RAW_PROFILES:
-                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلِ udp و tcp و sctp معنا دارد؛ «{0}» به‌ازای هر پکت جریانِ تازه نمی‌سازد",
-                          "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '{0}' does not open a new flow per packet",
-                          profile)
+            if profile not in CTB_RAW_PROFILES:
+                raise Bad("conntrack_not_allowed", "«رد شدن از conntrack» فقط برای پروفایلی معنا دارد که می‌تواند به‌ازای هر چند پکت جریانِ تازه بسازد ({1})؛ «{0}» یک جریان می‌سازد و همان را نگه می‌دارد",
+                          "conntrack_bypass only makes sense for a profile that can open a flow per packet ({1}); '{0}' mints one flow and keeps it",
+                          profile, "، ".join(CTB_RAW_PROFILES))
             ce["conntrack_bypass"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur, ech_later))
@@ -12707,7 +12735,8 @@ def ui_config():
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
-            "raw_ported": list(PORTED_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
+            "raw_ported": list(PORTED_RAW_PROFILES), "raw_flow_id": list(FLOW_ID_RAW_PROFILES),
+            "raw_ctb": list(CTB_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),
             "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},

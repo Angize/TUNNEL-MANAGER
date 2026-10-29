@@ -1,5 +1,7 @@
 import { Children, useLayoutEffect, useRef } from 'react'
 import Icon from '../../../components/Icon.jsx'
+import SwitchRow from '../../../components/SwitchRow.jsx'
+import { T } from '../../../i18n/fa.js'
 
 export function SegOpt({ on, title, sub, disabled, onClick }) {
   return (
@@ -104,6 +106,17 @@ export function Tile({ on, name, meta, extra, onClick }) {
         </div>
       ) : null}
     </button>
+  )
+}
+
+export function CtbRow({ form, patch }) {
+  return (
+    <SwitchRow
+      on={!!form.Ctb}
+      title={T('ctb_t')}
+      note={T('ctb_d')}
+      onToggle={() => patch({ Ctb: !form.Ctb })}
+    />
   )
 }
 

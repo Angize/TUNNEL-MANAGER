@@ -8,13 +8,27 @@ export function portTriesOn(form, enums) {
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
+export function rawFlowID(form, enums) {
+  return form.Tr === 'raw' && ((enums && enums.raw_flow_id) || []).includes(form.RawProfile)
+}
+
+export function rawCtb(form, enums) {
+  return form.Tr === 'raw' && ((enums && enums.raw_ctb) || []).includes(form.RawProfile)
+}
+
 export function bandOn(form, enums) {
-  if (form.Tr === 'raw') return rawPorted(form, enums) && (!!form.SportRandom || !!form.Sprot)
+  if (form.Tr === 'raw') {
+    return (rawPorted(form, enums) && (!!form.SportRandom || !!form.Sprot)) || irotLive(form, enums)
+  }
   return ((enums && enums.tr_rung) || []).includes(form.Tr)
 }
 
 export function sprotLive(form, enums) {
   return rawPorted(form, enums) && !!form.Sprot
+}
+
+export function irotLive(form, enums) {
+  return rawFlowID(form, enums) && !!form.Irot
 }
 
 export function protoVisOn(form) {

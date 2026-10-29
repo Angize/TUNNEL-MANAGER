@@ -22,6 +22,9 @@ export default {
   rot_band: 'بازه',
   rot_drawn: 'چرخیده',
   rot_every: 'هر {n} پکت',
+  rot_id: 'چرخشِ شناسه',
+  rot_id_now: 'شناسهٔ فعلی',
+  n_ids: '{n} شناسه',
   rot_on_fail: 'روی خرابی',
   n_ports: '{n} پورت',
 

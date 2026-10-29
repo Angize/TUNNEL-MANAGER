@@ -3,9 +3,10 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Select from '../../../components/Select.jsx'
-import { ScrollSeg, SegOpt, Tile, Tiles, WarnCap } from './controls.jsx'
+import { CtbRow, ScrollSeg, SegOpt, Tile, Tiles, WarnCap } from './controls.jsx'
 import ProtoSection from './ProtoSection.jsx'
 import PortSection from './PortSection.jsx'
+import FlowIdSection from './FlowIdSection.jsx'
 import BandSection from './BandSection.jsx'
 import PortTriesSection from './PortTriesSection.jsx'
 import WorkersSection from './WorkersSection.jsx'
@@ -14,7 +15,7 @@ import WsToggleRows from './WsToggleRows.jsx'
 import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
 import CdnPortRules from './CdnPortRules.jsx'
-import { coverOk, ctbDefault, wkCarrier } from './gates.js'
+import { coverOk, ctbDefault, rawCtb, wkCarrier } from './gates.js'
 import { TRANSPORTS, cipherItems, rawProfiles } from './presets.js'
 import { portErr } from './validate.js'
 import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
@@ -84,6 +85,10 @@ export default function SettingsTab({
           </Tiles>
           <ProtoSection form={form} enums={cfg.enums} patch={patch} />
           <PortSection form={form} cfg={cfg} patch={patch} />
+          <FlowIdSection form={form} cfg={cfg} patch={patch} />
+          <Reveal show={rawCtb(form, cfg.enums)}>
+            <CtbRow form={form} patch={patch} />
+          </Reveal>
         </div>
       </Reveal>
 

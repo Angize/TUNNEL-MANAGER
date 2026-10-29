@@ -3,14 +3,14 @@ import Reveal from '../../../components/Reveal.jsx'
 import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import { WarnCap } from './controls.jsx'
-import { bandOn } from './gates.js'
+import { bandOn, irotLive } from './gates.js'
 import { bandErr } from './validate.js'
 import { RAW_ROT_HI, RAW_ROT_LO } from '../carrier.js'
 import { T } from '../../../i18n/fa.js'
 
 function Band({ form, cfg, patch }) {
   const id = useId()
-  const parts = T('band_lbl').split('{r}')
+  const parts = T(irotLive(form, cfg.enums) ? 'band_id_lbl' : 'band_lbl').split('{r}')
 
   return (
     <div style={{ marginTop: 12 }} role="group" aria-labelledby={id}>

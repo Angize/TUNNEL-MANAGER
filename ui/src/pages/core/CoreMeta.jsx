@@ -35,8 +35,9 @@ function capabilities(link) {
   return tags
 }
 
-function ConntrackWarning({ link, ported }) {
-  if (!rawPorted(link, ported) || !rawRotating(link) || link.conntrack_bypass) return null
+function ConntrackWarning({ link, ported, flowIds }) {
+  const moving = (rawPorted(link, ported) && rawRotating(link)) || flowRotating(link, flowIds)
+  if (!moving || link.conntrack_bypass) return null
 
   const ct = link.ct || {}
   const pct = num(ct.pct)
@@ -86,6 +87,14 @@ function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
+function rawFlowID(link, flowIds) {
+  return link.transport === 'raw' && flowIds.includes(link.raw_profile)
+}
+
+function flowRotating(link, flowIds) {
+  return rawFlowID(link, flowIds) && !!num(link.raw_id_rotate)
+}
+
 function sidePorts(link, rungTransports, ported) {
   const transport = link.transport || 'udp'
   if (transport === 'raw') {
@@ -123,6 +132,21 @@ function capCells(link) {
   ]
 }
 
+function flowIdCells(link, flowIds) {
+  if (!flowRotating(link, flowIds)) return []
+  const live = link.rot_live || {}
+  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
+  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
+  const drawn = num(live.drawn)
+  const cells = [
+    cell(T('rot_id'), <b>{T('rot_every').replace('{n}', String(num(link.raw_id_rotate)))}</b>),
+  ]
+  if (num(live.id)) cells.push(cell(T('rot_id_now'), <b className="mono iso">{num(live.id)}</b>))
+  cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
+  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ids').replace('{n}', compact.format(drawn))}</b>))
+  return cells
+}
+
 function rawCells(link, ported) {
   if (!rawPorted(link, ported)) return []
   const live = link.rot_live || {}
@@ -148,7 +172,7 @@ function edgeRotation(link) {
   return item ? item.label : secs + 's'
 }
 
-function sharedCells(link, ported) {
+function sharedCells(link, ported, flowIds) {
   const profile = carrierProfile(link)
   const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
@@ -165,6 +189,7 @@ function sharedCells(link, ported) {
     ),
     ...capCells(link),
     ...rawCells(link, ported),
+    ...flowIdCells(link, flowIds),
   ]
   if (edgePool(link)) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
@@ -189,13 +214,14 @@ export default function CoreMeta({ link }) {
   const { enums } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
   const ported = (enums && enums.raw_ported) || []
+  const flowIds = (enums && enums.raw_flow_id) || []
   const rows = [
     [
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
     ...sidePorts(link, rungTransports, ported),
-    ...pairs(sharedCells(link, ported)),
+    ...pairs(sharedCells(link, ported, flowIds)),
   ]
 
   return (
@@ -215,7 +241,7 @@ export default function CoreMeta({ link }) {
           </Fragment>
         ))}
       </div>
-      <ConntrackWarning link={link} ported={ported} />
+      <ConntrackWarning link={link} ported={ported} flowIds={flowIds} />
     </>
   )
 }
