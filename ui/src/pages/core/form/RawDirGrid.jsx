@@ -19,6 +19,26 @@ function DirChip({ dir, on, profile, onPick }) {
   )
 }
 
+function DirPick({ dir, profile, from, to }) {
+  const up = dir === 'up'
+  return (
+    <span className={'dirpick ' + dir}>
+      <Icon name={up ? 'upload' : 'download'} />
+      <span>
+        {T(up ? 'raw_dir_up' : 'raw_dir_down')} <b>{profile.toUpperCase()}</b>
+        {from && to ? (
+          <>
+            {' · ' + T('raw_dir_from') + ' '}
+            <bdi>{from}</bdi>
+            {' ' + T('raw_dir_to') + ' '}
+            <bdi>{to}</bdi>
+          </>
+        ) : null}
+      </span>
+    </span>
+  )
+}
+
 export default function RawDirGrid({ form, cfg, sides, patch }) {
   const client = sides[form.Srv === 'a' ? 'b' : 'a'].name
   const server = sides[form.Srv === 'a' ? 'a' : 'b'].name
@@ -31,9 +51,6 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
   return (
     <div>
       <label>{T('raw_dir_lbl')}</label>
-      {client && server ? (
-        <div className="fldhint dirhint">{T('raw_dir_hint').replace('{c}', client).replace('{s}', server)}</div>
-      ) : null}
       <div className="pgrid dirgrid" role="group" aria-label={T('raw_dir_lbl')}>
         {rawProfiles().map((profile) => {
           const up = profile.v === form.RawProfile
@@ -61,14 +78,8 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
         })}
       </div>
       <div className="dirsum">
-        <span className="dirpick up">
-          <Icon name="upload" />
-          {T('raw_dir_up') + ' ' + form.RawProfile.toUpperCase()}
-        </span>
-        <span className="dirpick down">
-          <Icon name="download" />
-          {T('raw_dir_down') + ' ' + form.RawProfileDown.toUpperCase()}
-        </span>
+        <DirPick dir="up" profile={form.RawProfile} from={client} to={server} />
+        <DirPick dir="down" profile={form.RawProfileDown} from={server} to={client} />
       </div>
     </div>
   )
