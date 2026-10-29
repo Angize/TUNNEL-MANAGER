@@ -132,19 +132,24 @@ function capCells(link) {
   ]
 }
 
-function flowIdCells(link, flowIds) {
-  if (!flowRotating(link, flowIds)) return []
+function bandCells(link, unit) {
   const live = link.rot_live || {}
   const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
   const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
   const drawn = num(live.drawn)
-  const cells = [
-    cell(T('rot_id'), <b>{T('rot_every').replace('{n}', String(num(link.raw_id_rotate)))}</b>),
-  ]
-  if (num(live.id)) cells.push(cell(T('rot_id_now'), <b className="mono iso">{num(live.id)}</b>))
-  cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
-  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ids').replace('{n}', compact.format(drawn))}</b>))
+  const cells = [cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>)]
+  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T(unit).replace('{n}', compact.format(drawn))}</b>))
   return cells
+}
+
+function flowIdCells(link, flowIds) {
+  if (!flowRotating(link, flowIds)) return []
+  const id = num((link.rot_live || {}).id)
+  return [
+    cell(T('rot_id'), <b>{T('rot_every').replace('{n}', String(num(link.raw_id_rotate)))}</b>),
+    ...(id ? [cell(T('rot_id_now'), <b className="mono iso">{id}</b>)] : []),
+    ...bandCells(link, 'n_ids'),
+  ]
 }
 
 function rawCells(link, ported) {
@@ -156,13 +161,8 @@ function rawCells(link, ported) {
   if (!rawRotating(link)) return cells
 
   const every = num(link.raw_sport_rotate)
-  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
-  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
-  const drawn = num(live.drawn)
   cells.push(cell(T('rot_src'), <b>{every ? T('rot_every').replace('{n}', String(every)) : T('rot_on_fail')}</b>))
-  cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
-  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ports').replace('{n}', compact.format(drawn))}</b>))
-  return cells
+  return [...cells, ...bandCells(link, 'n_ports')]
 }
 
 function edgeRotation(link) {
