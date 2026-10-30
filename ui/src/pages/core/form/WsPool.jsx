@@ -32,7 +32,7 @@ const KINDS = [
   { kind: 'sni', label: () => T('pool_sni_lbl'), placeholder: 'cdn.example.com' },
 ]
 
-function EdgeRow({ value, kind, owner, health, active, lid, pending, status, fresh, onRetest, onSelect, onDelete }) {
+export function EdgeRow({ value, label, kind, owner, health, active, lid, pending, status, fresh, onRetest, onSelect, onDelete }) {
   const tone = healthTone(health, active, EDGE_TITLES)
   const burned = isBurned(health)
   const isTarget = pending && pending.kind === kind && pending.key === value
@@ -43,7 +43,7 @@ function EdgeRow({ value, kind, owner, health, active, lid, pending, status, fre
         <Icon name={tone.icon} />
       </span>
       <span className="eip" title={value}>
-        {value}
+        {label || value}
       </span>
       {owner ? <span className="cdnownchip">{TF('cdn_placed_by', { p: providerName(owner) })}</span> : null}
       {burned ? (
@@ -70,12 +70,14 @@ function EdgeRow({ value, kind, owner, health, active, lid, pending, status, fre
             onClick={() => onSelect(kind, value)}
           />
         ) : null}
-        <ActionButton
-          icon="trash"
-          tone="del"
-          title={T('tip_delete')}
-          onClick={() => onDelete(kind, value)}
-        />
+        {onDelete ? (
+          <ActionButton
+            icon="trash"
+            tone="del"
+            title={T('tip_delete')}
+            onClick={() => onDelete(kind, value)}
+          />
+        ) : null}
       </span>
     </div>
   )

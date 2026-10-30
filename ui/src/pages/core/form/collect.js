@@ -77,16 +77,18 @@ function selfEchCollect(form, enums, body) {
   return shapeCollect(form, enums, body)
 }
 
-function edgeCollect(form, enums, body) {
-  if (!form.edgeNode) return T('pedge_need_pick')
-  if (form.edgeNode === form.aNode || form.edgeNode === form.bNode) return T('pedge_is_end')
+export function edgeValidate(form) {
+  if (!form.EdgeOn) return ''
+  if (!form.edges.length || form.edges.some((e) => !e.node)) return T('pedge_need_pick')
+  if (form.edges.some((e) => e.node === form.aNode || e.node === form.bNode)) return T('pedge_is_end')
+  return ''
+}
+
+function edgeWsCollect(form, enums, body) {
   body.ech = false
   body.ws_pool = false
   body.self_ech = false
   body.ws_tls = true
-  body.edge_node = form.edgeNode
-  body.edge_ips = form.edgeIps
-  body.edge_rotate = form.edgeRotate
   body.edge_ip = ''
   return shapeCollect(form, enums, body)
 }
@@ -115,6 +117,9 @@ export function rotValidate(form, aIps, bIps) {
 export function collectCarrier(form, cfg, body) {
   const enums = cfg.enums
   const limits = cfg.limits
+
+  body.edges = form.EdgeOn ? form.edges : []
+  if (form.EdgeOn) body.edge_rotate = form.edgeRotate
 
   if (form.Tr === 'raw') {
     if (form.cipher === 'none') return T('raw_need_enc')
@@ -191,8 +196,7 @@ export function collectCarrier(form, cfg, body) {
   if (form.Tr === 'ws') {
     body.ws_path = form.wsPath.trim()
     body.ws_port_roll = form.PortRoll
-    if (form.EdgeOn) return edgeCollect(form, enums, body)
-    body.edge_node = ''
+    if (form.EdgeOn) return edgeWsCollect(form, enums, body)
     body.self_ech = form.SelfEch
     if (form.SelfEch) {
       const selfError = selfEchCollect(form, enums, body)

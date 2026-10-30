@@ -38,8 +38,16 @@ export function carrierProfile(link) {
   return (link.transport || 'udp') === 'raw' ? rawProfileTag(link) : ''
 }
 
+export function edgeCount(link) {
+  return (link.edge_at || []).reduce((n, e) => n + e.addrs.length, 0)
+}
+
 export function edgePool(link) {
-  return link.transport === 'ws' && (!!link.ws_pool || (link.edge_ips || []).length > 1)
+  return link.transport === 'ws' && (!!link.ws_pool || edgeCount(link) > 1)
+}
+
+export function peerPool(link) {
+  return !!link.ip_rotate || (link.transport !== 'ws' && edgeCount(link) > 1)
 }
 
 export function edgeHost(value) {

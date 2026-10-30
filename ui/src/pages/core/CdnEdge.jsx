@@ -27,17 +27,22 @@ function cdnView(cdn) {
   return { tone, hosts, providers, names, pill }
 }
 
+function privateEdge(link, activeEdge) {
+  const domain = link.edge_at.map((e) => e.name).join(' · ')
+  const first = edgeHost(link.edge_at[0].addrs[0])
+  if (link.transport !== 'ws') return { live: !!link.edge_live, ip: link.edge_live || first, domain, mine: true }
+  if (!edgePool(link)) return { live: false, ip: first, domain, mine: true }
+  const live = String(activeEdge || '').split(' · ')[0]
+  return { live: !!live, ip: live ? edgeHost(live) : link.enabled === false ? '' : '…', domain, mine: true }
+}
+
 function edgeView(link, activeEdge) {
+  if (link.edge_at) return privateEdge(link, activeEdge)
   if (link.transport !== 'ws') return null
   if (link.ws_pool) {
     if (link.enabled === false) return null
     const parts = String(activeEdge || '').split(' · ')
     return { live: true, ip: edgeHost(parts[0] || ''), domain: parts.slice(1).join(' · ') }
-  }
-  if (link.edge_at) {
-    if (!edgePool(link)) return { live: false, ip: edgeHost(link.edge_at.addrs[0]), domain: link.edge_at.name }
-    const live = String(activeEdge || '').split(' · ')[0]
-    return { live: !!live, ip: live ? edgeHost(live) : link.enabled === false ? '' : '…', domain: link.edge_at.name }
   }
   const ip = link.edge_ip ? edgeHost(link.edge_ip) : ''
   const domain = link.ws_host || ''
@@ -190,7 +195,7 @@ export default function CdnEdge({ link, activeEdge, onReload }) {
       <div className="cedgef">
         <div className="ct">
           {live ? <span className="cdot" /> : null}
-          <span className="ctt">{T(live ? 'active_edge' : 'cdn_edge')}</span>
+          <span className="ctt">{T(edge && edge.mine ? 'pedge_card' : live ? 'active_edge' : 'cdn_edge')}</span>
           {view ? (
             <span className={'cdnchip cdxpill ' + CHIP[view.tone]}>
               <Icon name={ICON[view.tone]} />

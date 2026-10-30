@@ -596,3 +596,14 @@
   font-weight: 600;
   color: var(--sub);
 }
+
+.ctag.viatag {
+  background: var(--accw);
+  color: var(--acc-tx);
+}
+
+@media (max-width: 480px) {
+  .ctag.viatag {
+    display: none;
+  }
+}

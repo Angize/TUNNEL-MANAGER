@@ -23,6 +23,7 @@ function applyStatus(reply) {
       state: String(h.state || 'healthy'),
       next: +h.next_retest_unix || 0,
       total: +h.retest_secs || 0,
+      label: String(h.label || ''),
     }
   }
   return {

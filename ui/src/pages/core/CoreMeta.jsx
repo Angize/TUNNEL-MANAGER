@@ -9,6 +9,7 @@ import {
   RAW_SPORT_FIXED,
   carrierFamily,
   carrierProfile,
+  edgeCount,
   edgePool,
 } from './carrier.js'
 import { poolRotateItems } from './form/presets.js'
@@ -166,7 +167,7 @@ function sharedCells(link, ported) {
     ...capCells(link),
     ...rawCells(link, ported),
   ]
-  if (edgePool(link)) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
+  if (edgePool(link) || edgeCount(link) > 1) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
 }
 

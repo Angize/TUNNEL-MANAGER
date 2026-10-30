@@ -797,6 +797,95 @@
 .cdnedge .edgebody .warncap {
   margin-top: 0;
 }
+.cdnedge .edgecap {
+  margin: 2px 2px -4px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--tx);
+}
+.cdnedge .edgecap small {
+  font-weight: 600;
+  color: var(--sub);
+}
+.cdnedge .cvlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 13px;
+  overflow: hidden;
+  background: var(--card);
+}
+.cdnedge .cvlist li {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--bord);
+}
+.cdnedge .cvlist li:last-child {
+  border-bottom: 0;
+}
+.cdnedge .cvlist .ctag {
+  justify-self: start;
+}
+.cdnedge .cvt {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.cdnedge .cvt b {
+  font-size: 13px;
+  font-weight: 700;
+}
+.cdnedge .cvt small {
+  font-size: 11.5px;
+  color: var(--sub);
+  line-height: 1.6;
+}
+.cdnedge .rtlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.cdnedge .rtlist li {
+  padding: 8px 11px;
+  border: 1px solid var(--edge);
+  border-radius: 11px;
+  background: var(--card);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.cdnedge .rtlist li.bad {
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+  background: color-mix(in srgb, var(--bad) 5%, var(--card));
+}
+.cdnedge .rtline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+}
+.cdnedge .rtline b {
+  font-weight: 800;
+}
+.cdnedge .rtline .cdnchip {
+  margin-inline-start: auto;
+}
+.cdnedge .rtips {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--sub);
+  direction: ltr;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
 .cdnedge .edgegrid {
   display: grid;
   grid-template-columns: 1fr 104px;
