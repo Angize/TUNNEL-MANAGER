@@ -6838,7 +6838,7 @@ def _edge_saving(N):
 def _hold_edge(nid, holder, transport):
     with _reg_lock:
         N = _edge_live(nid)
-        if transport != "ws" and not _cached_ping(nid).get("nft"):
+        if transport != "ws" and _node_answered(nid) and not _cached_ping(nid).get("nft"):
             raise Bad("edge_no_nft",
                       "نودِ «{0}» هنوز nftables ندارد — ایجنت خودش نصبش می‌کند؛ چند دقیقه بعد دوباره بزن یا نود را چک کن",
                       "node '{0}' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node",
