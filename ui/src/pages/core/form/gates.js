@@ -76,6 +76,28 @@ export function wssMandatory(form, pool) {
   return form.Tr === 'ws' && (pool.pool || form.Cdn === 'grpc' || form.SelfEch || form.EdgeOn)
 }
 
+export function cdnPathOff(form) {
+  return {
+    WsTls: true,
+    Ech: false,
+    EchProxy: false,
+    SniSplit: false,
+    cdnOwner: '',
+    cdnZone: '',
+    poolCdn: false,
+    cdnEdgeAuto: true,
+    wsEdge: '',
+    pool: { ...form.pool, pool: false },
+  }
+}
+
+export function edgeIpCount(form, fronts) {
+  return form.edges.reduce((n, e) => {
+    const front = (fronts || []).find((f) => f.id === e.node)
+    return n + (e.ips.length || (front ? 1 : 0))
+  }, 0)
+}
+
 export function rotIsDirect(form, enums) {
   return ((enums && enums.tr_direct) || []).includes(form.Tr)
 }

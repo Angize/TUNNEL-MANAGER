@@ -98,7 +98,7 @@ function PeerBox({ side, label, status, pending, live, open, onToggle }) {
   )
 }
 
-export default function PeerLive({ live }) {
+export default function PeerLive({ live, dstLabel }) {
   const [open, setOpen] = useState({ dst: true, src: true })
   const { status, pending } = live
   useSecondTick(true)
@@ -113,7 +113,7 @@ export default function PeerLive({ live }) {
           <PeerBox
             key={side}
             side={side}
-            label={side === 'dst' ? T('dst_ip') : T('src_ip')}
+            label={side === 'dst' ? dstLabel || T('dst_ip') : T('src_ip')}
             status={status}
             pending={pending}
             live={live}

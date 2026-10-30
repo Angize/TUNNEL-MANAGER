@@ -6,6 +6,8 @@ import { Seg2, SegOpt} from './controls.jsx'
 import IpField from '../../../components/IpField.jsx'
 import RotIpPool from './RotIpPool.jsx'
 import PeerLive from './PeerLive.jsx'
+import EdgeLive from './EdgeLive.jsx'
+import EdgeRoute from './EdgeRoute.jsx'
 import { rotIntervalItems } from './presets.js'
 import { rotMulti } from './gates.js'
 import { nodeLabel, seedIp } from '../../../lib/nodes.js'
@@ -93,6 +95,9 @@ export default function IpsTab({
   storedA,
   storedB,
   peer,
+  edgeLive,
+  fronts,
+  ends,
   subnetFree,
   patch,
   onNode,
@@ -104,7 +109,7 @@ export default function IpsTab({
   }
   const aName = nodeLabel(items, form.aNode)
   const bName = nodeLabel(items, form.bNode)
-  const multi = rotMulti(form, cfg.enums, aIps, bIps)
+  const multi = rotMulti(form, cfg.enums, aIps, bIps) && !form.EdgeOn
 
   const toggleRot = () => {
     if (form.rot.on) {
@@ -152,6 +157,8 @@ export default function IpsTab({
         </Field>
       </div>
 
+      <EdgeRoute form={form} fronts={fronts} ends={ends} patch={patch} />
+
       <Reveal show={multi}>
         <SwitchRow
           on={form.rot.on}
@@ -176,7 +183,8 @@ export default function IpsTab({
         <Side form={form} side="b" ips={bIps} stored={storedB} patch={patch} />
       </div>
 
-      {peer ? <PeerLive live={peer} /> : null}
+      {peer ? <PeerLive live={peer} dstLabel={form.EdgeOn ? T('pedge_ips_lbl') : ''} /> : null}
+      {edgeLive ? <EdgeLive live={edgeLive} lid={link.id} /> : null}
 
       <label>{T('roles_lbl')}</label>
       <Seg2 label={T('roles_lbl')}>

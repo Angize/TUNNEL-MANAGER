@@ -9,9 +9,10 @@ import usePeerStatus from './usePeerStatus.js'
 import usePoolStatus from './usePoolStatus.js'
 import useCdnPorts from './useCdnPorts.js'
 import { autoPort } from './CdnPortRules.jsx'
-import { cdnCollect, collectCarrier, rotCollect, rotValidate } from './collect.js'
+import { cdnCollect, collectCarrier, edgeValidate, rotCollect, rotValidate } from './collect.js'
 import CdnLeftAsk from './CdnLeftAsk.jsx'
 import { createForm, editForm, nodeCpus, pickedIp } from './state.js'
+import { edgeCount, edgePool, peerPool } from '../carrier.js'
 import { portErr } from './validate.js'
 import { apiGet, apiPost } from '../../../lib/api.js'
 import { alertBox } from '../../../lib/dialog.js'
@@ -174,9 +175,10 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     form ? { zones: cfHosts(form, cdnOwners), node: form[srvSide + 'Node'], ip: serverIp, id: link ? link.id : '' } : null
   )
 
-  const poolLid = link && link.ws_pool ? link.id : ''
-  const peerLid = link && link.ip_rotate ? link.id : ''
-  const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool))
+  const poolLid = link && edgePool(link) ? link.id : ''
+  const peerLid = link && peerPool(link) ? link.id : ''
+  const onEdges = !!(form && form.EdgeOn && poolLid && edgeCount(link) > 1)
+  const poolLive = usePoolStatus(poolLid, !!(form && form.pool.pool) || onEdges)
   const peerLive = usePeerStatus(peerLid)
 
   if (!form) {
@@ -192,6 +194,14 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const sides = {
     a: { name: nodeLabel(items, form.aNode), cpus: nodeCpus(nodes, form.aNode) },
     b: { name: nodeLabel(items, form.bNode), cpus: nodeCpus(nodes, form.bNode) },
+  }
+  const cliSide = srvSide === 'a' ? 'b' : 'a'
+  const ends = {
+    server: { name: sides[srvSide].name, ip: serverIp },
+    client: {
+      name: sides[cliSide].name,
+      ip: form[cliSide + 'Ip'] || (link && link[cliSide + '_ip']) || (cliSide === 'a' ? aIps : bIps)[0] || '',
+    },
   }
 
   const onNode = (side, value) => {
@@ -238,6 +248,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
           cover: form.Cover && form.Tr === 'tcp',
           gso: form.Gso,
         }
+
+    const edgeError = edgeValidate(form)
+    if (edgeError) {
+      await stop(edgeError, 'ip')
+      return
+    }
 
     if (link) setMessage(T('saving_rebuild_both'))
 
@@ -374,6 +390,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
               storedA={link ? link.a_ip || '' : ''}
               storedB={link ? link.b_ip || '' : ''}
               peer={peerLid ? peerLive : null}
+              edgeLive={onEdges ? poolLive : null}
+              fronts={cdnKeys && cdnKeys.fronts}
+              ends={ends}
               subnetFree={subnetFree}
               patch={patch}
               onNode={onNode}
@@ -393,6 +412,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
                 portRules={portRules}
                 cdnOwners={cdnOwners}
                 onCdnMade={(rows) => setMade((m) => m.concat(rows))}
+                onRoute={() => setTab('ip')}
                 patch={patch}
               />
             </SwapCascade>

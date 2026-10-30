@@ -3010,12 +3010,12 @@ _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cove
                     "ech", "ws_ech", "ech_proxy", "ech_proxy_id", "edge_ip", "ws_pool",
                     "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                     "ws_rotate_secs", "ws_port_roll", "gso",
-                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate",
+                    "self_ech", "ech_public", "self_ech_mat", "edges", "edge_rotate",
                     "fake_desync", "fake_ttl", "fake_count", "fake_mode") + _ROTATION_KEYS
 
 
 _PANEL_ONLY_KEYS = ("ech_proxy", "ech_proxy_id", "ech", "ws_pool", "ws_pool_auto",
-                    "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate")
+                    "self_ech", "ech_public", "self_ech_mat", "edges", "edge_rotate")
 
 
 def _node_extra(extra):
@@ -3101,11 +3101,12 @@ def _edge_choices(N):
     return [ip for ip in dict.fromkeys(ips) if is_ipv4(ip) and ipaddress.ip_address(ip).is_global]
 
 
-def _edge_dials(N, ips):
-    port = _edge_port(_edge_of(N))
-    if not ips:
-        return ["%s:%d" % (N["host"], port)]
-    gone = [ip for ip in ips if ip not in _edge_choices(N)]
+def _edge_hosts(N, ips):
+    picked = ips or ([N["host"]] if is_ipv4(N["host"]) else _edge_choices(N)[:1])
+    if not picked:
+        raise Bad("edge_no_ip", "آی‌پیِ عمومیِ نودِ لبهٔ «{0}» معلوم نیست — نود جواب نمی‌دهد؛ وقتی برگشت دوباره بزن",
+                  "the public IP of edge node '{0}' is not known — the node does not answer; try again when it is back", N["name"])
+    gone = [ip for ip in ips or () if ip not in _edge_choices(N)]
     if gone:
         raise Bad("edge_ip_gone",
                   "آی‌پیِ «{0}» روی نودِ لبهٔ «{1}» دیده نمی‌شود (نود جواب نمی‌دهد یا آی‌پی‌اش عوض شده) — "
@@ -3113,25 +3114,57 @@ def _edge_dials(N, ips):
                   "IP '{0}' is not seen on edge node '{1}' (the node does not answer or its IPs changed) — "
                   "if they changed, edit the tunnel and pick the edge IPs again",
                   tx_join("»، «", gone, "', '"), N["name"])
-    return ["%s:%d" % (ip, port) for ip in ips]
+    return list(picked)
+
+
+def _edge_dials(N, ips):
+    port = _edge_port(_edge_of(N))
+    return ["%s:%d" % (ip, port) for ip in _edge_hosts(N, ips)]
+
+
+def _edge_ids(L):
+    return [e["node"] for e in L.get("edges") or []]
+
+
+def _edge_count(L):
+    return sum(len(e.get("front") or ()) for e in L.get("edges") or [])
+
+
+def _edge_ws_client(rows, src, body):
+    dials = [_edge_dials(N, e.get("ips")) for N, e in rows]
+    flat = [d for ds in dials for d in ds]
+    body["ws_ca"] = "".join(e["cert"] for _N, e in rows)
+    if len(flat) == 1:
+        body["edge_ip"] = flat[0]
+        body["ws_ech"] = _edge_of(rows[0][0])["ws_ech"]
+        return
+    two = len(rows) > 1
+    body["ws_edge_ips"] = flat
+    body["ws_edge_snis"] = [{"host": e["inner"], "ech": _edge_of(N)["ws_ech"], **({"group": "e%d" % i} if two else {})}
+                            for i, (N, e) in enumerate(rows)]
+    if two:
+        body["ws_edge_ip_groups"] = {d: "e%d" % i for i, ds in enumerate(dials) for d in ds}
+    body["ws_rotate_secs"] = src["edge_rotate"]
 
 
 def _edge_bodies(src, a_body, b_body):
-    N = get_node(src.get("edge_node") or "")
-    if not N:
+    rows = [(N, e) for N, e in ((get_node(e["node"]), e) for e in src.get("edges") or []) if N]
+    if not rows:
         return
-    dials = _edge_dials(N, src.get("edge_ips"))
-    ech = _edge_of(N)["ws_ech"]
+    ips = [ip for N, e in rows for ip in _edge_hosts(N, e.get("ips"))]
+    ws = src.get("transport") == "ws"
     for body in (a_body, b_body):
         if body.get("role") == "client":
-            body["ws_ca"] = src["edge_route"]["cert"]
-            if len(dials) == 1:
-                body["edge_ip"] = dials[0]
-                body["ws_ech"] = ech
-            else:
-                body["ws_edge_ips"] = dials
-                body["ws_edge_snis"] = [{"host": src["edge_route"]["inner"], "ech": ech}]
-                body["ws_rotate_secs"] = src["edge_rotate"]
+            body["peer_ip"] = ips[0]
+            if ws:
+                _edge_ws_client(rows, src, body)
+            elif len(ips) > 1:
+                body["peer_ips"] = ips
+                body["peer_rotate_secs"] = src["edge_rotate"]
+        elif not ws:
+            body["peer_ip"] = ips[0]
+            if len(ips) > 1 and src.get("transport") == "raw":
+                body["peer_src_ips"] = ips
 
 
 def _core_end_bodies(src, a_body, b_body):
@@ -4393,7 +4426,7 @@ def _node_del_impl(d):
         links = load_links()
         mine = [L for L in links if L.get("a_node") == nid or L.get("b_node") == nid]
         mine_ids = {L["id"] for L in mine}
-        edges = {L.get("edge_node") for L in mine} - {nid, None}
+        edges = {x for L in mine for x in _edge_ids(L)} - {nid}
     with _CdnLinkLock(*mine_ids):
         states = {lid: (get_link(lid) or {}).get("cdn") or {} for lid in sorted(mine_ids)}
         left = [s["applied"] for c in states.values() for s in _cdn_states(c) if skip and s.get("applied")]
@@ -5968,15 +6001,16 @@ def api_fleet(d):
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         a_ips, b_ips = _flat_ips(pa), _flat_ips(pb)
         side = _view_side(L)
-        pub = {k: v for k, v in L.items() if k not in ("psk", "edge_route")}
+        pub = {k: v for k, v in L.items() if k != "psk"}
         rec = {**pub, "a_online": _node_answered(L["a_node"]), "b_online": _node_answered(L["b_node"]),
                "a_health": ah, "b_health": bh, "a_ips": a_ips, "b_ips": b_ips,
                "view_side": side, "view_name": (L["b_name"] if side == "b" else L["a_name"]),
                "drift": link_drift(L["id"]), "tag": int(L.get("tag") or 0),
                **tfl.get(L["id"], {})}
-        EN = get_node(L.get("edge_node") or "")
-        if EN:
-            rec["edge_at"] = {"name": EN["name"], "addrs": L["edge_route"]["front"]}
+        if L.get("edges"):
+            rec["edges"] = [{"node": e["node"], "ips": e.get("ips") or []} for e in L["edges"]]
+            rec["edge_at"] = [{"name": EN["name"], "addrs": e["front"]} for EN, e in
+                              ((get_node(e["node"]), e) for e in L["edges"]) if EN]
             rec["edge_stale"] = rec["drift"] and not _edge_current(L)
         if L.get("type") == "core":
             _ct = [t for t in ((L["a_name"], la.get("ct") or {}), (L["b_name"], lb.get("ct") or {}))
@@ -6000,6 +6034,8 @@ def api_fleet(d):
                                    "lo": int((_rc or _rs).get("lo") or 0),
                                    "hi": int((_rc or _rs).get("hi") or 0),
                                    "drawn": int((_rc or _rs).get("drawn") or 0)}
+        if L.get("edges") and L["transport"] != "ws":
+            rec["edge_live"] = str(((lb if _srv_is_a(L) else la).get("pools") or {}).get(L["name"], {}).get("dst") or "").split(":")[0]
         if L.get("type") == "core" and L.get("ip_rotate"):
             srvA = _srv_is_a(L)
             cl = lb if srvA else la
@@ -6118,15 +6154,26 @@ def _core_bind_keys(bindings):
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
 
+def _edge_binds(src):
+    if src.get("transport") not in ("udp", "tcp"):
+        return []
+    binds = []
+    for e in src.get("edges") or []:
+        N = get_node(e["node"])
+        if N:
+            binds += [(N, ip, int(src["port"]), src["transport"]) for ip in e.get("front") or _edge_hosts(N, e.get("ips"))]
+    return binds
+
+
 def _own_ports(L, A, B):
     return frozenset(_core_bind_keys(_port_bindings(
         L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), int(L["tunnel_id"]), A, B,
-        L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool"))))
+        L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")) + _edge_binds(L)))
 
 
 def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, own=frozenset()):
     binds = _port_bindings(ttype, src.get("port"), src.get("transport"), server_side, tid, A, B, a_ip, b_ip,
-                           src.get("a_ip_pool"), src.get("b_ip_pool"))
+                           src.get("a_ip_pool"), src.get("b_ip_pool")) + _edge_binds(src)
     lid = L.get("id") if L else None
     for n, _ip, p, proto in binds:
         e = _edge_of(n)
@@ -6152,7 +6199,7 @@ def _core_link_binds(L):
         return set()
     return _core_bind_keys(_port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
                                           L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
-                                          L.get("a_ip_pool"), L.get("b_ip_pool")))
+                                          L.get("a_ip_pool"), L.get("b_ip_pool")) + _edge_binds(L))
 
 
 def _core_others(exclude_id):
@@ -6629,8 +6676,30 @@ def _self_ech_fields(d, cur, out):
     return out
 
 
-def _edge_pick(d, cur):
-    return str((d["edge_node"] if "edge_node" in d else (cur or {}).get("edge_node")) or "").strip()
+EDGE_MAX = 2
+RAW_PORT_DEFAULT = 443
+
+
+def _edges_asked(d, cur):
+    raw = d["edges"] if "edges" in d else (cur or {}).get("edges")
+    if not raw:
+        return []
+    bad = Bad("bad_edges", "فهرستِ لبه‌ها نامعتبر است — حداکثر {0} لبه، هر کدام با نود و آی‌پی‌های IPv4",
+              "the edge list is invalid — at most {0} edges, each with a node and IPv4 addresses", EDGE_MAX)
+    if not isinstance(raw, list) or len(raw) > EDGE_MAX:
+        raise bad
+    out = []
+    for e in raw:
+        if not isinstance(e, dict) or not str(e.get("node") or "").strip():
+            raise bad
+        ips = e.get("ips") or []
+        if not isinstance(ips, list) or not all(is_ipv4(str(ip)) for ip in ips):
+            raise bad
+        out.append({"node": str(e["node"]).strip(), "ips": list(dict.fromkeys(str(ip) for ip in ips))})
+    if len({e["node"] for e in out}) != len(out):
+        raise Bad("edge_twice", "لبهٔ دوم باید نودِ دیگری باشد، نه همان لبهٔ اول",
+                  "the second edge must be another node, not the first one again")
+    return out
 
 
 def _edge_live(nid):
@@ -6645,15 +6714,15 @@ def _edge_live(nid):
     return N
 
 
-def _edge_fields(d, cur, out):
+def _edge_ws_guards(d, cur):
     if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
         raise Bad("edge_vs_self_ech",
                   "لبهٔ اختصاصی و ECHِ خودمیزبان با هم روشن نمی‌شوند — یکی را انتخاب کن",
                   "a private-CDN edge and self-hosted ECH can't both be on — pick one")
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         raise Bad("edge_vs_pool",
-                  "لبهٔ اختصاصی با استخرِ لبه جمع نمی‌شود — کلاینت فقط به همان یک لبه دیال می‌کند",
-                  "a private-CDN edge doesn't combine with an edge pool — the client dials that one edge only")
+                  "لبهٔ اختصاصی با استخرِ لبه جمع نمی‌شود — کلاینت فقط به همان لبه‌ها دیال می‌کند",
+                  "a private-CDN edge doesn't combine with an edge pool — the client dials those edges only")
     if (d.get("ech") if "ech" in d else cur.get("ech")):
         raise Bad("edge_vs_cf_ech",
                   "لبهٔ اختصاصی ECHِ خودش را دارد؛ ECHِ کلودفلر را خاموش کن",
@@ -6662,34 +6731,99 @@ def _edge_fields(d, cur, out):
         raise Bad("edge_vs_edge_ip",
                   "با لبهٔ اختصاصی «آی‌پیِ لبه» را خالی بگذار — پنل خودش آی‌پی و پورتِ نودِ لبه را می‌گذارد",
                   "with a private-CDN edge leave the edge IP empty — the panel sets the edge node's IP and port itself")
-    r = cur.get("edge_route")
-    if not r:
-        inner = "t%s.internal" % secrets.token_hex(6)
-        r = dict(_gen_name_cert(inner), inner=inner)
-    ips = d["edge_ips"] if "edge_ips" in d else cur.get("edge_ips")
-    if not isinstance(ips or [], list) or not all(is_ipv4(str(ip)) for ip in ips or []):
-        raise Bad("bad_edge_ips", "فهرستِ آی‌پی‌های لبه باید فهرستی از آی‌پی‌های IPv4 باشد",
-                  "the edge IP list must be a list of IPv4 addresses")
-    out["edge_node"] = _edge_pick(d, cur)
-    out["edge_ips"] = list(dict.fromkeys(str(ip) for ip in ips or []))
+
+
+def _edge_ws_name(e, have):
+    old = have.get(e["node"])
+    if old and old.get("inner"):
+        return dict(e, inner=old["inner"], cert=old["cert"], key=old["key"])
+    inner = "t%s.internal" % secrets.token_hex(6)
+    return dict(e, inner=inner, **_gen_name_cert(inner))
+
+
+def _edge_fields(d, cur, out, transport):
+    edges = _edges_asked(d, cur)
+    if not edges:
+        return out
+    if transport == "ws":
+        _edge_ws_guards(d, cur)
+        have = {e["node"]: e for e in cur.get("edges") or []}
+        edges = [_edge_ws_name(e, have) for e in edges]
+    out["edges"] = edges
     out["edge_rotate"] = _rotate_secs(d["edge_rotate"] if "edge_rotate" in d else cur.get("edge_rotate", 600),
                                       28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval"))
-    out["edge_route"] = {"inner": r["inner"], "cert": r["cert"], "key": r["key"]}
-    out["ws_host"] = r["inner"]
-    _own_tls_into(out, d, cur, _cdn_carrier(d, cur))
+    if transport == "ws":
+        out["ws_host"] = edges[0]["inner"]
+        _own_tls_into(out, d, cur, _cdn_carrier(d, cur))
     return out
 
 
-def _edge_target(nid, srv_ip, port, ips):
-    N = get_node(nid)
-    return {"backend": "%s:%d" % (_cdn_public_ip(srv_ip), int(port)), "front": _edge_dials(N, ips),
-            "ech": _edge_mark(_edge_of(N))}
+def _edge_target(e, transport, srv_ip, cli_ip, port):
+    ends = {"server": _cdn_public_ip(srv_ip), "client": cli_ip}
+    if transport == "ws":
+        ends["backend"] = "%s:%d" % (ends["server"], int(port))
+    elif not is_ipv4(cli_ip) or not ipaddress.ip_address(cli_ip).is_global:
+        raise Bad("edge_client_private",
+                  "آی‌پیِ کلاینت ({0}) عمومی نیست و لبه نمی‌داند جواب را به کجا بفرستد — یک آی‌پیِ عمومی برای کلاینت انتخاب کن",
+                  "the client IP ({0}) is not public, so the edge cannot tell where to send replies — pick a public client IP",
+                  cli_ip or "?")
+    return dict(ends, **_edge_fresh(transport, e, get_node(e["node"])))
 
 
-def _edge_backend(extra, srv_ip):
-    if extra.get("edge_route"):
-        extra["edge_route"] = dict(extra["edge_route"], **_edge_target(extra["edge_node"], srv_ip, extra["port"],
-                                                                       extra["edge_ips"]))
+def _edge_backend(extra, srv_ip, cli_ip):
+    for e in extra.get("edges") or []:
+        e.update(_edge_target(e, extra["transport"], srv_ip, cli_ip, extra.get("port")))
+
+
+def _edge_wires(L, e=None):
+    t = L["transport"]
+    if t == "ws":
+        return [6, int(e["front"][0].rpartition(":")[2]) if e else int(L["port"])], [6, int(L["port"])]
+    if t != "raw":
+        wire = [6 if t == "tcp" else 17, int(L["port"])]
+        return wire, wire
+    up, down = _raw_pair_of({}, L)
+    port = int(L.get("raw_port") or RAW_PORT_DEFAULT)
+
+    def wire(profile, fixed):
+        proto = (int(L.get("raw_proto") or 0) if profile == "bare" else 0) or CORE_RAW_PROFILE_PROTOS[profile]
+        return [proto, port if fixed and profile in PORTED_RAW_PROFILES else 0]
+
+    moving = bool(L.get("raw_sport_rotate"))
+    return wire(up, not moving), wire(down, not moving and not L.get("raw_sport_random"))
+
+
+def _edge_keys(L):
+    if not L.get("transport"):
+        return []
+    if not L.get("edges"):
+        cli, srv = (L["b_ip"], L["a_ip"]) if _srv_is_a(L) else (L["a_ip"], L["b_ip"])
+        up, down = _edge_wires(L)
+        return [(srv, cli, up[0], up[1], "direct"), (cli, srv, down[0], down[1], "direct")]
+    keys = []
+    for e in L["edges"]:
+        up, down = _edge_wires(L, e)
+        ws = L["transport"] == "ws"
+        for ip in (f.partition(":")[0] for f in e["front"]):
+            keys.append((ip, e["client"], up[0], up[1], "front" if ws else e["server"]))
+            keys.append((ip, e["server"], down[0], down[1], "front" if ws else e["client"]))
+    return keys
+
+
+def _edge_key_hit(a, b):
+    return a[:3] == b[:3] and (not a[3] or not b[3] or a[3] == b[3]) and a[4] != b[4]
+
+
+def _guard_edge_wires(src, lid):
+    mine = _edge_keys(src)
+    for L in load_links() if mine else ():
+        theirs = _edge_keys(L) if L.get("id") != lid else ()
+        hit = next((a for a in mine for b in theirs if _edge_key_hit(a, b)), None)
+        if hit:
+            raise Bad("edge_wire_taken",
+                      "روی آی‌پیِ لبهٔ {0} تونلِ «{1}» هم با پروتکلِ {2} از همین نود می‌گذرد و به مقصدِ دیگری می‌رود — لبه نمی‌تواند این دو را از هم جدا کند؛ آی‌پیِ لبه، پروفایل یا پورت را عوض کن",
+                      "on edge IP {0} tunnel '{1}' also passes with protocol {2} from this node to another target — the edge "
+                      "cannot tell them apart; change the edge IP, the profile or the port", hit[0], L.get("name"), hit[2])
 
 
 _edge_holds = {}
@@ -6701,12 +6835,22 @@ def _edge_saving(N):
                "the settings of edge '{0}' are being saved right now — try again in a few seconds", N["name"])
 
 
-def _hold_edge(nid, holder):
+def _hold_edge(nid, holder, transport):
     with _reg_lock:
         N = _edge_live(nid)
+        if transport != "ws" and not _cached_ping(nid).get("nft"):
+            raise Bad("edge_no_nft",
+                      "نودِ «{0}» هنوز nftables ندارد — ایجنت خودش نصبش می‌کند؛ چند دقیقه بعد دوباره بزن یا نود را چک کن",
+                      "node '{0}' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node",
+                      N["name"])
         if ("save", nid) in _edge_holds.get(nid, ()):
             raise _edge_saving(N)
         _edge_holds.setdefault(nid, set()).add(holder)
+
+
+def _hold_edges(extra, holder):
+    for e in extra.get("edges") or []:
+        _hold_edge(e["node"], holder, extra["transport"])
 
 
 def _release_edges(holder):
@@ -6718,7 +6862,7 @@ def _release_edges(holder):
 
 
 def _edge_not_end(extra, A, B):
-    if extra.get("edge_node") in (A["id"], B["id"]):
+    if {A["id"], B["id"]} & set(_edge_ids(extra)):
         raise Bad("edge_is_end",
                   "لبهٔ اختصاصی باید نودِ سومی باشد، نه یکی از دو سرِ همین تونل",
                   "the private-CDN edge must be a third node, not one of this tunnel's two ends")
@@ -6730,8 +6874,9 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
         return out
     cur = cur or {}
     out["ws_port_roll"] = bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))
-    if _edge_pick(d, cur):
-        return _edge_fields(d, cur, out)
+    _edge_fields(d, cur, out, transport)
+    if out.get("edges"):
+        return out
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         out.update(_ws_pool_fields(d, cur))
         return out
@@ -6988,7 +7133,7 @@ _SHAPE_TCP_ONLY = ("cover", "cover_sni")
 _SHAPE_WS_ONLY = ("ws_host", "ws_path", "ws_tls", "cdn_carrier", "ech", "ws_ech", "ech_proxy",
                   "ech_proxy_id", "edge_ip", "ws_pool", "ws_edge_ips", "ws_edge_ip_groups", "ws_edge_snis", "ws_pool_auto",
                   "ws_rotate_secs", "ws_port_roll", "sni_split", "split_pos", "sni_mode", "split_ttl",
-                  "self_ech", "ech_public", "self_ech_mat", "edge_node", "edge_route", "edge_ips", "edge_rotate",
+                  "self_ech", "ech_public", "self_ech_mat",
                   "http_up_workers", "http_up_batch_kb", "http_up_rate", "http_streams")
 _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
@@ -7174,6 +7319,8 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             ce["conntrack_bypass"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, transport, cur, ech_later))
+    else:
+        _edge_fields(d, cur, ce, transport)
     ce.update(_fec_fields(d, transport, cur))
     ce.update(_workers_field(d, bool(ce.get("fec")), cur))
     ce.update(_desync_fields(d, shape, cur, ce.get("cdn_carrier", "ws") != "ws"))
@@ -7225,6 +7372,10 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
     if (bool(d.get("gso")) if "gso" in d else (new or bool(cur.get("gso")))):
         ce["gso"] = True
     if transport in DIRECT_TRANSPORTS and bool(d["ip_rotate"] if "ip_rotate" in d else cur.get("ip_rotate")):
+        if ce.get("edges"):
+            raise Bad("edge_vs_rotate",
+                      "با لبهٔ اختصاصی کلاینت بینِ آی‌پی‌های لبه می‌چرخد؛ «چرخشِ آی‌پی» را خاموش کن",
+                      "with a private-CDN edge the client rotates across the edge IPs; turn IP rotation off")
         ap = _pool_with(a_ip, d["a_ip_pool"] if "a_ip_pool" in d else cur.get("a_ip_pool"), a_ips)
         bp = _pool_with(b_ip, d["b_ip_pool"] if "b_ip_pool" in d else cur.get("b_ip_pool"), b_ips)
         if len(ap) >= 2 or len(bp) >= 2:
@@ -7348,8 +7499,7 @@ def _create_tunnel_impl(d, h):
         ce, server_side = _core_extra(d, {}, a_ip, b_ip, a_ips, b_ips, new=True, ech_later=bool(want))
         extra.update(ce)
         _edge_not_end(extra, A, B)
-        if extra.get("edge_node"):
-            _hold_edge(extra["edge_node"], h["key"])
+        _hold_edges(extra, h["key"])
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
         if server_side == "a":
@@ -7357,12 +7507,13 @@ def _create_tunnel_impl(d, h):
                 h["target"] = "%s ↔ %s" % (B["name"], A["name"])
     _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     srv_ip = a_ip if server_side == "a" else b_ip
-    _edge_backend(extra, srv_ip)
+    _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side), rid)
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, rid)
     cdn = _cdn_new_state(wants, extra, srv_ip, None)
     early = bool(want and extra.get("ech"))
-    steps, at = CREATE_STEPS + (2 if early else 1 if wants or extra.get("edge_node") else 0), 2 if early else 0
+    steps, at = CREATE_STEPS + (2 if early else 1 if wants or extra.get("edges") else 0), 2 if early else 0
     jr = _CdnJournal(h)
     with _cdn_hold(wants, rid, jr, early):
         if early:
@@ -7427,9 +7578,9 @@ def _create_tunnel_impl(d, h):
         h["link"] = rec["id"]
     _refresh_cache([A["id"], B["id"]])
     note = ""
-    if extra.get("edge_node"):
+    if extra.get("edges"):
         act_step(h, _EDGE_STEP, 4, steps, stop=False)
-        tail = _edge_sync(extra["edge_node"])
+        tail = _edge_sync(*_edge_ids(extra))
         note = tx_join("", [tx("تونل ساخته شد", "the tunnel was built"), tail]) if tail else ""
     if wants and not early:
         _cdn_step(h, _cdn_where(wants), 4, steps)
@@ -7542,7 +7693,7 @@ def _delete_link_impl(d, h):
         _tf_forget(L["a_node"], [L["name"]])
         _tf_forget(L["b_node"], [L["name"]])
         _refresh_cache([L["a_node"], L["b_node"]])
-        tail = tx_join("", [_cdn_notes_tail(jr.notes()), _edge_sync(L.get("edge_node"))])
+        tail = tx_join("", [_cdn_notes_tail(jr.notes()), _edge_sync(*_edge_ids(L))])
         if not (deferred or tail):
             return {"ok": True}
         done = (tx("لینک حذف شد؛ پاک‌سازیِ سمتِ «{0}» وقتی نود برگشت خودکار انجام می‌شود",
@@ -7665,7 +7816,7 @@ def api_edit_link(d):
 
 
 def _pooled(L):
-    return bool(L.get("ws_pool")) or len(L.get("edge_ips") or []) > 1
+    return bool(L.get("ws_pool")) or (L.get("transport") == "ws" and _edge_count(L) > 1)
 
 
 def api_edge_status(d):
@@ -7687,11 +7838,13 @@ def _edge_status_of(L, node, missing):
     if not r.get("ok"):
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error") or r.get("msg")}
     health = []
+    names = {e["inner"]: (get_node(e["node"]) or {}).get("name", "") for e in L.get("edges") or [] if e.get("inner")}
     for h in (r.get("health") or []):
         if not isinstance(h, dict):
             continue
         health.append({
             "key": str(h.get("key") or ""),
+            "label": names.get(str(h.get("key") or ""), ""),
             "kind": "sni" if str(h.get("kind")) == "sni" else "ip",
             "state": str(h.get("state") or "healthy"),
             "fails": int(h.get("fails") or 0),
@@ -7762,8 +7915,12 @@ def _ws_pool_client(d):
     return _pool_client(d, _pooled, Bad("no_edge_pool", "این لینک استخرِ لبه ندارد", "this link has no edge pool"))
 
 
+def _peer_pooled(L):
+    return bool(L.get("ip_rotate")) or (L.get("transport") != "ws" and _edge_count(L) > 1)
+
+
 def _peer_pool_client(d):
-    return _pool_client(d, lambda L: L.get("ip_rotate"), Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
+    return _pool_client(d, _peer_pooled, Bad("no_ip_pool", "این لینک استخرِ آی‌پی ندارد", "this link has no IP pool"))
 
 
 _PEER_ADDR_RE = re.compile(r"^[0-9A-Fa-f:.]{1,64}$")
@@ -7798,7 +7955,7 @@ def api_peer_status(d):
     L = next((x for x in load_links() if x.get("id") == d["id"]), None)
     if not L:
         raise _no_tunnel()
-    if L.get("type") != "core" or not L.get("ip_rotate"):
+    if L.get("type") != "core" or not _peer_pooled(L):
         return {"ok": True, "pool": False, "now": int(time.time()), "dst": dict(empty), "src": dict(empty)}
     node = _client_node(L)
     if not node:
@@ -7967,8 +8124,7 @@ def _edit_link_impl(d, h):
         ce, server_side = _core_extra(d, L, a_ip, b_ip, a_ips, b_ips, ech_later=bool(want))
         extra.update(ce)
         _edge_not_end(extra, A, B)
-        if extra.get("edge_node"):
-            _hold_edge(extra["edge_node"], h["key"])
+        _hold_edges(extra, h["key"])
         if extra.get("ech_proxy"):
             _hold_proxy(extra["ech_proxy_id"], h["key"])
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
@@ -7978,7 +8134,8 @@ def _edit_link_impl(d, h):
     if moved:
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     srv_ip = a_ip if server_side == "a" else b_ip
-    _edge_backend(extra, srv_ip)
+    _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side), L["id"])
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, L["id"])
     early = bool(want and extra.get("ech"))
@@ -8062,9 +8219,9 @@ def _edit_link_impl(d, h):
                 _tf_forget(N["id"], [old_name])
             _refresh_cache([L["a_node"], L["b_node"], A["id"], B["id"]])
         new, tail = None, _cdn_left_note(_cdn_release(old, cdn, L["id"], h))
-        if extra.get("edge_node") or L.get("edge_node"):
+        if extra.get("edges") or L.get("edges"):
             act_step(h, _EDGE_STEP, EDIT_STEPS, EDIT_STEPS + 1, stop=False)
-            tail = tx_join("", [tail, _edge_sync(extra.get("edge_node"), L.get("edge_node"))])
+            tail = tx_join("", [tail, _edge_sync(*_edge_ids(extra), *_edge_ids(L))])
         if cdn and not early and not _cdn_uptodate(cdn):
             _cdn_step(h, _cdn_where(_cdn_states(cdn)), EDIT_STEPS, EDIT_STEPS + 1)
             new, more = _cdn_sync_link(L["id"], h)
@@ -8206,9 +8363,11 @@ def _rebuild_link_impl(d, h):
                    b_ip_pool=_pool_with(b_ip, L.get("b_ip_pool"), b_ips))
     _guard_server_ports(ttype, src, L.get("server_side"), tid, A, B, a_ip, b_ip, L, _own_ports(L, A, B))
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
-    if L.get("edge_node"):
-        _hold_edge(L["edge_node"], h["key"])
-        edge_want = _edge_target(L["edge_node"], a_ip if _srv_is_a(L) else b_ip, L["port"], L.get("edge_ips"))
+    _hold_edges(L, h["key"])
+    srv_ip, cli_ip = (a_ip, b_ip) if _srv_is_a(L) else (b_ip, a_ip)
+    edge_want = {e["node"]: _edge_target(e, L["transport"], srv_ip, cli_ip, L.get("port")) for e in L.get("edges") or []}
+    _guard_edge_wires(dict(L, a_ip=a_ip, b_ip=b_ip, edges=[dict(e, **edge_want[e["node"]]) for e in L.get("edges") or []]),
+                      L["id"])
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
@@ -8248,10 +8407,10 @@ def _rebuild_link_impl(d, h):
     _set_drift(L["id"], moved)
     _refresh_cache([L["a_node"], L["b_node"]])
     note = _cdn_follow_build(L["id"], a_ip if _srv_is_a(L) else b_ip, h, REBUILD_STEPS, REBUILD_STEPS + 1)
-    if L.get("edge_node"):
+    if L.get("edges"):
         _edge_follow(L, edge_want)
         act_step(h, _EDGE_STEP, REBUILD_STEPS, REBUILD_STEPS + 1, stop=False)
-        tail = _edge_sync(L["edge_node"])
+        tail = _edge_sync(*_edge_ids(L))
         if tail:
             note = tx_join("", [tx("تونل بازسازی شد", "the tunnel was rebuilt"), tail])
     return {"ok": True, "name": name, **({"msg": note} if note else {})}
@@ -8321,7 +8480,7 @@ def api_link_toggle(d):
                 store_edit(_LINKS, d["id"], lambda x: x.update(enabled=enabled))
         finally:
             _refresh_cache([L["a_node"], L["b_node"]])
-    tail = _edge_sync(L.get("edge_node"))
+    tail = _edge_sync(*_edge_ids(L))
     return {"ok": True, "enabled": enabled,
             **({"msg": tx_join("", [tx("تونل عوض شد", "the tunnel was switched"), tail])} if tail else {})}
 
@@ -8418,7 +8577,7 @@ def _reconcile_once():
             _drift.pop(k, None)
     todo = []
     for L in links:
-        if L.get("edge_node") in _edge_holds:
+        if set(_edge_ids(L)) & set(_edge_holds):
             continue
         pa, pb = _cached_ping(L["a_node"]), _cached_ping(L["b_node"])
         if not pa.get("ok") or not pb.get("ok"):
@@ -8945,7 +9104,7 @@ def _ev_seed_axes(L, active):
     lid = L["id"]
     if _pooled(L):
         left, sep, right = active.partition(" · ")
-        pairs = (("ip", left.strip()), ("sni", right.strip() if sep and not L.get("edge_node") else ""))
+        pairs = (("ip", left.strip()), ("sni", right.strip() if sep and not L.get("edges") else ""))
     else:
         pairs = (("dst", _ev_ip(active)),)
     for ax, v in pairs:
@@ -9063,18 +9222,20 @@ def _ev_core_text(kind, code, detail, nm):
     return None
 
 
-def _edge_named(L, events, name):
-    inner = (L.get("edge_route") or {}).get("inner") if L.get("edge_node") else ""
-    if not inner or not isinstance(events, list):
+def _edge_named(L, events, nmap):
+    names = {e["inner"]: nmap.get(e["node"], "") for e in L.get("edges") or [] if e.get("inner")}
+    if not names or not isinstance(events, list):
         return events
     out = []
     for e in events:
         if not isinstance(e, dict):
             continue
         d = str(e.get("detail") or "")
-        if d.startswith("sni:"):
+        if d.startswith("sni:") and len(names) < 2:
             continue
-        out.append(dict(e, detail=d.replace(inner, name)) if inner in d else e)
+        for inner, name in names.items():
+            d = d.replace(inner, name)
+        out.append(dict(e, detail=d))
     return out
 
 
@@ -9541,7 +9702,7 @@ def _events_once():
             try:
                 if end == "cli":
                     _ev_seed_axes(L, r.get("active"))
-                _ingest_core_events(lid, end, nm, _edge_named(L, r.get("events"), nmap.get(L.get("edge_node"), "")))
+                _ingest_core_events(lid, end, nm, _edge_named(L, r.get("events"), nmap))
             except Exception:
                 continue
     for k in [k for k in _ev_state["evseq"] if k.split("|", 1)[0] not in seen]:
@@ -9963,6 +10124,10 @@ def _node_ip_tags(nid):
             for ip in ([L.get(side)] + (list(L.get(pool) or []) if L.get("ip_rotate") else [])):
                 if ip and not any(e["name"] == ent["name"] for e in peers.setdefault(ip, [])):
                     peers[ip].append(ent)
+        for e in L.get("edges") or []:
+            for ip in (f.partition(":")[0] for f in e["front"]) if e["node"] == nid else ():
+                peers.setdefault(ip, []).append({"node": (L.get("b_name") if _srv_is_a(L) else L.get("a_name")) or "",
+                                                 "type": "edge", "name": L.get("name") or ""})
     pf = {}
     for c in (_cached_list(nid).get("configs") or []):
         if c.get("type") == "portfw":
@@ -10510,7 +10675,7 @@ def _cdn_prepare(d, L):
     if pool:
         raise Bad("cdn_no_pool", "ساختِ خودکار در CDN با استخرِ لبه جور نیست — استخر را خاموش کن یا CDN را دستی بساز",
                   "the CDN setup does not work with an edge pool — turn the pool off or set the CDN up by hand")
-    if _edge_pick(d, L):
+    if _edges_asked(d, L):
         raise Bad("edge_vs_cdn",
                   "لبهٔ اختصاصی با ساختِ خودکار در کلودفلر/آروان جمع نمی‌شود — تونل یا از لبهٔ خودت رد می‌شود یا از CDNِ عمومی",
                   "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through "
@@ -11693,19 +11858,28 @@ def _edge_buf(e):
     return int(e.get("buf_mb", _EDGE_BUF_DEFAULT))
 
 
-def _edge_table():
-    t = {}
+def _edge_table(nid):
+    routes, relays, watch = [], [], {}
     for L in load_links():
-        if L.get("edge_node") and L.get("enabled", True):
-            t.setdefault(L["edge_node"], []).append({k: L["edge_route"][k] for k in ("inner", "backend", "cert", "key")})
-    return t
+        for e in L.get("edges") or [] if L.get("enabled", True) else ():
+            if e["node"] != nid:
+                continue
+            S = get_node(_node_id_of(L, "srv"))
+            if S:
+                watch[e["server"]] = int(S["port"])
+            if L["transport"] == "ws":
+                routes.append({k: e[k] for k in ("inner", "backend", "cert", "key")})
+            else:
+                up, down = _edge_wires(L, e)
+                relays.append({"client": e["client"], "server": e["server"], "edge": e["front"], "up": up, "down": down})
+    return routes, relays, [[ip, port] for ip, port in watch.items()]
 
 
 _EDGE_STEP = tx("به‌روزکردنِ لبهٔ اختصاصی", "updating the private-CDN edge")
 
 
 def _edge_users(node_id):
-    return [L for L in load_links() if L.get("edge_node") == node_id]
+    return [L for L in load_links() if node_id in _edge_ids(L)]
 
 
 def _edge_idle(node):
@@ -11740,32 +11914,45 @@ def _edge_port_free(node, port):
 
 
 def _edge_follow(L, want):
-    if any(L["edge_route"].get(k) != v for k, v in want.items()):
+    if any(e.get(k) != v for e in L["edges"] for k, v in want.get(e["node"], {}).items()):
         with _reg_lock:
-            store_edit(_LINKS, L["id"], lambda x: x.update(edge_route=dict(x["edge_route"], **want)))
+            store_edit(_LINKS, L["id"], lambda x: x.update(edges=[dict(e, **want.get(e["node"], {})) for e in x["edges"]]))
 
 
 def _edge_mark(e):
     return hashlib.sha256(str(e.get("ws_ech") or "").encode()).hexdigest()[:16]
 
 
-def _edge_stale(L, N):
+def _edge_fresh(transport, e, N):
+    if transport != "ws":
+        return {"front": _edge_hosts(N, e.get("ips"))}
+    return {"front": _edge_dials(N, e.get("ips")), "ech": _edge_mark(_edge_of(N))}
+
+
+def _edge_stale(L, e, N):
     try:
-        return (L["edge_route"].get("front") != _edge_dials(N, L.get("edge_ips"))
-                or L["edge_route"].get("ech") != _edge_mark(_edge_of(N)))
+        return any(e.get(k) != v for k, v in _edge_fresh(L["transport"], e, N).items())
     except Bad:
         return True
 
 
 def _edge_current(L):
-    N = get_node(L.get("edge_node") or "")
-    if not N or not _node_answered(N["id"]):
-        return True
-    return not _edge_stale(L, N)
+    for e in L.get("edges") or []:
+        N = get_node(e["node"])
+        if N and _node_answered(N["id"]) and _edge_stale(L, e, N):
+            return False
+    return True
 
 
 def _edge_reseat(nid):
     N = get_node(nid)
+
+    def entry(L):
+        return next((e for e in L.get("edges") or [] if e["node"] == nid), None)
+
+    def stale(L):
+        e = entry(L)
+        return bool(e) and _edge_stale(L, e, N)
 
     def one(lid):
         L = get_link(lid)
@@ -11773,23 +11960,23 @@ def _edge_reseat(nid):
             return None
         with _PairLock(L["a_node"], L["b_node"]):
             L = get_link(lid)
-            if not L or L.get("edge_node") != nid or not _edge_stale(L, N):
+            if not L or not stale(L):
                 return None
             try:
                 A, B = get_node(L["a_node"]), get_node(L["b_node"])
                 if not A or not B:
                     return L["name"], False
-                front = _edge_dials(N, L.get("edge_ips"))
+                fresh = _edge_fresh(L["transport"], entry(L), N)
                 a_body, b_body = _stored_bodies(A, B, L)
                 C, body = (A, a_body) if a_body.get("role") == "client" else (B, b_body)
                 if not _put_back(C, body):
                     return L["name"], False
-                _edge_follow(L, {"front": front, "ech": _edge_mark(_edge_of(N))})
+                _edge_follow(L, {nid: fresh})
                 return L["name"], True
             except Exception:
                 return L["name"], False
 
-    done = [x for x in parallel_map(one, [L["id"] for L in _edge_users(nid) if _edge_stale(L, N)], workers=8) if x]
+    done = [x for x in parallel_map(one, [L["id"] for L in _edge_users(nid) if stale(L)], workers=8) if x]
     return [n for n, ok in done if ok], [n for n, ok in done if not ok]
 
 
@@ -11833,23 +12020,36 @@ def _front_sync(node, e=None):
     with _edge_lock(node["id"]):
         node = get_node(node["id"]) or node
         e = _edge_of(node) if e is None else e
-        routes = _edge_table().get(node["id"], []) if e.get("on") else []
+        routes, relays, watch = _edge_table(node["id"]) if e.get("on") else ([], [], [])
         body = ({"port": _edge_port(e), "routes": routes, "srv_ech_key": e["srv_ech_key"],
                  "srv_ech_conf": e["srv_ech_conf"], "tcp_buf": _buf_bytes(_edge_buf(e))} if routes else {"stop": True})
-        return node_call(node, "front", body=body, timeout=NODE_OP_TIMEOUT)
+        return node_call(node, "front", body=dict(body, relays=relays, watch=watch), timeout=NODE_OP_TIMEOUT)
+
+
+def _edge_row(L, e, reach):
+    return {"id": L["id"], "name": L["name"], "transport": L["transport"], "family": L.get("cdn_carrier") or L["transport"],
+            "raw_profile": L.get("raw_profile"), "raw_profile_down": L.get("raw_profile_down"), "raw_proto": L.get("raw_proto"),
+            "port": L.get("port"), "client": e["client"], "server": e["server"], "front": e["front"],
+            "enabled": L.get("enabled", True), "reach": reach.get(e["server"])}
 
 
 def _edge_list():
-    table = _edge_table()
-    used = [L.get("edge_node") for L in load_links()]
+    used = {}
+    for L in load_links():
+        for x in L.get("edges") or []:
+            used.setdefault(x["node"], []).append((L, x))
     out = []
     for n in load_nodes():
-        e = _edge_of(n)
+        e, ping = _edge_of(n), _cached_ping(n["id"])
+        relay = ping.get("relay") or {}
+        rows = [_edge_row(L, x, relay.get("reach") or {}) for L, x in used.get(n["id"], ())]
         out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
                     "port": _edge_port(e), "decoy": e.get("decoy") or "", "buf_mb": _edge_buf(e),
-                    "routes": len(table.get(n["id"], [])), "users": used.count(n["id"]),
-                    "online": _node_answered(n["id"]), "front": bool(_cached_ping(n["id"]).get("front")),
-                    "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
+                    "routes": sum(r["transport"] == "ws" and r["enabled"] for r in rows),
+                    "relays": sum(r["transport"] != "ws" and r["enabled"] for r in rows), "users": len(rows),
+                    "tunnels": rows, "online": _node_answered(n["id"]), "front": bool(ping.get("front")),
+                    "relay_live": int(relay.get("rules") or 0),
+                    "nft": bool(ping.get("nft")), "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
     return out
 
 
@@ -13240,7 +13440,7 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse("too_large", cmd, method, en, drain=True)
             return
         d = self._body(cap=cap) if method == "POST" else query_dict(self.path)
-        if via_token and (d.get("cdn") or d.get("edge_node") or _token_pool_cdn(cmd, d)):
+        if via_token and (d.get("cdn") or d.get("edges") or _token_pool_cdn(cmd, d)):
             self._refuse("token_cdn", cmd, method, en)
             return
         try:

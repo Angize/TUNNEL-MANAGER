@@ -189,9 +189,8 @@ const TUNNEL_FIELDS = [
   ['ws_pool_auto', 0, B, 'edge pool: replace a burned panel-made domain by itself (default true; stored, not used yet)'],
   ['ws_rotate_secs', 0, N, 'edge rotation interval in seconds (default 600)'],
   ['ws_port_roll', 0, B, 'ws, http and grpc client, with or without ws_pool: re-dial a failed path on a fresh source port (default off)'],
-  ['edge_node', 0, S, "id of a node that is a live private-CDN edge (cdn-edge): the client dials that node, which ends TLS and ECH and forwards to the server by a hidden inner name the panel makes, so the client never learns the server IP. any cdn_carrier (ws, http or grpc); not with ws_pool, ech, self_ech, edge_ip or cdn; not one of the tunnel's two ends. On an edit empty = take the tunnel off its edge. Only from inside the panel: with a token a non-empty edge_node gets 403 token_cdn"],
-  ['edge_ips', 0, L, "with edge_node: which of the edge node's public IPv4 addresses the client dials (from ips in cdn-edge). Empty = the node's own address. Two or more make an edge pool: the client rotates every edge_rotate seconds and moves on at once when the current IP fails. An IP the node no longer has refuses the save or rebuild with edge_ip_gone"],
-  ['edge_rotate', 0, N, 'with two or more edge_ips: rotation interval in seconds, 0 = only on failure (default 600)'],
+  ['edges', 0, L, "up to two private-CDN edges (cdn-edge), each {node, ips}. node is the id of a live edge, not one of the tunnel's two ends; ips says which of its public IPv4 addresses the client dials (from ips in cdn-edge), empty = the node's own address. Works on every carrier. ws, http and grpc: the edge ends TLS and ECH and forwards by a hidden inner name the panel makes, so not with ws_pool, ech, self_ech, edge_ip or cdn. udp, tcp and raw: the edge rewrites the addresses and forwards every packet unopened, which needs a public client IP (edge_client_private) and nftables on the edge (edge_no_nft), does not mix with ip_rotate (edge_vs_rotate), and refuses two tunnels the edge could not tell apart (edge_wire_taken). The client never learns the server IP. With two or more IPs in total the client rotates every edge_rotate seconds and leaves a failed IP on its own, so a second edge is the way out when the first one dies. An IP the node no longer has refuses the save or rebuild with edge_ip_gone. On an edit an empty list takes the tunnel off its edges. Only from inside the panel: with a token a non-empty edges gets 403 token_cdn"],
+  ['edge_rotate', 0, N, 'with two or more edge IPs in total: rotation interval in seconds, 0 = only on failure (default 600)'],
 ]
 
 const CDN_PARAM =
@@ -523,7 +522,7 @@ export const DOCS = {
 
   'edge-status': {
     t: 'Edge status',
-    d: 'For a core tunnel: the active path, and if it has an edge pool, the health of every edge IP and domain and the recent events.',
+    d: 'For a core tunnel: the active path, and if it has an edge pool, the health of every edge IP and domain and the recent events. On a private edge label names the edge behind a domain.',
     p: [['id', 1, S, 'tunnel id']],
   },
   'pool-retest-now': {
@@ -546,7 +545,7 @@ export const DOCS = {
   },
   'peer-status': {
     t: 'IP pool status',
-    d: 'For a tunnel with IP rotation: the active address and the health of every destination and source IP.',
+    d: 'For a tunnel with IP rotation, or a udp, tcp or raw tunnel on two or more edge IPs: the active address and the health of every destination and source IP.',
     p: [['id', 1, S, 'tunnel id']],
   },
   'peer-retest-now': {
@@ -754,7 +753,7 @@ export const DOCS = {
   },
   'cdn-edge': {
     t: 'Private-CDN edges',
-    d: "Turns one of your own nodes into a private-CDN edge, or back. An edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each tunnel that picked it (edge_node) to that tunnel's server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. edges lists every node with on, port, decoy, buf_mb, routes (the enabled tunnels on it), users (every tunnel that picked it, enabled or not), online, front (whether the edge process is running), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick as edge_ips). on and off answer with the same edges, plus msg when the edge node or a tunnel client could not be updated, or note when an on save pushed new edge settings to the tunnels on the edge.",
+    d: "Turns one of your own nodes into a private-CDN edge, or back. For ws, http and grpc tunnels that picked it (edges) an edge ends TLS 1.3 with ECH on its port under one ECH key whose public name is the decoy, and forwards each one to its server by the tunnel's hidden inner name; a connection without that ECH key gets a handshake alert. udp, tcp and raw tunnels go through it unopened: it only rewrites the addresses, with no connection tracking. edges lists every node with on, port, decoy, buf_mb, routes (the enabled CDN tunnels on it), relays (the enabled udp, tcp and raw tunnels on it), users (every tunnel that picked it, enabled or not), tunnels (one row per tunnel: id, name, transport, family, raw_profile, raw_profile_down, raw_proto, port, client, server, front, enabled and reach, whether the edge gets an answer from that server, null until it has tried), online, front (whether the edge process is running), relay_live (forward rows the edge reports), nft (whether nftables is there), hidden (the node is hidden from the tunnel lists) and ips (its public IPv4 addresses a tunnel can pick in edges). on and off answer with the same edges, plus msg when the edge node or a tunnel client could not be updated, or note when an on save pushed new edge settings to the tunnels on the edge.",
     p: [
       ['act', 0, S, 'state (default), on (turn on, or save a new port, decoy or buffer) or off'],
       ['id', 0, S, 'node id — needed for on and off'],

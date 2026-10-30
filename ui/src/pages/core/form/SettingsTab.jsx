@@ -16,11 +16,23 @@ import FecSection from './FecSection.jsx'
 import DesyncSection from './DesyncSection.jsx'
 import CdnPortRules from './CdnPortRules.jsx'
 import { coverOk, wkCarrier } from './gates.js'
+import Icon from '../../../components/Icon.jsx'
 import { TRANSPORTS, cipherItems } from './presets.js'
 import { portErr } from './validate.js'
 import { LTR_TEXT, rangeLabel } from '../../../lib/form.js'
 import { cdnAuto } from '../../../lib/cdn.js'
-import { T } from '../../../i18n/fa.js'
+import { T, TF } from '../../../i18n/fa.js'
+
+function RouteChip({ form, fronts, onRoute }) {
+  const names = form.edges.map((e) => ((fronts || []).find((f) => f.id === e.node) || {}).name).filter(Boolean)
+  return (
+    <button type="button" className="routechip" onClick={onRoute}>
+      <Icon name="swap" />
+      <span>{TF('pedge_chip', { n: names.join('، ') })}</span>
+      <em>{T('pedge_chip_go')}</em>
+    </button>
+  )
+}
 
 export default function SettingsTab({
   form,
@@ -34,6 +46,7 @@ export default function SettingsTab({
   portRules,
   cdnOwners,
   onCdnMade,
+  onRoute,
   patch,
 }) {
   const ciphers = cipherItems(cfg.enums, form.Tr)
@@ -41,6 +54,7 @@ export default function SettingsTab({
 
   return (
     <>
+      {form.EdgeOn ? <RouteChip form={form} fronts={cdnKeys && cdnKeys.fronts} onRoute={onRoute} /> : null}
       <Field label={T('enc_method_lbl')}>
         <Select
           items={ciphers}

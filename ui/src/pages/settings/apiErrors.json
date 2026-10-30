@@ -277,6 +277,16 @@
    ],
    [
     400,
+    "edge_ip_gone",
+    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
+   ],
+   [
+    400,
+    "edge_no_ip",
+    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
+   ],
+   [
+    400,
     "edge_not_taken",
     "the edge did not take the new settings (…) — nothing was saved and its tunnels were left alone"
    ],
@@ -485,6 +495,16 @@
     400,
     "cdn_zone_off",
     "domain '…' is not active in … (…) and passes no traffic"
+   ],
+   [
+    400,
+    "edge_ip_gone",
+    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
+   ],
+   [
+    400,
+    "edge_no_ip",
+    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
    ],
    [
     400,
@@ -826,11 +846,6 @@
    ],
    [
     400,
-    "bad_edge_ips",
-    "the edge IP list must be a list of IPv4 addresses"
-   ],
-   [
-    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
@@ -838,6 +853,11 @@
     400,
     "bad_edge_port",
     "wss is off, so the edge port must be one of the HTTP ports: … — port … is not accepted. (Or turn wss on and use 443.)"
+   ],
+   [
+    400,
+    "bad_edges",
+    "the edge list is invalid — at most … edges, each with a node and IPv4 addresses"
    ],
    [
     400,
@@ -1156,6 +1176,11 @@
    ],
    [
     400,
+    "edge_client_private",
+    "the client IP (…) is not public, so the edge cannot tell where to send replies — pick a public client IP"
+   ],
+   [
+    400,
     "edge_ip_gone",
     "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
    ],
@@ -1163,6 +1188,16 @@
     400,
     "edge_is_end",
     "the private-CDN edge must be a third node, not one of this tunnel's two ends"
+   ],
+   [
+    400,
+    "edge_no_ip",
+    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
+   ],
+   [
+    400,
+    "edge_no_nft",
+    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
@@ -1186,6 +1221,11 @@
    ],
    [
     400,
+    "edge_twice",
+    "the second edge must be another node, not the first one again"
+   ],
+   [
+    400,
     "edge_vs_cdn",
     "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
    ],
@@ -1202,12 +1242,22 @@
    [
     400,
     "edge_vs_pool",
-    "a private-CDN edge doesn't combine with an edge pool — the client dials that one edge only"
+    "a private-CDN edge doesn't combine with an edge pool — the client dials those edges only"
+   ],
+   [
+    400,
+    "edge_vs_rotate",
+    "with a private-CDN edge the client rotates across the edge IPs; turn IP rotation off"
    ],
    [
     400,
     "edge_vs_self_ech",
     "a private-CDN edge and self-hosted ECH can't both be on — pick one"
+   ],
+   [
+    400,
+    "edge_wire_taken",
+    "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
    ],
    [
     400,
@@ -1672,11 +1722,6 @@
    ],
    [
     400,
-    "bad_edge_ips",
-    "the edge IP list must be a list of IPv4 addresses"
-   ],
-   [
-    400,
     "bad_edge_port",
     "wss (TLS to the CDN) is on, so the edge port must be one of the HTTPS ports: … — port … is not accepted. (Or turn wss off and use an HTTP port.)"
    ],
@@ -1684,6 +1729,11 @@
     400,
     "bad_edge_port",
     "wss is off, so the edge port must be one of the HTTP ports: … — port … is not accepted. (Or turn wss on and use 443.)"
+   ],
+   [
+    400,
+    "bad_edges",
+    "the edge list is invalid — at most … edges, each with a node and IPv4 addresses"
    ],
    [
     400,
@@ -2002,6 +2052,11 @@
    ],
    [
     400,
+    "edge_client_private",
+    "the client IP (…) is not public, so the edge cannot tell where to send replies — pick a public client IP"
+   ],
+   [
+    400,
     "edge_ip_gone",
     "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
    ],
@@ -2009,6 +2064,16 @@
     400,
     "edge_is_end",
     "the private-CDN edge must be a third node, not one of this tunnel's two ends"
+   ],
+   [
+    400,
+    "edge_no_ip",
+    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
+   ],
+   [
+    400,
+    "edge_no_nft",
+    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
@@ -2032,6 +2097,11 @@
    ],
    [
     400,
+    "edge_twice",
+    "the second edge must be another node, not the first one again"
+   ],
+   [
+    400,
     "edge_vs_cdn",
     "a private-CDN edge doesn't combine with the Cloudflare/ArvanCloud setup — the tunnel goes through your own edge or a public CDN, not both"
    ],
@@ -2048,12 +2118,22 @@
    [
     400,
     "edge_vs_pool",
-    "a private-CDN edge doesn't combine with an edge pool — the client dials that one edge only"
+    "a private-CDN edge doesn't combine with an edge pool — the client dials those edges only"
+   ],
+   [
+    400,
+    "edge_vs_rotate",
+    "with a private-CDN edge the client rotates across the edge IPs; turn IP rotation off"
    ],
    [
     400,
     "edge_vs_self_ech",
     "a private-CDN edge and self-hosted ECH can't both be on — pick one"
+   ],
+   [
+    400,
+    "edge_wire_taken",
+    "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
    ],
    [
     400,
@@ -3586,8 +3666,23 @@
    ],
    [
     400,
+    "edge_client_private",
+    "the client IP (…) is not public, so the edge cannot tell where to send replies — pick a public client IP"
+   ],
+   [
+    400,
     "edge_ip_gone",
     "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
+   ],
+   [
+    400,
+    "edge_no_ip",
+    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
+   ],
+   [
+    400,
+    "edge_no_nft",
+    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
@@ -3608,6 +3703,11 @@
     400,
     "edge_saving",
     "the settings of edge '…' are being saved right now — try again in a few seconds"
+   ],
+   [
+    400,
+    "edge_wire_taken",
+    "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
    ],
    [
     400,

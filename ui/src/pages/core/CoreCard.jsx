@@ -258,6 +258,9 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             <div className="hrow1">
               <span className="hname">{link.name}</span>
               <span className={'ctag c-' + carrierFamily(link)}>{carrierLabel(link)}</span>
+              {link.edge_at ? (
+                <span className="ctag viatag">{TF('pedge_via', { n: link.edge_at.map((e) => e.name).join('، ') })}</span>
+              ) : null}
               <span className="hpeers" dir="ltr">
                 <SideDot link={link} side={first} />
                 <span className="pn" title={link[first + '_name']}>
