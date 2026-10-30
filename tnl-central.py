@@ -11853,11 +11853,9 @@ def _edge_table(nid):
         for e in L.get("edges") or [] if L.get("enabled", True) else ():
             if e["node"] != nid:
                 continue
-            S = get_node(_node_id_of(L, "srv"))
-            if S:
-                watch[e["server"]] = int(S["port"])
             if L["transport"] == "ws":
                 routes.append({k: e[k] for k in ("inner", "backend", "cert", "key")})
+                watch[e["server"]] = int(L["port"])
             else:
                 up, down = _edge_wires(L, e)
                 relays.append({"client": e["client"], "server": e["server"], "edge": e["front"], "up": up, "down": down})
