@@ -6667,6 +6667,7 @@ def _self_ech_fields(d, cur, out):
 
 EDGE_MAX = 2
 RAW_PORT_DEFAULT = 443
+NATIVE_PROTOS = {"gre": 47, "sit": 41, "ipip": 4, "ipsec": 50}
 
 
 def _edges_asked(d, cur):
@@ -6765,7 +6766,10 @@ def _edge_backend(extra, srv_ip, cli_ip):
 
 
 def _edge_wires(L, e=None):
-    t = L["transport"]
+    t = L.get("transport")
+    if not t:
+        wire = [NATIVE_PROTOS[L["type"]], 0] if L["type"] in NATIVE_PROTOS else [17, int(L["port"])]
+        return wire, wire
     if t == "ws":
         return [6, int(e["front"][0].rpartition(":")[2]) if e else int(L["port"])], [6, int(L["port"])]
     if t != "raw":
@@ -6782,13 +6786,17 @@ def _edge_wires(L, e=None):
     return wire(up, not moving), wire(down, not moving and not L.get("raw_sport_random"))
 
 
+def _edge_ends(L, side):
+    return (L.get(side + "_ip_pool") if L.get("ip_rotate") else None) or [L[side + "_ip"]]
+
+
 def _edge_keys(L):
-    if not L.get("transport"):
-        return []
     if not L.get("edges"):
-        cli, srv = (L["b_ip"], L["a_ip"]) if _srv_is_a(L) else (L["a_ip"], L["b_ip"])
+        a, b = _edge_ends(L, "a"), _edge_ends(L, "b")
+        clis, srvs = (b, a) if _srv_is_a(L) else (a, b)
         up, down = _edge_wires(L)
-        return [(srv, cli, up[0], up[1], "direct"), (cli, srv, down[0], down[1], "direct")]
+        return [k for srv in srvs for cli in clis
+                for k in ((srv, cli, up[0], up[1], "direct"), (cli, srv, down[0], down[1], "direct"))]
     keys = []
     for e in L["edges"]:
         up, down = _edge_wires(L, e)
@@ -7497,7 +7505,7 @@ def _create_tunnel_impl(d, h):
     _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     srv_ip = a_ip if server_side == "a" else b_ip
     _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
-    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side), rid)
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=name, type=ttype), rid)
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, rid)
     cdn = _cdn_new_state(wants, extra, srv_ip, None)
@@ -8124,7 +8132,7 @@ def _edit_link_impl(d, h):
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     srv_ip = a_ip if server_side == "a" else b_ip
     _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
-    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side), L["id"])
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=new_name, type=ttype), L["id"])
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, L["id"])
     early = bool(want and extra.get("ech"))
@@ -8355,7 +8363,7 @@ def _rebuild_link_impl(d, h):
     _hold_edges(L, h["key"])
     srv_ip, cli_ip = (a_ip, b_ip) if _srv_is_a(L) else (b_ip, a_ip)
     edge_want = {e["node"]: _edge_target(e, L["transport"], srv_ip, cli_ip, L.get("port")) for e in L.get("edges") or []}
-    _guard_edge_wires(dict(L, a_ip=a_ip, b_ip=b_ip, edges=[dict(e, **edge_want[e["node"]]) for e in L.get("edges") or []]),
+    _guard_edge_wires(dict(src, a_ip=a_ip, b_ip=b_ip, edges=[dict(e, **edge_want[e["node"]]) for e in L.get("edges") or []]),
                       L["id"])
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
