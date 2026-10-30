@@ -6154,26 +6154,15 @@ def _core_bind_keys(bindings):
     return {(n["id"], ip or "", int(p), pr) for n, ip, p, pr in bindings}
 
 
-def _edge_binds(src):
-    if src.get("transport") not in ("udp", "tcp"):
-        return []
-    binds = []
-    for e in src.get("edges") or []:
-        N = get_node(e["node"])
-        if N:
-            binds += [(N, ip, int(src["port"]), src["transport"]) for ip in e.get("front") or _edge_hosts(N, e.get("ips"))]
-    return binds
-
-
 def _own_ports(L, A, B):
     return frozenset(_core_bind_keys(_port_bindings(
         L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), int(L["tunnel_id"]), A, B,
-        L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool")) + _edge_binds(L)))
+        L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool"))))
 
 
 def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, own=frozenset()):
     binds = _port_bindings(ttype, src.get("port"), src.get("transport"), server_side, tid, A, B, a_ip, b_ip,
-                           src.get("a_ip_pool"), src.get("b_ip_pool")) + _edge_binds(src)
+                           src.get("a_ip_pool"), src.get("b_ip_pool"))
     lid = L.get("id") if L else None
     for n, _ip, p, proto in binds:
         e = _edge_of(n)
@@ -6199,7 +6188,7 @@ def _core_link_binds(L):
         return set()
     return _core_bind_keys(_port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
                                           L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
-                                          L.get("a_ip_pool"), L.get("b_ip_pool")) + _edge_binds(L))
+                                          L.get("a_ip_pool"), L.get("b_ip_pool")))
 
 
 def _core_others(exclude_id):
