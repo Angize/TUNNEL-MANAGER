@@ -3161,7 +3161,7 @@ def _edge_bodies(src, a_body, b_body):
             elif len(ips) > 1:
                 body["peer_ips"] = ips
                 body["peer_rotate_secs"] = src["edge_rotate"]
-        elif not ws:
+        else:
             body["peer_ip"] = ips[0]
             if len(ips) > 1 and src.get("transport") == "raw":
                 body["peer_src_ips"] = ips
