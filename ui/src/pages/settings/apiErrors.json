@@ -277,16 +277,6 @@
    ],
    [
     400,
-    "edge_ip_gone",
-    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
-   ],
-   [
-    400,
-    "edge_no_ip",
-    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
-   ],
-   [
-    400,
     "edge_not_taken",
     "the edge did not take the new settings (…) — nothing was saved and its tunnels were left alone"
    ],
@@ -495,16 +485,6 @@
     400,
     "cdn_zone_off",
     "domain '…' is not active in … (…) and passes no traffic"
-   ],
-   [
-    400,
-    "edge_ip_gone",
-    "IP '…' is not seen on edge node '…' (the node does not answer or its IPs changed) — if they changed, edit the tunnel and pick the edge IPs again"
-   ],
-   [
-    400,
-    "edge_no_ip",
-    "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
    ],
    [
     400,
