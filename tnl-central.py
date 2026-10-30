@@ -6811,19 +6811,22 @@ def _edge_key_hit(a, b):
     return a[:3] == b[:3] and (not a[3] or not b[3] or a[3] == b[3]) and a[4] != b[4]
 
 
-def _guard_edge_wires(src, lid):
+def _guard_edge_wires(src, lid, holder):
     mine = _edge_keys(src)
-    for L in load_links() if mine else ():
-        theirs = _edge_keys(L) if L.get("id") != lid else ()
-        hit = next((a for a in mine for b in theirs if _edge_key_hit(a, b)), None)
-        if hit:
-            raise Bad("edge_wire_taken",
-                      "روی آی‌پیِ لبهٔ {0} تونلِ «{1}» هم با پروتکلِ {2} از همین نود می‌گذرد و به مقصدِ دیگری می‌رود — لبه نمی‌تواند این دو را از هم جدا کند؛ آی‌پیِ لبه، پروفایل یا پورت را عوض کن",
-                      "on edge IP {0} tunnel '{1}' also passes with protocol {2} from this node to another target — the edge "
-                      "cannot tell them apart; change the edge IP, the profile or the port", hit[0], L.get("name"), hit[2])
+    with _reg_lock:
+        stored = [(L.get("name"), _edge_keys(L)) for L in load_links() if L.get("id") != lid]
+        for name, theirs in stored + list(_edge_wire_holds.values()):
+            hit = next((a for a in mine for b in theirs if _edge_key_hit(a, b)), None)
+            if hit:
+                raise Bad("edge_wire_taken",
+                          "روی آی‌پیِ لبهٔ {0} تونلِ «{1}» هم با پروتکلِ {2} از همین نود می‌گذرد و به مقصدِ دیگری می‌رود — لبه نمی‌تواند این دو را از هم جدا کند؛ آی‌پیِ لبه، پروفایل یا پورت را عوض کن",
+                          "on edge IP {0} tunnel '{1}' also passes with protocol {2} from this node to another target — the edge "
+                          "cannot tell them apart; change the edge IP, the profile or the port", hit[0], name, hit[2])
+        _edge_wire_holds[holder] = (src.get("name"), mine)
 
 
 _edge_holds = {}
+_edge_wire_holds = {}
 _edge_dying = set()
 
 
@@ -6852,6 +6855,7 @@ def _hold_edges(extra, holder):
 
 def _release_edges(holder):
     with _reg_lock:
+        _edge_wire_holds.pop(holder, None)
         for nid in [nid for nid, holders in _edge_holds.items() if holder in holders]:
             _edge_holds[nid].discard(holder)
             if not _edge_holds[nid]:
@@ -7505,7 +7509,7 @@ def _create_tunnel_impl(d, h):
     _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
     srv_ip = a_ip if server_side == "a" else b_ip
     _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
-    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=name, type=ttype), rid)
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=name, type=ttype), rid, h["key"])
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, rid)
     cdn = _cdn_new_state(wants, extra, srv_ip, None)
@@ -8132,7 +8136,7 @@ def _edit_link_impl(d, h):
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     srv_ip = a_ip if server_side == "a" else b_ip
     _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
-    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=new_name, type=ttype), L["id"])
+    _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=new_name, type=ttype), L["id"], h["key"])
     wants = [want] if want else _cdn_pool_wants(extra)
     _cdn_check(wants, extra, srv_ip, L["id"])
     early = bool(want and extra.get("ech"))
@@ -8364,7 +8368,7 @@ def _rebuild_link_impl(d, h):
     srv_ip, cli_ip = (a_ip, b_ip) if _srv_is_a(L) else (b_ip, a_ip)
     edge_want = {e["node"]: _edge_target(e, L["transport"], srv_ip, cli_ip, L.get("port")) for e in L.get("edges") or []}
     _guard_edge_wires(dict(src, a_ip=a_ip, b_ip=b_ip, edges=[dict(e, **edge_want[e["node"]]) for e in L.get("edges") or []]),
-                      L["id"])
+                      L["id"], h["key"])
     extra = _tunnel_extra(L)
     a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
               "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
