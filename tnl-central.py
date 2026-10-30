@@ -11941,7 +11941,7 @@ def _edge_reseat(nid):
 
     def stale(L):
         e = entry(L)
-        return bool(e) and _edge_stale(L, e, N)
+        return bool(e) and L["transport"] == "ws" and _edge_stale(L, e, N)
 
     def one(lid):
         L = get_link(lid)
