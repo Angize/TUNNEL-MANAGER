@@ -14,6 +14,7 @@ import {
   wkClamp,
 } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
+import { ptypeErr, ptypeInt } from './ptype.js'
 import {
   bandErr,
   cdnShapeErr,
@@ -125,6 +126,12 @@ export function collectCarrier(form, cfg, body) {
     if (form.cipher === 'none') return T('raw_need_enc')
     body.raw_profile = form.RawProfile
     body.raw_profile_down = form.RawProfileDown !== form.RawProfile ? form.RawProfileDown : ''
+    const upGre = form.RawProfile === 'gre'
+    const dnGre = form.RawProfileDown === 'gre'
+    const ptypeError = (upGre && ptypeErr(form.GrePtype)) || (dnGre && ptypeErr(form.GrePtypeDown))
+    if (ptypeError) return ptypeError
+    body.raw_gre_ptype = upGre ? ptypeInt(form.GrePtype) : 0
+    body.raw_gre_ptype_down = dnGre ? ptypeInt(form.GrePtypeDown) : 0
     if (protoVisOn(form)) {
       const protoError = rawProtoErr(form.rawProto, enums)
       if (protoError) return protoError

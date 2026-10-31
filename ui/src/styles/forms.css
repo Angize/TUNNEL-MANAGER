@@ -606,6 +606,69 @@ textarea:focus {
   color: var(--gold-tx);
 }
 
+.greptype {
+  margin-top: 14px;
+}
+
+.ptyperow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.ptypedir {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 58px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ptyperow.up .ptypedir {
+  color: var(--acc-tx);
+}
+
+.ptyperow.down .ptypedir {
+  color: var(--gold-tx);
+}
+
+.ptypeopts {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ptypeopts .dirchip {
+  flex: none;
+}
+
+.ptypehex {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--sub);
+  font-size: 12px;
+  direction: ltr;
+}
+
+.ptypehex input {
+  width: 62px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+}
+
+.ptyperow .warncap {
+  flex-basis: 100%;
+}
+
 .portlock {
   opacity: .42;
   pointer-events: none;

@@ -24,14 +24,18 @@ export function tagClassForFamily(family) {
   return TAG_FAMILIES[String(family).toLowerCase()] ? 'c-' + family : 'c-sys'
 }
 
-function rawTag(profile, link) {
-  return profile.toUpperCase() + (profile === 'bare' ? '(' + (num(link.raw_proto) || 253) + ')' : '')
+function rawTag(profile, link, ptype) {
+  if (profile === 'bare') return 'BARE(' + (num(link.raw_proto) || 253) + ')'
+  if (profile === 'gre' && ptype) return 'GRE·' + ptype.toString(16).padStart(4, '0')
+  return profile.toUpperCase()
 }
 
 function rawProfileTag(link) {
   const up = link.raw_profile || 'bare'
   const down = link.raw_profile_down || up
-  return down === up ? rawTag(up, link) : rawTag(up, link) + '/' + rawTag(down, link)
+  const upTag = rawTag(up, link, link.raw_gre_ptype)
+  const dnTag = rawTag(down, link, link.raw_gre_ptype_down)
+  return dnTag === upTag ? upTag : upTag + '/' + dnTag
 }
 
 export function carrierProfile(link) {

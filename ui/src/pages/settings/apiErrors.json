@@ -871,6 +871,11 @@
    ],
    [
     400,
+    "bad_gre_ptype",
+    "… must be a number from 0 to 65535"
+   ],
+   [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
@@ -1238,6 +1243,11 @@
     400,
     "edge_wire_taken",
     "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
+   ],
+   [
+    400,
+    "gre_ptype_needs_gre",
+    "… needs the gre profile in its direction"
    ],
    [
     400,
@@ -1747,6 +1757,11 @@
    ],
    [
     400,
+    "bad_gre_ptype",
+    "… must be a number from 0 to 65535"
+   ],
+   [
+    400,
     "bad_number",
     "'…' must be a number"
    ],
@@ -2114,6 +2129,11 @@
     400,
     "edge_wire_taken",
     "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
+   ],
+   [
+    400,
+    "gre_ptype_needs_gre",
+    "… needs the gre profile in its direction"
    ],
    [
     400,

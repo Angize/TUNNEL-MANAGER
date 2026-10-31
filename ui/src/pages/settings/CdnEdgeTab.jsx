@@ -41,7 +41,7 @@ function coverOf(rows, kind) {
     const ports = [...new Set(rows.map((r) => (kind === 'ws' ? r.front[0].split(':')[1] : r.port)))]
     return ports.join('، ')
   }
-  return [...new Set(rows.map((r) => carrierProfile(r).toUpperCase()))].join(' · ')
+  return [...new Set(rows.map(carrierProfile))].join(' · ')
 }
 
 function Coverage({ edge }) {

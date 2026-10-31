@@ -105,7 +105,13 @@ export default function IpsTab({
   const serverIsA = form.Srv === 'a'
   const setServer = (side) => {
     if (form.Srv === side) return
-    patch({ Srv: side, RawProfile: form.RawProfileDown, RawProfileDown: form.RawProfile })
+    patch({
+      Srv: side,
+      RawProfile: form.RawProfileDown,
+      RawProfileDown: form.RawProfile,
+      GrePtype: form.GrePtypeDown,
+      GrePtypeDown: form.GrePtype,
+    })
   }
   const aName = nodeLabel(items, form.aNode)
   const bName = nodeLabel(items, form.bNode)
