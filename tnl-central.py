@@ -3002,7 +3002,8 @@ _ROTATION_KEYS = ("ip_rotate", "a_ip_pool", "b_ip_pool", "rotate_secs")
 _END_KEYS = ("a_workers", "b_workers", "ws_port_roll")
 
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
-                    "raw_profile_down", "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
+                    "raw_profile_down", "raw_gre_ptype", "raw_gre_ptype_down",
+                    "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
                     "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -3267,6 +3268,10 @@ def _tunnel_extra(src):
         e["raw_profile"] = src["raw_profile"]
     if src.get("raw_profile_down"):
         e["raw_profile_down"] = src["raw_profile_down"]
+    if src.get("raw_gre_ptype"):
+        e["raw_gre_ptype"] = src["raw_gre_ptype"]
+    if src.get("raw_gre_ptype_down"):
+        e["raw_gre_ptype_down"] = src["raw_gre_ptype_down"]
     if src.get("raw_proto"):
         e["raw_proto"] = src["raw_proto"]
     if src.get("raw_port"):
@@ -7153,6 +7158,10 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl", d
         return transport == "raw" and "bare" in pair
     if key in ("raw_profile", "raw_profile_down"):
         return transport == "raw"
+    if key == "raw_gre_ptype":
+        return transport == "raw" and profile == "gre"
+    if key == "raw_gre_ptype_down":
+        return transport == "raw" and down == "gre"
     if key in _SHAPE_TCP_ONLY:
         return transport == "tcp"
     if key in _SHAPE_WS_ONLY:
@@ -7226,6 +7235,28 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         ce["raw_profile"] = profile
         if down != profile:
             ce["raw_profile_down"] = down
+        try:
+            _gpt = int((d["raw_gre_ptype"] if "raw_gre_ptype" in d else cur.get("raw_gre_ptype")) or 0)
+        except (TypeError, ValueError):
+            _gpt = 0
+        try:
+            _gptd = int((d["raw_gre_ptype_down"] if "raw_gre_ptype_down" in d else cur.get("raw_gre_ptype_down")) or 0)
+        except (TypeError, ValueError):
+            _gptd = 0
+        if _gpt or _gptd:
+            if not (0 <= _gpt <= 0xFFFF) or not (0 <= _gptd <= 0xFFFF):
+                raise Bad("bad_gre_ptype", "مقدارِ ptype باید بینِ ۰ تا ۶۵۵۳۵ (۰x0000 تا 0xffff) باشد",
+                          "raw_gre_ptype must be 0..65535")
+            if _gpt and profile != "gre":
+                raise Bad("gre_ptype_needs_gre", "ptypeِ آپلود فقط وقتی معنا دارد که پروفایلِ آپلود gre باشد",
+                          "raw_gre_ptype needs the gre profile on the upload direction")
+            if _gptd and down != "gre":
+                raise Bad("gre_ptype_needs_gre", "ptypeِ دانلود فقط وقتی معنا دارد که پروفایلِ دانلود gre باشد",
+                          "raw_gre_ptype_down needs the gre profile on the download direction")
+            if _gpt:
+                ce["raw_gre_ptype"] = _gpt
+            if _gptd and _gptd != _gpt:
+                ce["raw_gre_ptype_down"] = _gptd
         ported = profile in PORTED_RAW_PROFILES or down in PORTED_RAW_PROFILES
         pair_name = profile if down == profile else profile + "/" + down
         try:

@@ -3,6 +3,7 @@ import { subnetBaseOf } from '../../../lib/subnet.js'
 import { endIp, seedIp } from '../../../lib/nodes.js'
 import { wkClamp } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
+import { ptypeHex } from './ptype.js'
 
 function cdnInitial(enums, link) {
   const shape = cdnShape(enums)
@@ -26,6 +27,8 @@ export function createForm(cfg) {
     Cover: false,
     RawProfile: 'bare',
     RawProfileDown: 'bare',
+    GrePtype: '',
+    GrePtypeDown: '',
     SportRandom: false,
     Sprot: false,
     Ctb: false,
@@ -103,6 +106,8 @@ export function editForm(cfg, link) {
     Cover: !!link.cover && transport === 'tcp',
     RawProfile: link.raw_profile || 'bare',
     RawProfileDown: link.raw_profile_down || link.raw_profile || 'bare',
+    GrePtype: ptypeHex(link.raw_gre_ptype),
+    GrePtypeDown: ptypeHex(link.raw_gre_ptype_down || link.raw_gre_ptype),
     SportRandom: !!link.raw_sport_random,
     Sprot: !!link.raw_sport_rotate,
     Ctb: !!link.conntrack_bypass,
