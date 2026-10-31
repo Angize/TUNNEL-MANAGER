@@ -66,12 +66,10 @@ export default {
   raw_ptype_lbl: 'نوعِ محتوای GRE (ptype) · ۲ بایتِ داخلِ هدر',
   raw_ptype_hint: 'برچسبی که می‌گوید داخلِ GRE چیست؛ گیرنده نمی‌خواندش، پس تونل نمی‌شکند. روی مسیرِ فیلترشده عوض‌کردنش GRE را زنده می‌کند.',
   raw_ptype_def: 'پیش‌فرض · 0x0800',
-  raw_ptype_same: 'مثلِ آپلود',
   raw_ptype_ffff: '0xffff',
   raw_ptype_mpls: 'MPLS · 0x8847',
   raw_ptype_custom: 'دلخواه',
-  raw_ptype_custom_ph: '۴ رقمِ هگز',
-  raw_ptype_bad: 'ptype باید ۱ تا ۴ رقمِ هگز باشد (۰x0000 تا 0xffff)',
+  raw_ptype_bad: 'ptype نمی‌تواند صفر باشد؛ برای مقدارِ پیش‌فرض دکمهٔ «پیش‌فرض» را بزن',
 
   raw_proto_lbl: 'شمارهٔ پروتکلِ IP (bare)',
   raw_proto_native: 'نیتیو',

@@ -1,55 +1,53 @@
 import Icon from '../../../components/Icon.jsx'
+import Reveal from '../../../components/Reveal.jsx'
 import { ctbDefault } from './gates.js'
 import { rawProfiles } from './presets.js'
-import { ptypeValid } from './ptype.js'
+import { WarnCap } from './controls.jsx'
+import { cleanPtype, ptypeErr } from './ptype.js'
 import { T } from '../../../i18n/fa.js'
 
-const PTYPE_PRESETS = ['ffff', '8847']
+const PTYPE_CHIPS = [
+  ['', 'raw_ptype_def'],
+  ['ffff', 'raw_ptype_ffff'],
+  ['8847', 'raw_ptype_mpls'],
+]
 
 function PtypePick({ dir, value, onPick }) {
   const up = dir === 'up'
-  const custom = value !== '' && !PTYPE_PRESETS.includes(value)
-  const bad = !ptypeValid(value)
+  const way = T(up ? 'raw_dir_up' : 'raw_dir_down')
   return (
     <div className={'ptyperow ' + dir}>
       <span className="ptypedir">
         <Icon name={up ? 'upload' : 'download'} />
-        {T(up ? 'raw_dir_up' : 'raw_dir_down')}
+        {way}
       </span>
-      <div className="ptypeopts" role="group">
-        <button
-          type="button"
-          className={'ptypechip' + (value === '' ? ' on' : '')}
-          aria-pressed={value === ''}
-          onClick={() => onPick('')}
-        >
-          {T(up ? 'raw_ptype_def' : 'raw_ptype_same')}
-        </button>
-        {PTYPE_PRESETS.map((p) => (
+      <div className="ptypeopts" role="group" aria-label={T('raw_ptype_lbl') + ' · ' + way}>
+        {PTYPE_CHIPS.map(([hex, label]) => (
           <button
-            key={p}
+            key={hex}
             type="button"
-            className={'ptypechip' + (value === p ? ' on' : '')}
-            aria-pressed={value === p}
-            onClick={() => onPick(p)}
+            className={'dirchip ' + dir + (value === hex ? ' on' : '')}
+            aria-pressed={value === hex ? 'true' : 'false'}
+            onClick={() => onPick(hex)}
           >
-            {T(p === 'ffff' ? 'raw_ptype_ffff' : 'raw_ptype_mpls')}
+            {T(label)}
           </button>
         ))}
-        <span className="ptypehexwrap">
-          <span className="pre">0x</span>
+        <span className="ptypehex">
+          0x
           <input
-            className={'ptypehex' + (custom ? ' on' : '') + (bad ? ' bad' : '')}
-            value={custom ? value : ''}
-            maxLength={4}
-            dir="ltr"
-            inputMode="latin"
-            placeholder={T('raw_ptype_custom_ph')}
-            aria-label={T('raw_ptype_custom')}
-            onChange={(e) => onPick(e.target.value.toLowerCase().replace(/[^0-9a-f]/g, '').slice(0, 4))}
+            className="mono"
+            value={value}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="0800"
+            aria-label={T('raw_ptype_custom') + ' · ' + way}
+            onChange={(e) => onPick(cleanPtype(e.target.value))}
           />
         </span>
       </div>
+      <WarnCap text={ptypeErr(value)} />
     </div>
   )
 }
@@ -132,7 +130,7 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
         <DirPick dir="up" profile={form.RawProfile} from={client} to={server} />
         <DirPick dir="down" profile={form.RawProfileDown} from={server} to={client} />
       </div>
-      {form.RawProfile === 'gre' || form.RawProfileDown === 'gre' ? (
+      <Reveal show={form.RawProfile === 'gre' || form.RawProfileDown === 'gre'}>
         <div className="greptype">
           <label>{T('raw_ptype_lbl')}</label>
           {form.RawProfile === 'gre' ? (
@@ -143,7 +141,7 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
           ) : null}
           <div className="fldhint">{T('raw_ptype_hint')}</div>
         </div>
-      ) : null}
+      </Reveal>
     </div>
   )
 }

@@ -613,8 +613,8 @@ textarea:focus {
 .ptyperow {
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
+  gap: 8px 10px;
   margin-bottom: 8px;
 }
 
@@ -622,7 +622,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-width: 74px;
+  min-width: 58px;
   font-size: 12px;
   font-weight: 800;
 }
@@ -635,79 +635,38 @@ textarea:focus {
   color: var(--gold-tx);
 }
 
-.ptypedir svg {
-  width: 14px;
-  height: 14px;
-}
-
 .ptypeopts {
   display: flex;
   align-items: center;
-  gap: 6px;
   flex: 1;
   flex-wrap: wrap;
+  gap: 6px;
 }
 
-.ptypechip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
+.ptypeopts .dirchip {
+  flex: none;
   padding: 0 11px;
-  border: 1.5px solid var(--edge);
-  border-radius: 9px;
-  background: var(--field);
-  color: var(--sub);
-  font-family: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-  cursor: pointer;
 }
 
-.ptypechip.on {
-  border-color: transparent;
-  background: var(--accw);
-  color: var(--acc-tx);
-}
-
-.ptyperow.down .ptypechip.on {
-  background: var(--goldw);
-  color: var(--gold-tx);
-}
-
-.ptypehexwrap {
+.ptypehex {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   color: var(--sub);
   font-size: 12px;
-}
-
-.ptypehex {
-  width: 68px;
-  min-height: 30px;
-  padding: 0 8px;
-  border: 1.5px solid var(--edge);
-  border-radius: 9px;
-  background: var(--field);
-  color: var(--tx);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 1px;
   direction: ltr;
 }
 
-.ptypehex:focus {
-  outline: none;
-  border-color: var(--acc);
+.ptypehex input {
+  width: 62px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  letter-spacing: 1px;
 }
 
-.ptypehex.on {
-  border-color: var(--acc);
-}
-
-.ptypehex.bad {
-  border-color: var(--bad);
+.ptyperow .warncap {
+  flex-basis: 100%;
 }
 
 .portlock {

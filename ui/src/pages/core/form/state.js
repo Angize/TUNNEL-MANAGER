@@ -107,7 +107,7 @@ export function editForm(cfg, link) {
     RawProfile: link.raw_profile || 'bare',
     RawProfileDown: link.raw_profile_down || link.raw_profile || 'bare',
     GrePtype: ptypeHex(link.raw_gre_ptype),
-    GrePtypeDown: ptypeHex(link.raw_gre_ptype_down || link.raw_gre_ptype),
+    GrePtypeDown: ptypeHex(link.raw_gre_ptype_down),
     SportRandom: !!link.raw_sport_random,
     Sprot: !!link.raw_sport_rotate,
     Ctb: !!link.conntrack_bypass,

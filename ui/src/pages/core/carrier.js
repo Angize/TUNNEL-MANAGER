@@ -33,10 +33,8 @@ function rawTag(profile, link, ptype) {
 function rawProfileTag(link) {
   const up = link.raw_profile || 'bare'
   const down = link.raw_profile_down || up
-  const ptUp = num(link.raw_gre_ptype) || 0
-  const ptDn = num(link.raw_gre_ptype_down) || ptUp
-  const upTag = rawTag(up, link, ptUp)
-  const dnTag = rawTag(down, link, ptDn)
+  const upTag = rawTag(up, link, link.raw_gre_ptype)
+  const dnTag = rawTag(down, link, link.raw_gre_ptype_down)
   return dnTag === upTag ? upTag : upTag + '/' + dnTag
 }
 

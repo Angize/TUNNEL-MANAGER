@@ -7211,6 +7211,19 @@ def _needs_tunnel_port(ttype, d, cur):
     return ttype == "core" and _shape_of(d, cur)[0] != "raw"
 
 
+def _gre_ptype_fields(d, cur, profile, down):
+    ce = {}
+    for key, sent, way in (("raw_gre_ptype", profile, "آپلود"), ("raw_gre_ptype_down", down, "دانلود")):
+        ptype = _int_in((d[key] if key in d else cur.get(key)) or 0, 0, 0xFFFF,
+                        Bad("bad_gre_ptype", "ptype باید عددی بینِ 0 تا 65535 باشد", "{0} must be a number from 0 to 65535", key))
+        if ptype and sent != "gre":
+            raise Bad("gre_ptype_needs_gre", "ptypeِ {0} فقط وقتی معنا دارد که پروفایلِ {0} gre باشد",
+                      "{1} needs the gre profile in its direction", way, key)
+        if ptype:
+            ce[key] = ptype
+    return ce
+
+
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
     shape = _shape_of(d, cur)
     cur = _carried(cur, shape)
@@ -7235,28 +7248,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         ce["raw_profile"] = profile
         if down != profile:
             ce["raw_profile_down"] = down
-        try:
-            _gpt = int((d["raw_gre_ptype"] if "raw_gre_ptype" in d else cur.get("raw_gre_ptype")) or 0)
-        except (TypeError, ValueError):
-            _gpt = 0
-        try:
-            _gptd = int((d["raw_gre_ptype_down"] if "raw_gre_ptype_down" in d else cur.get("raw_gre_ptype_down")) or 0)
-        except (TypeError, ValueError):
-            _gptd = 0
-        if _gpt or _gptd:
-            if not (0 <= _gpt <= 0xFFFF) or not (0 <= _gptd <= 0xFFFF):
-                raise Bad("bad_gre_ptype", "مقدارِ ptype باید بینِ ۰ تا ۶۵۵۳۵ (۰x0000 تا 0xffff) باشد",
-                          "raw_gre_ptype must be 0..65535")
-            if _gpt and profile != "gre":
-                raise Bad("gre_ptype_needs_gre", "ptypeِ آپلود فقط وقتی معنا دارد که پروفایلِ آپلود gre باشد",
-                          "raw_gre_ptype needs the gre profile on the upload direction")
-            if _gptd and down != "gre":
-                raise Bad("gre_ptype_needs_gre", "ptypeِ دانلود فقط وقتی معنا دارد که پروفایلِ دانلود gre باشد",
-                          "raw_gre_ptype_down needs the gre profile on the download direction")
-            if _gpt:
-                ce["raw_gre_ptype"] = _gpt
-            if _gptd and _gptd != _gpt:
-                ce["raw_gre_ptype_down"] = _gptd
+        ce.update(_gre_ptype_fields(d, cur, profile, down))
         ported = profile in PORTED_RAW_PROFILES or down in PORTED_RAW_PROFILES
         pair_name = profile if down == profile else profile + "/" + down
         try:
@@ -12059,6 +12051,7 @@ def _front_sync(node, e=None):
 def _edge_row(L, e, reach):
     return {"id": L["id"], "name": L["name"], "transport": L["transport"], "family": L.get("cdn_carrier") or L["transport"],
             "raw_profile": L.get("raw_profile"), "raw_profile_down": L.get("raw_profile_down"), "raw_proto": L.get("raw_proto"),
+            "raw_gre_ptype": L.get("raw_gre_ptype"), "raw_gre_ptype_down": L.get("raw_gre_ptype_down"),
             "port": L.get("port"), "client": e["client"], "server": e["server"], "front": e["front"],
             "enabled": L.get("enabled", True), "reach": reach.get(e["server"])}
 
