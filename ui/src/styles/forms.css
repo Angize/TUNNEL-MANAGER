@@ -610,63 +610,67 @@ textarea:focus {
   margin-top: 14px;
 }
 
-.ptyperow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin-bottom: 8px;
+.greptype .seg2 {
+  gap: 6px;
+  margin: 0 0 4px;
+}
+
+.greptype .seg2 .segopt {
+  min-width: 0;
+  padding: 8px 4px;
 }
 
 .ptypedir {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 5px;
-  min-width: 58px;
+  margin: 12px 2px 6px;
   font-size: 12px;
   font-weight: 800;
 }
 
-.ptyperow.up .ptypedir {
+.ptypepick.up .ptypedir,
+.ptypepick.up .seg2 .segopt.on b {
   color: var(--acc-tx);
 }
 
-.ptyperow.down .ptypedir {
+.ptypepick.down .ptypedir,
+.ptypepick.down .seg2 .segopt.on b {
   color: var(--gold-tx);
 }
 
-.ptypeopts {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  flex-wrap: wrap;
-  gap: 6px;
+.ptypepick.down .seg2 > .pframe {
+  border-color: var(--gold);
 }
 
-.ptypeopts .dirchip {
-  flex: none;
+.ptypepick.down .seg2 .segopt.on {
+  background: var(--goldw);
+}
+
+.ptypepick.down .seg2 .segopt.on span {
+  color: color-mix(in srgb, var(--gold-tx) 80%, var(--sub));
 }
 
 .ptypehex {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  position: relative;
+  margin: 6px 0 2px;
+}
+
+.ptypehex > span {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  transform: translateY(-50%);
   color: var(--sub);
-  font-size: 12px;
-  direction: ltr;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  pointer-events: none;
 }
 
 .ptypehex input {
-  width: 62px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 9px;
-  font-size: 12.5px;
+  padding-left: 38px;
+  text-align: left;
   letter-spacing: 1px;
-}
-
-.ptyperow .warncap {
-  flex-basis: 100%;
 }
 
 .portlock {
