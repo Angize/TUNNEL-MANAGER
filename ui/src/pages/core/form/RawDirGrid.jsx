@@ -1,53 +1,74 @@
+import { useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
 import Reveal from '../../../components/Reveal.jsx'
 import { ctbDefault } from './gates.js'
 import { rawProfiles } from './presets.js'
-import { WarnCap } from './controls.jsx'
+import { Seg2, SegOpt } from './controls.jsx'
 import { cleanPtype, ptypeErr } from './ptype.js'
 import { T } from '../../../i18n/fa.js'
 
-const PTYPE_CHIPS = [
-  ['', 'raw_ptype_def'],
-  ['ffff', 'raw_ptype_ffff'],
-  ['8847', 'raw_ptype_mpls'],
+const PTYPE_SEGS = [
+  ['', '0x0800', 'raw_ptype_def'],
+  ['ffff', '0xffff', 'raw_ptype_common'],
+  ['8847', '0x8847', 'raw_ptype_mpls'],
 ]
 
 function PtypePick({ dir, value, onPick }) {
   const up = dir === 'up'
   const way = T(up ? 'raw_dir_up' : 'raw_dir_down')
+  const [manual, setManual] = useState(false)
+  const custom = manual || !PTYPE_SEGS.some(([hex]) => hex === value)
+  const error = ptypeErr(value)
+  const pick = (hex) => {
+    setManual(false)
+    onPick(hex)
+  }
   return (
-    <div className={'ptyperow ' + dir}>
-      <span className="ptypedir">
+    <div className={'ptypepick ' + dir}>
+      <div className="ptypedir">
         <Icon name={up ? 'upload' : 'download'} />
         {way}
-      </span>
-      <div className="ptypeopts" role="group" aria-label={T('raw_ptype_lbl') + ' · ' + way}>
-        {PTYPE_CHIPS.map(([hex, label]) => (
-          <button
+      </div>
+      <Seg2 label={T('raw_ptype_lbl') + ' · ' + way}>
+        {PTYPE_SEGS.map(([hex, title, sub]) => (
+          <SegOpt
             key={hex}
-            type="button"
-            className={'dirchip ' + dir + (value === hex ? ' on' : '')}
-            aria-pressed={value === hex ? 'true' : 'false'}
-            onClick={() => onPick(hex)}
-          >
-            {T(label)}
-          </button>
+            on={!custom && value === hex}
+            title={<bdi className="mono">{title}</bdi>}
+            sub={T(sub)}
+            onClick={() => pick(hex)}
+          />
         ))}
-        <span className="ptypehex">
-          0x
+        <SegOpt
+          on={custom}
+          title={custom && value ? <bdi className="mono">{'0x' + value}</bdi> : T('raw_ptype_custom')}
+          sub={T(custom && value ? 'raw_ptype_custom' : 'raw_ptype_hex')}
+          onClick={() => setManual(true)}
+        />
+      </Seg2>
+      <Reveal show={custom}>
+        <div className="ptypehex">
+          <span>0x</span>
           <input
             className="mono"
             value={value}
+            autoFocus={manual}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             placeholder="0800"
             aria-label={T('raw_ptype_custom') + ' · ' + way}
+            aria-invalid={error ? 'true' : undefined}
             onChange={(e) => onPick(cleanPtype(e.target.value))}
           />
-        </span>
-      </div>
-      <WarnCap text={ptypeErr(value)} />
+        </div>
+      </Reveal>
+      {error ? (
+        <div className="flderr" role="alert">
+          <Icon name="warn" />
+          <span>{error}</span>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -134,10 +155,15 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
         <div className="greptype">
           <label>{T('raw_ptype_lbl')}</label>
           {form.RawProfile === 'gre' ? (
-            <PtypePick dir="up" value={form.GrePtype} onPick={(v) => patch({ GrePtype: v })} />
+            <PtypePick key={'up' + form.Srv} dir="up" value={form.GrePtype} onPick={(v) => patch({ GrePtype: v })} />
           ) : null}
           {form.RawProfileDown === 'gre' ? (
-            <PtypePick dir="down" value={form.GrePtypeDown} onPick={(v) => patch({ GrePtypeDown: v })} />
+            <PtypePick
+              key={'down' + form.Srv}
+              dir="down"
+              value={form.GrePtypeDown}
+              onPick={(v) => patch({ GrePtypeDown: v })}
+            />
           ) : null}
           <div className="fldhint">{T('raw_ptype_hint')}</div>
         </div>
