@@ -910,7 +910,7 @@ _TUNING_LIST_RANGES = {"suspect_backoff": (BACKOFF_STEP_MIN, BACKOFF_STEP_MAX),
 _PROBE_SAMPLES = 20
 _TUNING_LIST_LABELS = {"suspect_backoff": tx("زمان‌بندیِ تستِ مجددِ موقت‌سوخته", "retest schedule of a suspect IP"),
                        "ladder_revive": tx("صبر پیش از تلاشِ دوبارهٔ نردبان", "wait before the ladder tries again")}
-_TUNING_NUM_LABELS = {"dead_retest_secs": tx("تستِ مجددِ آی‌پیِ سوخته", "retest of a dead IP"),
+_TUNING_NUM_LABELS = {"dead_retest_secs": tx("بازهٔ تستِ IP مرده", "retest of a dead IP"),
                       "probe_min_pct": tx("حداقلِ بسته‌های برگشتی", "minimum returned packets"),
                       "sock_buf_mb": tx("بافرِ سوکتِ udp/raw", "udp/raw socket buffer"),
                       "tcp_buf_mb": tx("بافرِ سوکتِ TCP", "TCP socket buffer")}
@@ -1086,10 +1086,10 @@ def validate_settings(d):
         if k in d and d[k] not in (None, ""):
             out[k] = _setting_num(d, k)
     if "uptime_window" in d and d["uptime_window"] not in (None, ""):
-        w = _int_or(d["uptime_window"], Bad("bad_number", "بازهٔ نمودارِ دسترس‌پذیری باید عددِ صحیح باشد",
+        w = _int_or(d["uptime_window"], Bad("bad_number", "پنجرهٔ نوارِ آپ‌تایم باید عددِ صحیح باشد",
                                             "the uptime chart window must be a whole number"))
         if w not in UPTIME_WINDOWS:
-            raise Bad("bad_uptime_window", "بازهٔ نمودارِ دسترس‌پذیری باید یکی از {0} ساعت باشد — {1} پذیرفته نیست",
+            raise Bad("bad_uptime_window", "پنجرهٔ نوارِ آپ‌تایم باید یکی از {0} ساعت باشد — {1} پذیرفته نیست",
                       "the uptime chart window must be one of {0} hours — {1} is not accepted",
                       tx_join("، ", [str(h) for h in UPTIME_WINDOWS], ", "), w)
         out["uptime_window"] = w
@@ -1854,7 +1854,7 @@ def _rotate_sign_key():
 def api_sign_key_rotate(d):
     with _sign_lock:
         _rotate_sign_key()
-    nodes = [n for n in load_nodes() if not n.get("disabled")]
+    nodes = load_nodes()
     got = [(n.get("name") or n["id"], r or {}) for n, r in zip(nodes, parallel_map(_ensure_update_key, nodes, workers=16))]
     no_key = [nm for nm, r in got if r.get("code") == "no_update_key"]
     other_key = [nm for nm, r in got if r.get("code") == "key_mismatch"]
@@ -1903,7 +1903,7 @@ def _ensure_update_key(node):
     return {"ok": False, "code": "update_key",
             "error": tx("نودِ «{0}» کلیدِ امضایِ پنل را نپذیرفت؛ بدونِ آن هر پوشی رد می‌شود: {1}",
                         "node '{0}' did not accept the panel's signing key; without it every push is refused: {1}",
-                        nm, r.get("error") or r.get("msg") or "?")}
+                        nm, r.get("error") or "?")}
 
 
 _ctr_lock = threading.Lock()
@@ -1962,7 +1962,7 @@ def _unsigned_reply():
 
 
 def _stale_ctr(node, res):
-    if not isinstance(res, dict) or "stale counter" not in str(res.get("error") or ""):
+    if not isinstance(res, dict) or res.get("code") != "stale_counter":
         return False
     try:
         _bump_ctr(_node_key(node), int(res["ctr"]) + 1)
@@ -2567,11 +2567,13 @@ def _tf_read(nid, keys=None):
         return out
 
 
+def _tf_fields(s):
+    return {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"], "rx_total": s["crx"], "tx_total": s["ctx"]}
+
+
 def _tf_node_view(nid):
     s = _tf_read(nid, ("_node",)).get("_node")
-    if not s:
-        return None
-    return {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"], "rx_total": s["crx"], "tx_total": s["ctx"]}
+    return _tf_fields(s) if s else None
 
 
 def _tf_zero_rates(nid):
@@ -3550,7 +3552,7 @@ def api_summary(d):
 
     nmap = {n["id"]: n.get("name", "") for n in nodes}
     up = noping = down = drift_n = off_n = 0
-    types = {"vxlan": 0, "gre": 0, "sit": 0}
+    types = dict.fromkeys(TYPES, 0)
     worst_tun = None
     rtts = []
     tgroups = {k: [] for k in ("down", "drift", "noping", "wait", "up", "off")}
@@ -4010,13 +4012,16 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             recv = (f"set -e; umask 077; (curl -fsSL {url} -o /tmp/tnl-node.py"
                     f" || wget -qO /tmp/tnl-node.py {url}); echo TNL_DL_OK; {verify}")
             stdin, how = None, tx("از گیت‌هاب", "from GitHub")
+            dl_fail = tx("دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)",
+                         "the node could not download the agent (curl/wget? internet access?)")
         else:
             recv, stdin, how = (f"set -e; umask 077; base64 -d > /tmp/tnl-node.py; echo TNL_DL_OK; {verify}",
                                 base64.b64encode(raw).decode(), tx("از پنل", "from the panel"))
+            dl_fail = tx("نوشتنِ فایلِ ایجنتی که پنل از راهِ SSH فرستاد روی نود ناموفق (base64؟ /tmp؟)",
+                         "the node could not write the agent file the panel sent over SSH (base64? /tmp?)")
         rc, out, err = _ssh_run(cfg, recv, 120, stdin_text=stdin)
         if "TNL_DL_OK" not in out:
-            return fail("agent", tx("دریافتِ ایجنت روی نود ناموفق (curl/wget؟ دسترسیِ اینترنت؟)",
-                                    "the node could not download the agent (curl/wget? internet access?)"), (err or out).strip())
+            return fail("agent", dl_fail, (err or out).strip())
         if rc != 0 or "TNL_RECV_OK" not in out:
             return fail("agent", tx("فایلِ رسیده با ایجنتِ آمادهٔ پنل یکی نیست",
                                     "the file that arrived differs from the panel's ready agent"), (err or out).strip())
@@ -4420,7 +4425,7 @@ def api_node_del(d):
 
 def _node_del_impl(d):
     nid = d["id"]
-    force = bool(d.get("wipe_force") or d.get("force"))
+    force = bool(d.get("force"))
     skip = bool(d.get("cdn_skip"))
     n = get_node(nid)
     if not n:
@@ -4481,7 +4486,7 @@ def _node_del_wipe(nid, n, force, mine, mine_ids, hosts):
             raise Bad("node_wipe_failed",
                       "پاک‌سازیِ سمتِ نود ناتمام ماند: {0} — اگر نود قطع است چند لحظه صبر کن تا وضعیتش قرمز شود بعد «پاک‌سازیِ اجباری» بزن.",
                       "the cleanup on the node did not finish: {0} — if the node is down, wait until it shows red, then use force",
-                      r.get("error") or r.get("msg") or tx("خطا", "error"))
+                      r.get("error") or tx("خطا", "error"))
     _park_failed, _dropped = [], []
 
     def _del_peer_half(L):
@@ -4607,9 +4612,7 @@ def api_node_traffic(d):
         if n["id"] in (L.get("a_node"), L.get("b_node")):
             t = ifs.get(L.get("name"))
             if t:
-                tunnels.append({"name": L.get("name"),
-                                "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
-                                "rx_total": t["crx"], "tx_total": t["ctx"]})
+                tunnels.append({"name": L.get("name"), **_tf_fields(t)})
     portfw = []
     lst = _cached_list(n["id"])
     for c in (lst.get("configs") or []):
@@ -4617,9 +4620,7 @@ def api_node_traffic(d):
             continue
         t = ifs.get("pf:" + str(c.get("name") or ""))
         if t:
-            portfw.append({"name": c.get("name"),
-                           "rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"],
-                           "rx_total": t["crx"], "tx_total": t["ctx"]})
+            portfw.append({"name": c.get("name"), **_tf_fields(t)})
     return {"online": online,
             "node": {"rx_bps": node.get("rx_bps", 0.0), "tx_bps": node.get("tx_bps", 0.0),
                      "rx_total": node.get("crx", 0), "tx_total": node.get("ctx", 0)},
@@ -4816,7 +4817,7 @@ def _dl_ticket_node(q):
 
 
 _NO_ORIGIN = tx("پنل هنوز آدرسِ خودش را نمی‌داند، پس نمی‌تواند نشانیِ دانلود بدهد — "
-                "حالتِ تحویل را روی «پنل آپلود کند» یا «از گیت‌هاب» بگذار",
+                "«ارسال» را روی «پنل آپلود کند» یا «نود از گیت‌هاب» بگذار",
                 "the panel does not know its own address yet, so it cannot hand out a download link — "
                 "set the delivery mode to push or GitHub")
 
@@ -4831,7 +4832,7 @@ def _agent_meta_or_empty():
 def _agent_delivery_check(meta, mode):
     if mode == "github" and meta.get("source") != "git":
         raise Bad("agent_not_on_github", "این ایجنت از فایل بارگذاری شده و روی گیت‌هاب نیست — یا «دریافت از گیت‌هاب» را بزن، "
-                  "یا حالتِ تحویلِ ایجنت را عوض کن",
+                  "یا «ارسال» را در ردیفِ ایجنت عوض کن",
                   "this agent was uploaded from a file and is not on GitHub — fetch it from GitHub or change the agent delivery mode")
 
 
@@ -4851,7 +4852,7 @@ def _agent_update_body(node, raw, meta, grant):
 def _core_delivery_check(mode, custom):
     if mode == "github" and custom:
         raise Bad("core_not_on_github", "این باینری روی پنل بارگذاری شده و روی گیت‌هاب نیست — "
-                  "حالتِ تحویلِ هسته را روی «پنل آپلود کند» یا «نود از پنل بگیرد» بگذار",
+                  "«ارسال» را در ردیفِ هسته روی «پنل آپلود کند» یا «نود از پنل» بگذار",
                   "this binary was uploaded to the panel and is not on GitHub — set the core delivery mode to push or panel")
 
 
@@ -4890,7 +4891,7 @@ def _readiness():
     info = _staged_info()
     gh = _delivery_mode("core") == "github"
     if gh:
-        missing = []
+        missing = [a for a in CORE_ARCHES if a not in ((info or {}).get("arches") or [])]
     else:
         ver = (info or {}).get("version") or ""
         missing = [a for a in CORE_ARCHES if not (ver and os.path.isfile(_stage_path(ver, a)))]
@@ -5150,7 +5151,7 @@ def _push_one(jid, nid, plan):
             if not r.get("ok"):
                 _push_set(jid, nid, state="err", step=code,
                           err=str(r.get("code") or ("offline" if r.get("offline") else "failed")),
-                          detail=r.get("error") or r.get("msg") or "")
+                          detail=r.get("error") or "")
                 return
             if gate and gate(r):
                 _push_set(jid, nid, state="same", step=code, pct=100)
@@ -5299,7 +5300,7 @@ def api_update_agent(d):
     enc = _body_cache(lambda n: _agent_update_body(n, raw, meta, grant))
     plan = [("check", "ping", lambda _n, _c=None: {}, 15,
              lambda r, _w=meta["sha256"]: str(r.get("sha256") or "") == _w),
-            ("deliver", "update", enc, 60, None)]
+            ("deliver", "update", enc, NODE_UPLOAD_TIMEOUT, None)]
     return _update_start("agent", nodes, plan)
 
 
@@ -5416,7 +5417,7 @@ def _fetch_core_versions():
     vers = []
     for rel in json.loads(raw.decode()):
         tag = rel.get("tag_name")
-        if not tag or rel.get("draft"):
+        if not tag or rel.get("draft") or not _CORE_TAG_RE.match(tag):
             continue
         vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
     return vers
@@ -5523,7 +5524,7 @@ def api_core_upload(d):
 
 
 _CORE_REL_DL = "https://github.com/Angize/TUNNEL-MANAGER-CORE/releases"
-_CORE_TAG_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
+_CORE_TAG_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9._-]{1,40}$")
 CORE_ARCHES = ("amd64", "arm64")
 CORE_STAGE_DIR = os.path.join(CENTRAL_DIR, "core-stage")
 CORE_STAGE_META = os.path.join(CENTRAL_DIR, "core-stage.meta.json")
@@ -5533,9 +5534,9 @@ _core_stage_lock = threading.Lock()
 def _resolve_core_version(version):
     version = (version or "latest").strip() or "latest"
     if version != "latest":
-        if version in (".", "..") or not _CORE_TAG_RE.match(version):
-            raise Bad("bad_core_version", "نسخهٔ هسته نامعتبر است — فقط حروف/عدد و کاراکترهای «._+-» مجاز است",
-                      "invalid core version — only letters, digits and ._+- are allowed")
+        if version == "." or not _CORE_TAG_RE.match(version):
+            raise Bad("bad_core_version", "نسخهٔ هسته نامعتبر است — تا 40 کاراکتر، فقط حروف/عدد و «._-» و بدونِ «..»",
+                      "invalid core version — up to 40 characters, only letters, digits and ._- and no '..'")
         return version
     for v in (api_core_versions({}).get("versions") or []):
         if v.get("id") and v["id"] != "custom":
@@ -5744,12 +5745,18 @@ def _stage_core(version, on_progress=None, should_abort=None):
 
 def _stage_core_meta(version):
     rel = _resolve_core_version(version)
-    got = list(CORE_ARCHES)
-    sha = {a: _sha_file(_release_asset_url(rel, a) + ".sha256") for a in got}
+    sha = {}
+    for arch in CORE_ARCHES:
+        try:
+            sha[arch] = _sha_file(_release_asset_url(rel, arch) + ".sha256")
+        except Exception:
+            if arch == "amd64":
+                raise
+    got = list(sha)
     with _core_stage_lock:
         save_json(CORE_STAGE_META, {"version": rel, "arches": got, "sha": sha, "size": {},
                                     "ts": int(time.time()), "meta_only": True})
-    return {"version": rel, "arches": got, "missing": []}
+    return {"version": rel, "arches": got, "missing": [a for a in CORE_ARCHES if a not in got]}
 
 
 def _staged_release(arch):
@@ -5860,13 +5867,12 @@ def _push_staged_on_add(node):
 
 def _node_tunnel(node, body):
     r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
-    err = str(r.get("error") or r.get("msg") or "")
-    if not r.get("ok") and "core not installed" in err:
+    if not r.get("ok") and r.get("code") == "no_core":
         pr = _push_staged(node)
         if not pr.get("ok"):
             r["error"] = tx("هسته روی نودِ «{0}» نصب نیست و رساندنِ آن هم نشد: {1}",
                             "the core is not installed on node '{0}' and delivering it failed too: {1}",
-                            node.get("name", "?"), pr.get("error") or pr.get("code") or pr.get("msg") or "?")
+                            node.get("name", "?"), pr.get("error") or pr.get("code") or "?")
             return r
         r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
     return r
@@ -5912,10 +5918,12 @@ def _stage_run(version):
 
 
 def api_core_stage(d):
-    version = str((d or {}).get("version") or "latest").strip()
+    version = str((d or {}).get("version") or "latest").strip() or "latest"
     if version == "custom":
         raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته، یا دکمهٔ «هسته» در ردیفِ هر نود نصب کن",
                   "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)")
+    if version != "latest":
+        _resolve_core_version(version)
     if _delivery_mode("core") == "github":
         try:
             info = _stage_core_meta(version)
@@ -5989,15 +5997,15 @@ def api_fleet(d):
     page = links
     need = {L[k] for L in page for k in ("a_node", "b_node")}
     _ensure_cached([nodes[i] for i in need if i in nodes])
-    with _tf_lock:
-        tfl = {}
-        for L in page:
-            side = _view_side(L)
-            nid = L["b_node"] if side == "b" else L["a_node"]
-            s = (_tf.get(nid) or {}).get("if", {}).get(L["name"])
-            if s:
-                tfl[L["id"]] = {"rx_bps": s["rx_bps"], "tx_bps": s["tx_bps"],
-                                "rx_total": s["crx"], "tx_total": s["ctx"]}
+    tfn, tfl = {}, {}
+    for L in page:
+        side = _view_side(L)
+        nid = L["b_node"] if side == "b" else L["a_node"]
+        if nid not in tfn:
+            tfn[nid] = _tf_read(nid)
+        s = tfn[nid].get(L["name"])
+        if s:
+            tfl[L["id"]] = _tf_fields(s)
     out = []
     for L in page:
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
@@ -6266,9 +6274,9 @@ def _fec_fields(d, transport, cur=None):
     if fd < 1 or fp < 1 or fd + fp > 255:
         raise fec_bad
     if fd > 64:
-        raise Bad("bad_fec", "دادهٔ FEC حداکثر 64 است — بالاتر از آن فریمِ بازسازی‌شده بیرونِ پنجرهٔ ضدِ تکرارِ گیرنده می‌افتد و دور ریخته می‌شود (یعنی پهنای‌باندِ FEC مصرف می‌شود و هیچ ترمیمی نمی‌کند)",
-                  "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window "
-                  "and is dropped (FEC bandwidth is spent and repairs nothing)")
+        raise Bad("bad_fec", "دادهٔ FEC حداکثر 64 است — فرستنده کلِ بلوک را پیش از ارسال نگه می‌دارد، پس بلوکِ بزرگ‌تر فقط تأخیر و حافظه اضافه می‌کند؛ توانِ ترمیم را پریتی تعیین می‌کند نه اندازهٔ بلوک",
+                  "FEC data is at most 64 — the sender holds a whole block before any of it leaves, so a bigger block "
+                  "only adds latency and memory; what a block can repair is decided by the parity, not by its size")
     out["fec_data"] = fd
     out["fec_parity"] = fp
     return out
@@ -6600,10 +6608,13 @@ def _gen_self_ech(public, inner):
     return dict(_gen_ech_key(public), inner=inner, srv_cert=nc["cert"], srv_key=nc["key"], ws_ca=nc["cert"])
 
 
+_WS_PATH_RE = re.compile(r"^(?=.{1,256}$)/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$")
+
+
 def _ws_path_into(out, d, cur):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
     if path:
-        if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
+        if not _WS_PATH_RE.match(path):
             raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
                       "invalid WebSocket path (ws_path) (must start with /)")
         out["ws_path"] = path
@@ -6745,7 +6756,7 @@ def _edge_fields(d, cur, out, transport):
         have = {e["node"]: e for e in cur.get("edges") or []}
         edges = [_edge_ws_name(e, have) for e in edges]
     out["edges"] = edges
-    out["edge_rotate"] = _rotate_secs(d["edge_rotate"] if "edge_rotate" in d else cur.get("edge_rotate", 600),
+    out["edge_rotate"] = _rotate_secs(_rotate_default(d, cur, "edge_rotate"),
                                       28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval"))
     if transport == "ws":
         out["ws_host"] = edges[0]["inner"]
@@ -6949,13 +6960,13 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
 
 
 _IP4_RE = r"^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$"
-_DOMAIN_RE = r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+_DOMAIN_RE = r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+([A-Za-z]{2,}|xn--[A-Za-z0-9-]*[A-Za-z0-9])$"
 
 
-def _ws_rotate_default(d, cur):
-    if "ws_rotate_secs" in d and d.get("ws_rotate_secs") is not None:
-        return d["ws_rotate_secs"]
-    v = cur.get("ws_rotate_secs")
+def _rotate_default(d, cur, key):
+    if key in d and d.get(key) is not None:
+        return d[key]
+    v = cur.get(key)
     return 600 if v is None else v
 
 
@@ -7010,7 +7021,7 @@ def _ws_pool_fields(d, cur=None):
     prov_of = {h: (reg.get(h) or {}).get("provider", "") for h in clean_hosts}
     ip_groups = _pool_groups({_ip(str(k).strip()): str(v or "") for k, v in raw_groups.items()}, clean_ips, prov_of)
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
-    if not re.match(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]{0,255}$", path):
+    if not _WS_PATH_RE.match(path):
         raise Bad("bad_ws_path", "مسیر (path) نامعتبر است", "invalid path")
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
     if ech_on:
@@ -7037,7 +7048,7 @@ def _ws_pool_fields(d, cur=None):
         "ws_edge_ips": clean_ips,
         **({"ws_edge_ip_groups": ip_groups} if ip_groups else {}),
         "ws_edge_snis": snis,
-        "ws_rotate_secs": _rotate_secs(_ws_rotate_default(d, cur), 28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval")),
+        "ws_rotate_secs": _rotate_secs(_rotate_default(d, cur, "ws_rotate_secs"), 28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval")),
         "ws_pool_auto": bool(d["ws_pool_auto"] if "ws_pool_auto" in d else cur.get("ws_pool_auto", True)),
         "ws_path": path,
     }
@@ -7405,7 +7416,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         if len(ap) >= 2 or len(bp) >= 2:
             ce["ip_rotate"] = True
             ce["a_ip_pool"], ce["b_ip_pool"] = ap, bp
-            ce["rotate_secs"] = _rotate_secs(d["rotate_secs"] if "rotate_secs" in d else cur.get("rotate_secs"),
+            ce["rotate_secs"] = _rotate_secs(_rotate_default(d, cur, "rotate_secs"),
                                              86400, tx("فاصلهٔ چرخش", "rotation interval"))
     server_side = d.get("server_side") if d.get("server_side") in ("a", "b") else (cur.get("server_side") or "a")
     return ce, server_side
@@ -7420,7 +7431,7 @@ def _step_build(N):
 
 
 def _node_failed(N, r, tail=""):
-    return Bad("node_failed", "نودِ «{0}»: {1}{2}", "node '{0}': {1}{2}", N["name"], r.get("error") or r.get("msg"), tail)
+    return Bad("node_failed", "نودِ «{0}»: {1}{2}", "node '{0}': {1}{2}", N["name"], r.get("error"), tail)
 
 
 def _tunnel_type(d):
@@ -7439,6 +7450,10 @@ def _want_ip(d, key, N, ips):
     if want and want not in ips:
         raise Bad("ip_not_on_node", "آی‌پیِ «{0}» روی نودِ «{1}» نیست", "IP '{0}' is not on node '{1}'", want, N["name"])
     return want
+
+
+def _pick_ip(want, stored, ips):
+    return want or (stored if stored in ips else (ips[0] if ips else None))
 
 
 def _subnet_prefix(d):
@@ -7860,7 +7875,7 @@ def _edge_status_of(L, node, missing):
         return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": missing}
     r = node_call(node, "edge-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
-        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error") or r.get("msg")}
+        return {"ok": True, "pool": is_pool, "active": "", "health": [], "events": [], "error": r.get("error")}
     health = []
     names = {e["inner"]: (get_node(e["node"]) or {}).get("name", "") for e in L.get("edges") or [] if e.get("inner")}
     for h in (r.get("health") or []):
@@ -7887,7 +7902,7 @@ def _edge_status_of(L, node, missing):
 
 def _node_soft(r, fallback):
     return {"ok": False, "code": "node_offline" if r.get("offline") else "node_failed",
-            "error": r.get("error") or r.get("msg") or fallback}
+            "error": r.get("error") or fallback}
 
 
 def _pool_kind(d, kinds):
@@ -7987,7 +8002,7 @@ def api_peer_status(d):
                 "error": _EV_END_MISSING["cli"]}
     r = node_call(node, "peer-status", "POST", {"name": L.get("name")}, timeout=10)
     if not r.get("ok"):
-        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": r.get("error") or r.get("msg")}
+        return {"ok": True, "pool": True, "now": int(time.time()), "dst": dict(empty), "src": dict(empty), "error": r.get("error")}
     node_now = int(r.get("now") or 0)
     return {"ok": True, "pool": True, "now": node_now, "dst": _peer_sec_norm(r.get("dst")), "src": _peer_sec_norm(r.get("src"))}
 
@@ -8112,10 +8127,7 @@ def _edit_link_impl(d, h):
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
     want_a, want_b = _want_ip(d, "a_ip", A, a_ips), _want_ip(d, "b_ip", B, b_ips)
-    a_ip = (want_a if want_a in a_ips else
-            (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
-    b_ip = (want_b if want_b in b_ips else
-            (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
+    a_ip, b_ip = _pick_ip(want_a, L["a_ip"], a_ips), _pick_ip(want_b, L["b_ip"], b_ips)
     _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
     _subnet_prefix(d)
     subnet = (norm_subnet(ttype, tid, d["subnet"]) if str(d.get("subnet") or "").strip()
@@ -8275,13 +8287,13 @@ def api_link_speed(d):
                   timeout=NODE_OP_TIMEOUT)
     if not r.get("ok"):
         raise Bad("speedtest_failed", "نودِ «{0}» گیرندهٔ تست را بالا نیاورد: {1}",
-                  "node '{0}' did not start the test receiver: {1}", srv["name"], r.get("error") or r.get("msg") or "?")
+                  "node '{0}' did not start the test receiver: {1}", srv["name"], r.get("error") or "?")
     q = node_call(cli, "speedtest", "POST",
                   {"name": L["name"], "mode": "run", "peer_ip": r.get("ip"), "port": r.get("port"),
                    "secs": secs, "streams": streams}, timeout=secs * 2 + 60)
     if not q.get("ok"):
         raise Bad("speedtest_failed", "نودِ «{0}» تست را اجرا نکرد: {1}", "node '{0}' did not run the test: {1}",
-                  cli["name"], q.get("error") or q.get("msg") or "?")
+                  cli["name"], q.get("error") or "?")
     return {"ok": True, "from": cli["name"], "to": srv["name"], "secs": secs,
             "up_streams": int(q.get("up_streams") or 0), "down_streams": int(q.get("down_streams") or 0),
             "up_mbit": q.get("up_mbit"), "down_mbit": q.get("down_mbit")}
@@ -8302,7 +8314,7 @@ def api_check_link(d):
             return {"online": True, "health": r.get("health"), "error": ""}
         if r.get("offline"):
             return {"online": False, "health": None, "error": ""}
-        return {"online": True, "health": None, "error": r.get("error") or r.get("msg") or ""}
+        return {"online": True, "health": None, "error": r.get("error") or ""}
 
     a, b = parallel_map(chk, [L["a_node"], L["b_node"]])
     return {"ok": True, "name": L["name"], "a_online": a["online"], "b_online": b["online"],
@@ -8337,7 +8349,7 @@ def _restart_link_impl(d, h):
         ok = bool(r.get("ok"))
         ends.append({"side": side, "node": N["name"], "ok": ok})
         if not ok:
-            errs.append(tx("{0}: {1}", "{0}: {1}", N["name"], r.get("error") or r.get("msg") or "?"))
+            errs.append(tx("{0}: {1}", "{0}: {1}", N["name"], r.get("error") or "?"))
     if errs:
         raise Bad("restart_failed", tx_join("؛ ", errs, "; "))
     return {"ok": True}
@@ -8375,11 +8387,8 @@ def _rebuild_link_impl(d, h):
     tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
-    want_a, want_b = str(d.get("a_ip") or "").strip(), str(d.get("b_ip") or "").strip()
-    a_ip = (want_a if want_a in a_ips else
-            (L["a_ip"] if L["a_ip"] in a_ips else (a_ips[0] if a_ips else None)))
-    b_ip = (want_b if want_b in b_ips else
-            (L["b_ip"] if L["b_ip"] in b_ips else (b_ips[0] if b_ips else None)))
+    want_a, want_b = _want_ip(d, "a_ip", A, a_ips), _want_ip(d, "b_ip", B, b_ips)
+    a_ip, b_ip = _pick_ip(want_a, L["a_ip"], a_ips), _pick_ip(want_b, L["b_ip"], b_ips)
     _guard_ends(A, B, a_ip, b_ip, ttype, exclude_id=L["id"])
     src = L
     if ttype == "core" and L.get("ip_rotate"):
@@ -8452,9 +8461,8 @@ def api_link_tag(d):
         else:
             x.pop("tag", None)
     with _reg_lock:
-        coll = _LINKS if get_link(d["id"]) else _NODES
-        if store_edit(coll, d["id"], paint) is None:
-            raise _no_item()
+        if store_edit(_LINKS, d["id"], paint) is None:
+            raise _no_tunnel()
     return {"ok": True, "tag": tag}
 
 
@@ -8486,7 +8494,7 @@ def api_link_toggle(d):
                 r = _link_enable(N, L, enabled)
                 if not r.get("ok"):
                     why = tx("جواب نداد", "did not answer") if r.get("offline") else (
-                        r.get("error") or r.get("msg") or _FAILED)
+                        r.get("error") or _FAILED)
                     back = [M["name"] for M in done]
                     stuck = [M["name"] for M in done if not _link_enable(M, L, was).get("ok")]
                     if stuck:
@@ -8869,8 +8877,8 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
             notes.append(("ech-refresh", tx("کلیدِ ECH تونلِ «{0}» تازه شد ولی بی‌بازسازی به هسته نرسید",
                                             "the ECH key of tunnel '{0}' was refreshed but did not reach the core without a rebuild",
                                             nm), "warn",
-                          tx("{0}\nنود جواب نداد؛ تونل با کلیدِ تازه بازسازی شد",
-                             "{0}\nthe node did not answer; the tunnel was rebuilt with the new key", dfa),
+                          tx("{0}\nرساندنِ بی‌بازسازی به نود نشد؛ تونل با کلیدِ تازه بازسازی شد",
+                             "{0}\nthe live push to the node failed; the tunnel was rebuilt with the new key", dfa),
                           tx("{0}\nنه رساندنِ بی‌بازسازی جواب داد نه بازسازی — هسته هنوز کلیدِ کهنه دارد",
                              "{0}\nneither the live push nor the rebuild worked — the core still has the old key", dfa)))
         else:
@@ -9800,7 +9808,7 @@ def _pf_field(k, v):
         return s
     if k == "iface":
         s = str(v).strip()
-        if not re.match(r"^[A-Za-z0-9._-]{1,15}$", s):
+        if not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,14}$", s):
             raise Bad("bad_iface", "نامِ کارتِ شبکه نامعتبر است", "invalid network interface name")
         return s
     if k == "interval_min":
@@ -9813,16 +9821,16 @@ def _pf_field(k, v):
 
 def _pf_name(v):
     s = str(v).strip()
-    if not re.match(r"^[A-Za-z0-9_.-]{1,40}$", s):
-        raise Bad("bad_portfw_name", "نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «._-» (1 تا 40 کاراکتر) مجاز است",
-                  "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)")
+    if not re.match(r"^[A-Za-z0-9_]{1,40}$", s):
+        raise Bad("bad_portfw_name", "نامِ پورت‌فوروارد نامعتبر است — فقط حروف/عدد و «_» (1 تا 40 کاراکتر) مجاز است",
+                  "invalid port-forward name — only letters, digits and _ (1 to 40 characters)")
     return s
 
 
 def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
     r = node_call(n, endpoint, "POST", body, timeout=timeout)
     if not r.get("ok"):
-        raise Bad("node_failed", r.get("error") or r.get("msg") or tx("نود کار را انجام نداد", "the node did not do it"))
+        raise Bad("node_failed", r.get("error") or tx("نود کار را انجام نداد", "the node did not do it"))
     _refresh_cache([n["id"]])
     return {"ok": True, ret: r.get(ret)}
 
@@ -9921,8 +9929,7 @@ def api_portfw_list(d):
                 if not _q_match(q, [v for v in hay if v]):
                     continue
             t = tf.get("pf:" + str(c.get("name") or ""))
-            bw = ({"rx_bps": t["rx_bps"], "tx_bps": t["tx_bps"], "rx_total": t["crx"], "tx_total": t["ctx"]}
-                  if t else {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0})
+            bw = _tf_fields(t) if t else {"rx_bps": 0.0, "tx_bps": 0.0, "rx_total": 0, "tx_total": 0}
             all_pf.append({"node": n["name"], "node_id": n["id"], "name": c.get("name"),
                            "iface": c.get("iface"), "listen_port": c.get("listen_port"),
                            "listen_ip": c.get("listen_ip") or "", "node_ip": node_ip,
@@ -9996,7 +10003,7 @@ def _pf_move(n, to, name, d):
         _refresh_cache([to["id"]])
         raise Bad("portfw_move_stuck", "پورت‌فورواردِ «{0}» از نودِ «{1}» برداشته نشد، پس جابه‌جا نشد: {2}{3}",
                   "port forward '{0}' was not removed from node '{1}', so it was not moved: {2}{3}",
-                  name, n["name"], r.get("error") or r.get("msg") or _FAILED,
+                  name, n["name"], r.get("error") or _FAILED,
                   "" if back.get("ok") else tx(" — نسخهٔ تازهٔ «{0}» روی نودِ «{1}» هم برداشته نشد",
                                                " — the new copy '{0}' on node '{1}' was not removed either",
                                                made, to["name"]))
@@ -10023,7 +10030,7 @@ def api_portfw_toggle(d):
     r = node_call(n, "link-enable", "POST", {"name": name, "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
     _refresh_cache([n["id"]])
     if not r.get("ok"):
-        why = tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or r.get("msg") or _FAILED)
+        why = tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or _FAILED)
         raise Bad("toggle_failed", "{0}: {1}{2}", "{0}: {1}{2}", n["name"], why,
                   tx(" — پورت‌فوروارد عوض نشد", " — the port forward did not change"))
     return {"ok": True, "enabled": enabled}
@@ -10134,8 +10141,9 @@ def _node_ip_tags(nid):
     n = get_node(nid)
     if not n:
         return []
+    p = _cached_ping(nid)
     live = []
-    for ip in _flat_ips(_cached_ping(nid)):
+    for ip in _flat_ips(p):
         if ip not in live:
             live.append(ip)
     peers = {}
@@ -10155,7 +10163,7 @@ def _node_ip_tags(nid):
     pf = {}
     for c in (_cached_list(nid).get("configs") or []):
         if c.get("type") == "portfw":
-            for ip in ([c["listen_ip"]] if c.get("listen_ip") else live):
+            for ip in ([c["listen_ip"]] if c.get("listen_ip") else ((p.get("ips") or {}).get(c.get("iface")) or [])):
                 pf.setdefault(ip, []).append(c.get("name") or "")
     host = n.get("host")
     out = []
@@ -11388,7 +11396,7 @@ def _cdn_strip_record(cred, st, jr):
 
 def _cf_port_rules(rs, hosts, keep=None):
     return [r for r in (rs or {}).get("rules") or [] if isinstance(r, dict) and r is not keep
-            and str(r.get("ref") or "").startswith(_CF_PORT) and _cf_hosts(r) & hosts]
+            and _cf_ref_port(r) and _cf_hosts(r) & hosts]
 
 
 def _cdn_unport(cred, st, jr):
@@ -12009,7 +12017,7 @@ def _front_push(N, e=None):
         r = {"error": _why(ex)}
     if r.get("ok"):
         return ""
-    return tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or r.get("msg") or _FAILED)
+    return tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or _FAILED)
 
 
 def _front_named(N, why):
@@ -12359,10 +12367,7 @@ def api_cdn_make(d):
     ip = _cdn_public_ip(d.get("ip"))
     cred = _cdn_cred(prov)
     jr = _CdnJournal()
-    try:
-        out = _cdn_make(cred, wants[0]["zone"], hosts, ip, replace, jr)
-    except (ValueError, RegistryError) as e:
-        return {"ok": False, "code": _code(e), "error": _why(e)}
+    out = _cdn_make(cred, wants[0]["zone"], hosts, ip, replace, jr)
     return {"ok": True, "hosts": [{"host": h, "provider": prov, "zone": e["zone"]} for h, e in out.items()], "steps": jr.items}
 
 
@@ -12531,7 +12536,11 @@ def api_backup(d):
             ti = tarfile.TarInfo(name)
             ti.size, ti.mtime, ti.mode = len(data), now, 0o600
             tar.addfile(ti, io.BytesIO(data))
-    return {"ok": True, "data": base64.b64encode(buf.getvalue()).decode(), **c}
+    blob = buf.getvalue()
+    if len(blob) > BACKUP_MAX or sum(len(data) for _name, data in members) > BACKUP_MAX * 4:
+        raise Bad("backup_too_big", "بکاپ بیش از حد بزرگ می‌شود و پنل نمی‌تواند بازش گرداند — حداکثر {0} مگابایت",
+                  "the backup would be too large for the panel to restore — at most {0} MB", BACKUP_MAX_MB)
+    return {"ok": True, "data": base64.b64encode(blob).decode(), **c}
 
 
 def _backup_open(blob):
@@ -12771,8 +12780,8 @@ def api_checkin_impl(source_ip, d):
         if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
             log_event("warn", "node-moved", tx("نودِ «{0}»: جابه‌جاییِ نشانی", "node '{0}': address moved", n_snap.get("name")),
                       tx("از {0}:{1} به {2}:{3} رفته و از نشانیِ تازه جواب می‌دهد — روی"
-                         " کارتِ نود نشانِ هشدار را بزن و «تنظیم به‌عنوانِ نشانیِ نود»، بعد تونل‌هایش را بازسازی کن."
-                         " (برای انجامِ خودکار، حالتِ آشتی را «خودکار» بگذار.)",
+                         " کارتِ نود نشانِ هشدار را بزن و «تنظیمِ نشانی»، بعد تونل‌هایش را بازسازی کن."
+                         " (برای انجامِ خودکار، در تنظیمات «وقتی آی‌پیِ نود عوض شد» را «خودکار» بگذار.)",
                          "it moved from {0}:{1} to {2}:{3} and answers from the new address — adopt the new address "
                          "(node-adopt-ip), then rebuild its tunnels. (To do it by itself, set the repair mode to auto.)",
                          host, port, want_host, want_port))
@@ -12936,7 +12945,7 @@ def ui_config():
         "settings_defaults": dict(_SETTINGS_RESET),
         "split_ttl_max": SPLIT_TTL_MAX,
         "limits": {"fake_ttl": [1, DESYNC_INJECT_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
-                   "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [0, PORT_TRIES_MAX],
+                   "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [1, PORT_TRIES_MAX],
                    "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN,
                    "install_parallel": _INSTALL_PARALLEL},
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
@@ -13378,7 +13387,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(429, {"error": "تلاشِ زیاد — چند دقیقه صبر کن"})
             return
         try:
-            res = api_checkin_impl(self.client_address[0], self._body())
+            res = api_checkin_impl(ip, self._body())
         except ValueError as e:
             self._send(400, {"error": str(e)})
             return
@@ -13530,8 +13539,9 @@ def _restart_problem(why, port):
     return "%s did not come up - journalctl -u %s" % (SERVICE, SERVICE)
 
 
-DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass", "redis-server", "python3-redis")
-DEP_BINARIES = ("openssl", "ssh", "sshpass", "ip", "systemctl", "redis-server")
+DEP_PACKAGES = ("openssl", "ca-certificates", "iproute2", "openssh-client", "sshpass", "bind9-dnsutils", "redis-server",
+                "python3-redis")
+DEP_BINARIES = ("openssl", "ssh", "sshpass", "dig", "ip", "systemctl", "redis-server")
 
 
 def missing_binaries():
@@ -13810,13 +13820,13 @@ def do_install():
         print("%s core %s staged (%s)" % (OK, info["version"], ", ".join(info["arches"])))
     except Exception as e:
         print("%s could not pre-download the core (%s)" % (WARN, e))
-        print("    stage it later from the panel: %s" % dim("هستهٔ داده / دریافت از گیت‌هاب"))
+        print("    stage it later from the panel: %s" % dim("تنظیمات / بکاپ و بروزرسانی / هسته / دریافت از گیت‌هاب"))
     try:
         meta = api_agent_fetch_git({})
         print("%s node agent %s staged" % (OK, meta["version"]))
     except Exception as e:
         print("%s could not pre-download the node agent (%s)" % (WARN, e))
-        print("    stage it later from the panel: %s" % dim("تنظیمات / بروزرسانیِ ایجنت"))
+        print("    stage it later from the panel: %s" % dim("تنظیمات / بکاپ و بروزرسانی / ایجنت / دریافت از گیت‌هاب"))
 
     print()
     print("%s tnl-central is installed and running." % green("[done]"))

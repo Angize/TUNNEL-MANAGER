@@ -99,7 +99,15 @@
   ]
  },
  "api-token-new": {},
- "backup": {},
+ "backup": {
+  "bad": [
+   [
+    400,
+    "backup_too_big",
+    "the backup would be too large for the panel to restore — at most … MB"
+   ]
+  ]
+ },
  "backup-restore": {
   "bad": [
    [
@@ -360,6 +368,36 @@
    ],
    [
     400,
+    "cdn_api",
+    "… did not return the new rule in its answer"
+   ],
+   [
+    400,
+    "cdn_api",
+    "… returned an error: …"
+   ],
+   [
+    400,
+    "cdn_config_rules_full",
+    "there is no room for a Configuration Rule on '…' — … of … config rules of the plan are used; delete one or set the SSL mode to the whole zone under Settings › CDN"
+   ],
+   [
+    400,
+    "cdn_denied",
+    "… refused — the key is invalid or lacks this permission: …"
+   ],
+   [
+    400,
+    "cdn_host_ready",
+    "'…' was already made by the panel and is ready — pick it from the ready ones"
+   ],
+   [
+    400,
+    "cdn_host_taken",
+    "'…' is used by tunnel '…' — a name points at one server and one port only"
+   ],
+   [
+    400,
     "cdn_label_dot",
     "the subdomain must be one label with no dot — the CDN's free certificate does not cover 'a.b.domain'"
    ],
@@ -375,8 +413,33 @@
    ],
    [
     400,
+    "cdn_rate",
+    "… is not taking more requests right now — try again in a few minutes"
+   ],
+   [
+    400,
+    "cdn_record_exists",
+    "'…' already has a record (…) — choose delete and replace or pick another name"
+   ],
+   [
+    400,
     "cdn_replace_one",
     "delete and replace works on one subdomain only"
+   ],
+   [
+    400,
+    "cdn_unreachable",
+    "could not reach …: …"
+   ],
+   [
+    400,
+    "cdn_zone_missing",
+    "domain '…' is not in the … account"
+   ],
+   [
+    400,
+    "cdn_zone_off",
+    "domain '…' is not active in … (…) and passes no traffic"
    ],
    [
     400,
@@ -681,7 +744,7 @@
    [
     400,
     "bad_core_version",
-    "invalid core version — only letters, digits and ._+- are allowed"
+    "invalid core version — up to 40 characters, only letters, digits and ._- and no '..'"
    ],
    [
     400,
@@ -862,7 +925,7 @@
    [
     400,
     "bad_fec",
-    "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window and is dropped (FEC bandwidth is spent and repairs nothing)"
+    "FEC data is at most 64 — the sender holds a whole block before any of it leaves, so a bigger block only adds latency and memory; what a block can repair is decided by the parity, not by its size"
    ],
    [
     400,
@@ -1748,7 +1811,7 @@
    [
     400,
     "bad_fec",
-    "FEC data is at most 64 — above that a rebuilt frame falls outside the receiver's anti-replay window and is dropped (FEC bandwidth is spent and repairs nothing)"
+    "FEC data is at most 64 — the sender holds a whole block before any of it leaves, so a bigger block only adds latency and memory; what a block can repair is decided by the parity, not by its size"
    ],
    [
     400,
@@ -2632,13 +2695,13 @@
    ],
    [
     400,
-    "item_not_found",
-    "item not found"
+    "missing_field",
+    "field '…' is missing"
    ],
    [
     400,
-    "missing_field",
-    "field '…' is missing"
+    "tunnel_not_found",
+    "tunnel not found"
    ]
   ]
  },
@@ -3323,7 +3386,7 @@
    [
     400,
     "bad_portfw_name",
-    "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
+    "invalid port-forward name — only letters, digits and _ (1 to 40 characters)"
    ],
    [
     400,
@@ -3387,7 +3450,7 @@
    [
     400,
     "bad_portfw_name",
-    "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
+    "invalid port-forward name — only letters, digits and _ (1 to 40 characters)"
    ],
    [
     400,
@@ -3427,7 +3490,7 @@
    [
     400,
     "bad_portfw_name",
-    "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
+    "invalid port-forward name — only letters, digits and _ (1 to 40 characters)"
    ],
    [
     400,
@@ -3451,7 +3514,7 @@
    [
     400,
     "bad_portfw_name",
-    "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
+    "invalid port-forward name — only letters, digits and _ (1 to 40 characters)"
    ],
    [
     400,
@@ -3708,6 +3771,11 @@
     400,
     "edge_wire_taken",
     "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
+   ],
+   [
+    400,
+    "ip_not_on_node",
+    "IP '…' is not on node '…'"
    ],
    [
     400,
@@ -4055,7 +4123,7 @@
    [
     400,
     "bad_portfw_name",
-    "invalid port-forward name — only letters, digits and ._- (1 to 40 characters)"
+    "invalid port-forward name — only letters, digits and _ (1 to 40 characters)"
    ],
    [
     400,
@@ -4169,7 +4237,7 @@
    [
     400,
     "bad_core_version",
-    "invalid core version — only letters, digits and ._+- are allowed"
+    "invalid core version — up to 40 characters, only letters, digits and ._- and no '..'"
    ],
    [
     400,
