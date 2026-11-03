@@ -157,7 +157,7 @@
   gap: 6px;
 }
 
-.sg {
+.og {
   --c: var(--sub);
   --ct: var(--sub);
   border-radius: 13px;
@@ -166,17 +166,17 @@
   overflow: hidden;
 }
 
-.sg.ok {
+.og.ok {
   --c: var(--ok);
   --ct: var(--ok-tx);
 }
 
-.sg.warn {
+.og.warn {
   --c: var(--gold);
   --ct: var(--gold-tx);
 }
 
-.sg.bad {
+.og.bad {
   --c: var(--bad);
   --ct: var(--bad-tx);
   background: color-mix(in srgb, var(--bad) 5%, var(--field));
@@ -210,7 +210,7 @@
   font-weight: 800;
 }
 
-.sgt {
+.ogt {
   font-size: 11px;
   color: var(--sub);
 }
@@ -232,7 +232,7 @@
   transition: transform 0.2s var(--ease-out);
 }
 
-.sg.open .sgc {
+.og.open .sgc {
   transform: rotate(180deg);
 }
 
@@ -252,7 +252,7 @@
   font-weight: 800;
 }
 
-.sgb {
+.ogb {
   padding: 0 6px 6px;
 }
 

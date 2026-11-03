@@ -26,7 +26,7 @@
   font-size: 10.5px;
   font-weight: 700;
   color: var(--gold-tx);
-  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  background: var(--goldw);
   padding: 1px 7px;
   border-radius: 20px;
 }

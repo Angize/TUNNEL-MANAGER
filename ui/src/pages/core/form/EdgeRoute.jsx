@@ -23,10 +23,16 @@ function edgePatch(form, at, next) {
   return { edges: form.edges.map((e, i) => (i === at ? { ...e, ...next } : e)) }
 }
 
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/
+
+function edgeDefault(front) {
+  return IPV4.test(front.host) ? [front.host] : front.ips.slice(0, 1)
+}
+
 function EdgeIps({ form, at, picked, patch }) {
   const ips = picked.ips
   const edge = form.edges[at]
-  const chosen = edge.ips.length ? edge.ips : ips.filter((ip) => ip === picked.host)
+  const chosen = edge.ips.length ? edge.ips : edgeDefault(picked)
   const toggle = (ip, count) => {
     if (chosen.includes(ip)) {
       if (count <= 1) {
@@ -107,7 +113,7 @@ function PathNode({ role, name, ip, mid }) {
 
 function EdgePath({ form, fronts, ends }) {
   const edge = (fronts || []).find((f) => f.id === form.edges[0].node)
-  const ip = form.edges[0].ips[0] || (edge && edge.host) || ''
+  const ip = form.edges[0].ips[0] || (edge && (edgeDefault(edge)[0] || edge.host)) || ''
   const legs = legend(form)
   const arrow = (
     <span className="epa">

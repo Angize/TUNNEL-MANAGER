@@ -128,7 +128,7 @@ function Drawer({ link, cdn, view, onReload }) {
     setBusy(true)
     const r = await apiPost('cdn-sync', { id: link.id })
     setBusy(false)
-    if (r.ok && r.d.ok) toast(T('cdn_synced'), 'ok')
+    if (r.ok && r.d.ok) toast(r.d.msg ? translateError(r.d.msg) : T('cdn_synced'), 'ok')
     else toast(postError(r), 'err')
     onReload()
   }

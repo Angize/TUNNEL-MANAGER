@@ -63,12 +63,6 @@
   border-color: color-mix(in srgb, var(--acc) 34%, transparent);
 }
 
-.warncap.gold {
-  background: var(--goldw);
-  color: var(--gold-tx);
-  border: 1px solid color-mix(in srgb, var(--gold) 28%, transparent);
-}
-
 .cdnprov .warncap {
   margin-top: 0;
 }

@@ -11,6 +11,11 @@ const H = 100
 const PAD = 3
 const DAY = 86400000
 const PX_PER_POINT = 3
+const LIVE_POINTS = 30
+
+export function pushLive(live, rx, tx) {
+  return [...live, { t: Date.now(), rx, tx }].slice(-LIVE_POINTS)
+}
 
 function niceMax(v) {
   if (!(v > 0)) return 1

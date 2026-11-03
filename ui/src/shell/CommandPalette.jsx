@@ -83,7 +83,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
   const groups = useMemo(() => {
     const q = text.trim().toLowerCase()
     const nodeRows = nodes
-      .filter((n) => !q || n.name.toLowerCase().includes(q) || (n.host || '').includes(q))
+      .filter((n) => !q || n.name.toLowerCase().includes(q) || (n.host || '').toLowerCase().includes(q))
       .slice(0, LIMIT)
       .map((n) => ({
         i: 'server',

@@ -15,7 +15,7 @@ import {
 } from './HealthRow.jsx'
 import useSecondTick from './useSecondTick.js'
 import { poolRotateItems } from './presets.js'
-import { poolValid } from './validate.js'
+import { poolCaps, poolOwners, poolValid } from './validate.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { toast } from '../../../lib/toast.js'
 import { T, TF } from '../../../i18n/fa.js'
@@ -64,7 +64,7 @@ export function EdgeRow({ value, label, kind, owner, health, active, lid, pendin
           <ActionButton
             icon="pin"
             tone={'aim' + (active ? ' on' : '')}
-            title={active ? T('pa_active_ip') : T('pa_activate')}
+            title={active ? T(kind === 'sni' ? 'pa_active_dom' : 'pa_active_ip') : T('pa_activate')}
             disabled={!!pending}
             spinning={!!isTarget}
             onClick={() => onSelect(kind, value)}
@@ -92,17 +92,11 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   const status = live.status
   useSecondTick(true)
   const items = poolRotateItems()
-  const owned = pool.sni.map((h) => (owners || {})[h]).filter(Boolean)
-  const ownedBy = (p) => owned.some((r) => r.provider === p)
-  const cfOwned = ownedBy('cf')
+  const { owned, provs, mixed, groupOf } = poolOwners(pool, owners)
+  const cfOwned = provs.includes('cf')
   const anyOwned = owned.length > 0
   const zones = [...new Set(owned.map((r) => zoneKey(r.provider, r.zone)))].sort().map(splitZoneKey)
-  const provs = [...new Set(owned.map((r) => r.provider))]
-  const mixed = provs.length > 1
-  const groupOf = (ip) => (mixed ? pool.ipCdn[ip] || owned[0].provider : '')
   const groups = JSON.stringify(mixed ? Object.fromEntries(pool.ip.map((ip) => [ip, groupOf(ip)])) : {})
-  const manual = mixed ? pool.sni.find((h) => !(owners || {})[h]) : ''
-  const bare = mixed ? provs.filter((p) => !pool.ip.some((ip) => groupOf(ip) === p)) : []
   const sections = (mixed ? provs : ['']).map((group) => ({ kind: 'ip', group })).concat([{ kind: 'sni', group: '' }])
 
   useEffect(() => {
@@ -114,7 +108,6 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   const needs443 = (group) => (group ? group === 'cf' : cfOwned)
   const cleanFor = (group) =>
     tlsEdges(edges).filter((v) => !pool.ip.includes(v) && (!needs443(group) || edgePort(v) === 443))
-  const off443 = pool.ip.some((v) => needs443(groupOf(v)) && edgePort(v) !== 443)
 
   const setPool = (next) => patch({ pool: { ...pool, ...next } })
 
@@ -127,6 +120,7 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
       alertBox(kind === 'ip' ? T('pool_bad_ip') : T('pool_bad_dom'))
       return
     }
+    if (kind === 'ip' && !edgePort(value)) value += ':443'
     if (!picked) setDraft({ ...draft, [sec]: '' })
     if (pool[kind].includes(value) && (!group || groupOf(value) === group)) return
     setPool({
@@ -265,12 +259,9 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
           </Accordion>
         )
       })}
-      {bare.map((p) => (
-        <WarnCap key={p} text={TF('pool_group_no_ip', { p: providerName(p) })} />
+      {poolCaps(form, owners).map((cap) => (
+        <WarnCap key={cap.text} tone={cap.tone} text={cap.text} />
       ))}
-      {manual ? <WarnCap text={TF('pool_mixed_manual', { h: manual })} /> : null}
-      {cfOwned && off443 ? <WarnCap tone="gold" text={T('cdn_pool_443')} /> : null}
-      {form.Ech && ownedBy('ar') ? <WarnCap text={T('cdn_pool_ech_ar')} /> : null}
       <ZoneNotes form={form} zones={zones} />
       <Field label={T('rot_int_lbl')}>
         <Select

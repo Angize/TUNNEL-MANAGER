@@ -11,8 +11,8 @@ import { toast } from '../../lib/toast.js'
 
 const PAGE_LABEL = {
   nodes: 'nav_nodes',
-  tunnels: 'tun_title',
-  core: 'core_title',
+  tunnels: 'nav_tunnels',
+  core: 'nav_core',
   portfw: 'nav_portfw',
   settings: 'nav_settings',
   'set-upkeep': 'set_tab_upkeep',

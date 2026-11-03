@@ -10,15 +10,15 @@
 <style>
 @font-face { font-family: Vazirmatn; src: url('/assets/fonts/vazirmatn.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
 :root {
-  --acc: #4d6bf0; --acc-deep: #3a53d0; --page: #eef1f6; --glow1: #dbe6ff; --glow2: #d8e0fb;
-  --card: rgba(255, 255, 255, .62); --edge: rgba(255, 255, 255, .88); --bord: rgba(15, 27, 45, .09); --field: rgba(15, 27, 45, .04);
-  --tx: #0f1b2d; --sub: #5b6b82; --bad: #d13b3b; --hi: rgba(255, 255, 255, .95); --accw: rgba(77, 107, 240, .12);
+  --acc: #4d6bf0; --fill: #4460e6; --fill-deep: #3a53d0; --page: #e6ebf3; --glow1: #d3e0ff; --glow2: #d8e0fb;
+  --card: rgba(255, 255, 255, .7); --edge: rgba(15, 27, 45, .1); --bord: rgba(15, 27, 45, .09); --field: rgba(15, 27, 45, .04);
+  --tx: #0f1b2d; --sub: #57667c; --bad: #d13b3b; --hi: rgba(255, 255, 255, .95); --accw: rgba(77, 107, 240, .12);
   --sh: 0 24px 60px -30px rgba(15, 27, 45, .4);
 }
 html.dark {
-  --acc: #8fa3ff; --acc-deep: #4d6bf0; --page: #0d1220; --glow1: #1c2a5a; --glow2: #162049;
+  --acc: #8fa3ff; --page: #0d1220; --glow1: #1c2a5a; --glow2: #162049;
   --card: rgba(255, 255, 255, .06); --edge: rgba(255, 255, 255, .1); --bord: rgba(255, 255, 255, .08); --field: rgba(0, 0, 0, .22);
-  --tx: #e8edf5; --sub: #93a0b5; --bad: #f87171; --hi: rgba(255, 255, 255, .08); --accw: rgba(143, 163, 255, .14);
+  --tx: #e8edf5; --sub: #98a5ba; --bad: #f87171; --hi: rgba(255, 255, 255, .08); --accw: rgba(143, 163, 255, .14);
   --sh: 0 24px 60px -30px rgba(0, 0, 0, .8);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -44,7 +44,7 @@ body {
 .box > :nth-child(5) { animation-delay: .24s } .box > :nth-child(6) { animation-delay: .28s } .box > :nth-child(7) { animation-delay: .34s }
 h1 { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
 h1 b { color: var(--acc); }
-.chip { width: 38px; height: 38px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--acc), var(--acc-deep)); box-shadow: 0 8px 18px -8px var(--acc); }
+.chip { width: 38px; height: 38px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--fill), var(--fill-deep)); box-shadow: 0 8px 18px -8px var(--acc); }
 .chip svg { width: 19px; height: 19px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 p.s { color: var(--sub); font-size: 12.5px; margin: 8px 2px 16px; }
 label { display: block; font-size: 12px; color: var(--sub); margin: 14px 2px 7px; }
@@ -52,7 +52,7 @@ input { width: 100%; padding: 12px 13px; border: 1px solid var(--bord); border-r
 input:focus { outline: none; border-color: color-mix(in srgb, var(--acc) 55%, transparent); box-shadow: 0 0 0 4px var(--accw); }
 button {
   width: 100%; margin-top: 22px; padding: 13px; border: 0; border-radius: 14px;
-  background: linear-gradient(135deg, var(--acc), var(--acc-deep)); color: #fff; font-weight: 800; font-size: 14px; font-family: inherit; cursor: pointer;
+  background: linear-gradient(135deg, var(--fill), var(--fill-deep)); color: #fff; font-weight: 800; font-size: 14px; font-family: inherit; cursor: pointer;
   box-shadow: 0 12px 24px -12px var(--acc);
   transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s, opacity .2s;
 }

@@ -194,7 +194,7 @@
   width: min(560px, 100%);
   background: var(--modal);
   border: 1px solid var(--edge);
-  border-radius: 20px;
+  border-radius: 22px;
   padding: 14px;
   box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);
 }
@@ -324,13 +324,13 @@
   inset: 0;
   z-index: -1;
   background: var(--veil);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(16px) saturate(var(--sat));
+  -webkit-backdrop-filter: blur(16px) saturate(var(--sat));
   animation: veilin .32s ease both;
 }
 
 .bsheet {
-  animation: modrise .32s cubic-bezier(.22, 1, .36, 1);
+  animation: modrise .38s cubic-bezier(.22, 1, .36, 1);
 }
 
 .bsheet .btile {
@@ -347,7 +347,7 @@
 }
 
 .bsheetov.leaving .bsheet {
-  animation: modfall .2s cubic-bezier(.4, 0, 1, 1) forwards;
+  animation: modfall .24s cubic-bezier(.4, 0, 1, 1) forwards;
 }
 
 .bsheetov.leaving .btile {

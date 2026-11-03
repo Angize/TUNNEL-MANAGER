@@ -7,15 +7,13 @@ import AlertList from './AlertList.jsx'
 import NodeGroups from './NodeGroups.jsx'
 import Gauge from './Gauge.jsx'
 import TunnelBreakdown from './TunnelBreakdown.jsx'
-import TrafficChart from './TrafficChart.jsx'
+import TrafficChart, { pushLive } from './TrafficChart.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { scoreColor, uptimeColor } from '../../lib/health.js'
 import { fmtBytes, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
-
-const LIVE_POINTS = 26
 
 function Section({ icon, titleKey, children }) {
   return (
@@ -55,10 +53,7 @@ export default function OverviewPage({ onNavigate }) {
 
   const load = useCallback(async (onProgress) => {
     const summary = await apiGet('summary', onProgress)
-    live.current = [
-      ...live.current,
-      { t: Date.now(), rx: num(summary.fleet_rx_bps), tx: num(summary.fleet_tx_bps) },
-    ].slice(-LIVE_POINTS)
+    live.current = pushLive(live.current, num(summary.fleet_rx_bps), num(summary.fleet_tx_bps))
     return summary
   }, [])
 

@@ -188,7 +188,7 @@ function PortfwCard({ item, onEdit, onChanged }) {
         <WarnCap text={TF('pf_lip_gone_note', { ip: item.listen_ip })} style={LIP_NOTE_STYLE} />
       ) : null}
       <div className="tninfo">
-        <Box name={item.node} state={node} text={listenIp || T('pf_lip_all')} copy={!!listenIp} />
+        <Box name={item.node} state={node} text={listenIp || TF('pf_lip_iface', { iface: item.iface })} copy={!!listenIp} />
         <span className="tnarrow">
           <Icon name="arrows" />
         </span>

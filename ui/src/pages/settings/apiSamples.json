@@ -168,6 +168,7 @@
        ]
       },
       "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+      "pin": "44dfd23b586985f58a69ef6be7ffed7abfee13613b8f27520b34e576b173a7d9",
       "tunnels": 2,
       "portfw": 0,
       "core_ver": "v2.136.0",
@@ -247,6 +248,7 @@
        ]
       },
       "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+      "pin": "44244dcfb45e0227b937b999c06a7134e0054abf7f5c8379a4b447478bc5d09f",
       "tunnels": 2,
       "portfw": 0,
       "core_ver": "v2.136.0",
@@ -376,7 +378,8 @@
     ],
     "sock_buf_mb": 16,
     "tcp_buf_mb": 16
-   }
+   },
+   "cdn_edges": []
   }
  },
  "readiness": {
@@ -456,7 +459,7 @@
      "tunnel",
      "… 1 more"
     ],
-    "… 28 more"
+    "… 35 more"
    ],
    "ev_groups": [
     [
@@ -467,7 +470,7 @@
      "node",
      "node"
     ],
-    "… 5 more"
+    "… 7 more"
    ],
    "settings_defaults": {
     "reconcile_mode": "alert",
@@ -483,6 +486,67 @@
     "api_external": false
    },
    "split_ttl_max": 8,
+   "limits": {
+    "fake_ttl": [
+     1,
+     8
+    ],
+    "fake_count": [
+     1,
+     64
+    ],
+    "split_pos": [
+     0,
+     1400
+    ],
+    "split_ttl": [
+     0,
+     8
+    ],
+    "port": [
+     1,
+     65535
+    ],
+    "port_tries": [
+     1,
+     60
+    ],
+    "band_min_lo": 1024,
+    "band_min_span": 100,
+    "install_parallel": 4
+   },
+   "settings_ranges": {
+    "reconcile_interval": [
+     5,
+     3600
+    ],
+    "poll_interval": [
+     0.3,
+     60
+    ],
+    "ui_interval": [
+     0.3,
+     60
+    ],
+    "ech_refresh_mins": [
+     1,
+     1440
+    ]
+   },
+   "uptime_windows": [
+    1,
+    3,
+    "… 4 more"
+   ],
+   "uptime_levels": [
+    99,
+    50
+   ],
+   "bw_ranges": [
+    "1h",
+    "4h",
+    "… 6 more"
+   ],
    "workers_max": 8,
    "usage_crit_pct": 85,
    "api": [
@@ -496,7 +560,7 @@
      "GET",
      "… 1 more"
     ],
-    "… 70 more"
+    "… 92 more"
    ],
    "enums": {
     "ciphers": [
@@ -598,6 +662,7 @@
      "nodes": [],
      "tunnels": [],
      "panel": false,
+     "cdn": [],
      "online": false,
      "pending": true,
      "status": {}
@@ -918,6 +983,7 @@
       "10.77.3.2"
      ],
      "switch_interval": 300,
+     "enabled": true,
      "health": {
       "active": "10.77.4.2",
       "rule": true,
@@ -1132,7 +1198,8 @@
      "at": 1,
      "step": "SSH connection",
      "detail": "",
-     "log": ""
+     "log": "",
+     "job": "5b0e2c1d9a37"
     },
     "… 2 more"
    ]
@@ -1309,6 +1376,7 @@
      ]
     },
     "sha256": "d781be7fc3b66d6f01fb8948153bec050daaf200cc548ce75be997f4f7288910",
+    "pin": "44dfd23b586985f58a69ef6be7ffed7abfee13613b8f27520b34e576b173a7d9",
     "tunnels": 0,
     "portfw": 0,
     "core_ver": "v2.136.0",
@@ -1542,6 +1610,7 @@
    "code": 200,
    "id": "b486ffa35c33",
    "name": "core1",
+   "edge": false,
    "a": {
     "node_id": "9eec8c5207",
     "node": "N1",
@@ -1650,7 +1719,6 @@
    "obfs": false,
    "cover": false,
    "gso": false,
-   "subnet_base": "10",
    "port": "20002",
    "id": "b486ffa35c33"
   },
@@ -1715,6 +1783,7 @@
    "health": [
     {
      "key": "10.77.4.2:443",
+     "label": "",
      "kind": "ip",
      "state": "suspect",
      "fails": 0,
@@ -1723,6 +1792,7 @@
     },
     {
      "key": "10.77.4.3:443",
+     "label": "",
      "kind": "ip",
      "state": "suspect",
      "fails": 0,
@@ -1840,7 +1910,7 @@
   "req": {
    "id": "d4b2673f2be9",
    "kind": "dst",
-   "key": "10.77.4.3"
+   "key": "10.77.3.3:20020"
   },
   "q": null,
   "ok": {
@@ -1851,7 +1921,7 @@
  "peer-select": {
   "req": {
    "id": "d4b2673f2be9",
-   "key": "10.77.4.3",
+   "key": "10.77.3.3:20020",
    "side": "dst"
   },
   "q": null,
@@ -1945,6 +2015,7 @@
     "nodes": [],
     "tunnels": [],
     "panel": false,
+    "cdn": [],
     "online": false,
     "pending": true,
     "status": {}
@@ -1975,6 +2046,7 @@
     "nodes": [],
     "tunnels": [],
     "panel": false,
+    "cdn": [],
     "online": false,
     "pending": true,
     "status": {}
@@ -2149,7 +2221,8 @@
    "ok": true,
    "sha256": "c30a802e90ab",
    "size": 9834680,
-   "name": "tnl-core"
+   "name": "tnl-core",
+   "arch": "amd64"
   }
  },
  "core-delete-blob": {
@@ -2259,7 +2332,8 @@
      ],
      "sock_buf_mb": 16,
      "tcp_buf_mb": 16
-    }
+    },
+    "cdn_edges": []
    }
   }
  },
@@ -2313,7 +2387,7 @@
    "portfw": 0,
    "settings": {
     "changed": [],
-    "total": 18
+    "total": 20
    }
   }
  },
@@ -2362,6 +2436,13 @@
     403,
     "token_denied",
     "this endpoint is not available with an API token"
+   ]
+  ],
+  "403c": [
+   [
+    403,
+    "token_cdn",
+    "setting up a CDN is not available with an API token; use the panel"
    ]
   ],
   "405": [

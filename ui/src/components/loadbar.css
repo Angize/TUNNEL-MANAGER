@@ -19,7 +19,7 @@
   height: 3px;
   overflow: hidden;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--acc) 14%, transparent);
+  background: var(--accw);
 }
 
 .ldbar.wait {

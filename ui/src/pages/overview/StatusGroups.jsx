@@ -16,17 +16,17 @@ function Chevron() {
 function Group({ group, open, onToggle }) {
   const bodyId = useId()
   return (
-    <div className={'sg ' + group.tone + (open ? ' open' : '')}>
+    <div className={'og ' + group.tone + (open ? ' open' : '')}>
       <button type="button" className="sgh" aria-expanded={open} aria-controls={bodyId} onClick={onToggle}>
         <i className="dot" />
         <b>{group.title}</b>
-        {group.hint ? <small className="sgt">{group.hint}</small> : null}
+        {group.hint ? <small className="ogt">{group.hint}</small> : null}
         <em>{group.items.length}</em>
         <Chevron />
       </button>
       {!open && group.preview ? <div className="sgp">{group.preview}</div> : null}
       <Reveal show={open}>
-        <div className="sgb" id={bodyId}>
+        <div className="ogb" id={bodyId}>
           {group.items.map(group.row)}
         </div>
       </Reveal>

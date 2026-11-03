@@ -10,12 +10,12 @@ import { T } from '../../../i18n/fa.js'
 function Tries({ form, cfg, patch }) {
   return (
     <Field
-      label={rangeLabel(T('porttries_lbl'), 1, cfg.limits.port_tries[1])}
+      label={rangeLabel(T('porttries_lbl'), ...cfg.limits.port_tries)}
       first
       style={{ marginTop: 12 }}
     >
       <Stepper
-        min={1}
+        min={cfg.limits.port_tries[0]}
         max={cfg.limits.port_tries[1]}
         placeholder="2"
         value={form.portTries}

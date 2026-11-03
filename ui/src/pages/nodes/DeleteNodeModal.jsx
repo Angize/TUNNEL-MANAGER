@@ -19,7 +19,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
   const send = async (force, skip) => {
     setBusy(true)
     setMessage(force ? T('del_force_wiping') : T('del_wiping'))
-    const body = { id: node.id, wipe_force: !!force, ...(skip ? { cdn_skip: true } : {}) }
+    const body = { id: node.id, force: !!force, ...(skip ? { cdn_skip: true } : {}) }
     const r = await apiPost('node-del', body)
     const shown = (r.ok && r.d && r.d.cdn) || []
     setSteps(shown.length ? shown : null)
@@ -39,7 +39,7 @@ export default function DeleteNodeModal({ node, onClose, onDeleted }) {
     setBusy(false)
     setMessage('')
     if (r.ok && r.d.offer === 'cdn_skip') {
-      if (await confirmBox(TF('nd_cdn_failed_ask', { e: postError(r) }), T('cdn_del_skip_yes'))) await send(force, true)
+      if (await confirmBox(TF('nd_cdn_failed_ask', { e: postError(r) }), T('nd_cdn_skip_yes'))) await send(force, true)
       return
     }
     alertBox(postError(r))
