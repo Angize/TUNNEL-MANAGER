@@ -738,11 +738,6 @@
   "bad": [
    [
     400,
-    "bad_arch",
-    "invalid architecture — only amd64 or arm64"
-   ],
-   [
-    400,
     "bad_core_version",
     "invalid core version — up to 40 characters, only letters, digits and ._- and no '..'"
    ],
@@ -1241,11 +1236,6 @@
     400,
     "edge_no_ip",
     "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
-   ],
-   [
-    400,
-    "edge_no_nft",
-    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
@@ -2127,11 +2117,6 @@
     400,
     "edge_no_ip",
     "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
-   ],
-   [
-    400,
-    "edge_no_nft",
-    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
@@ -3741,11 +3726,6 @@
     400,
     "edge_no_ip",
     "the public IP of edge node '…' is not known — the node does not answer; try again when it is back"
-   ],
-   [
-    400,
-    "edge_no_nft",
-    "node '…' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node"
    ],
    [
     400,
