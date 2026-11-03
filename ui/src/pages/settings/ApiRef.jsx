@@ -10,7 +10,6 @@ import ERRS from './apiErrors.json'
 import './apiref.css'
 
 const G = SAMPLES._generic
-const PLACED = new Set(GROUPS.flatMap(([, , cmds]) => cmds))
 
 function quote(s) {
   return "'" + s.replace(/'/g, "'\\''") + "'"
@@ -31,7 +30,7 @@ function curlOf(base, cmd, method, sample) {
 
 function answers(cmd, method, token, act) {
   const s = SAMPLES[cmd] || {}
-  const e = ERRS[cmd] || {}
+  const e = ERRS[cmd]
   const cdn = ((DOCS[cmd] || {}).p || []).some(([k]) => k === 'cdn' || k === 'edges')
   const out = []
   const add = (key, code, note, bodies, rows) => {
@@ -118,7 +117,7 @@ function Rows({ rows }) {
 }
 
 function Body({ cmd, method, token, base }) {
-  const doc = DOCS[cmd] || {}
+  const doc = DOCS[cmd]
   const sample = SAMPLES[cmd] || {}
   const list = answers(cmd, method, token, doc.act)
   const [pick, setPick] = useState(list[0].key)
@@ -210,7 +209,7 @@ function Body({ cmd, method, token, base }) {
 }
 
 function Row({ cmd, method, token, open, onToggle, base }) {
-  const doc = DOCS[cmd] || {}
+  const doc = DOCS[cmd]
   const [kb, setKb] = useState(false)
   const toggle = (e) => {
     setKb(e.type !== 'click' || !e.detail)
@@ -234,7 +233,7 @@ function Row({ cmd, method, token, open, onToggle, base }) {
 
 function matches(cmd, q) {
   if (!q) return true
-  const doc = DOCS[cmd] || {}
+  const doc = DOCS[cmd]
   return ['/api/' + cmd, doc.t || '', doc.d || ''].some((v) => v.toLowerCase().includes(q))
 }
 
@@ -246,10 +245,9 @@ export default function ApiRef() {
   const [guideKb, setGuideKb] = useState(false)
   const base = window.location.origin + '/api/'
   const meta = new Map(api.map(([cmd, method, token]) => [cmd, { method, token }]))
-  const rest = api.map(([cmd]) => cmd).filter((cmd) => !PLACED.has(cmd))
   const q = query.trim().toLowerCase().replace(/^[a-z]+:\/\/[^/]+/, '').split('?')[0]
-  const groups = [...GROUPS, ['other', TEXT.other, rest]]
-    .map(([id, title, cmds]) => [id, title, cmds.filter((c) => meta.has(c) && matches(c, q))])
+  const groups = GROUPS
+    .map(([id, title, cmds]) => [id, title, cmds.filter((c) => matches(c, q))])
     .filter(([, , cmds]) => cmds.length)
 
   const toggle = (cmd) =>

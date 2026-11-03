@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import ActionRow from '../../components/ActionRow.jsx'
 import CardBody from '../../components/CardBody.jsx'
@@ -6,11 +6,12 @@ import TagPicker from '../../components/TagPicker.jsx'
 import TunnelMeta from './TunnelMeta.jsx'
 import { copyText } from '../../components/CopyValue.jsx'
 import { linkSideState } from './sideHealth.js'
-import SideDot from './SideDot.jsx'
+import SideDot, { SideStatus } from './SideDot.jsx'
 import DriftNote from './DriftNote.jsx'
-import RebuildPicker, { loadRebuild } from '../../components/RebuildPicker.jsx'
+import RebuildPicker from '../../components/RebuildPicker.jsx'
 import CardResult from '../../components/CardResult.jsx'
 import Grip from '../../components/Grip.jsx'
+import Chevron from '../../components/Chevron.jsx'
 import { SelBox } from '../../components/Bulk.jsx'
 import ActBtn from '../../components/ActBtn.jsx'
 import useDragging from '../../lib/useDragging.js'
@@ -26,29 +27,6 @@ import { isCardOpen, subscribeOpenCards, toggleCard } from '../../lib/openCards.
 import useLongPress from '../../lib/useLongPress.js'
 import useCardActions from '../../lib/useCardActions.js'
 import { checkable, pressable } from '../../lib/keys.js'
-
-const VIEW_MSG_MS = 4000
-
-function Chevron() {
-  return (
-    <svg
-      className="chev"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
-}
-
-function SideStatus({ link, side }) {
-  const state = linkSideState(link, side)
-  return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
-}
 
 function SideBox({ link, side }) {
   const state = linkSideState(link, side)
@@ -73,10 +51,8 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
   const [open, setOpen] = useState(() => isCardOpen(link.id))
   const [message, setMessage] = useState(null)
   const [picking, setPicking] = useState(false)
-  const messageTimer = useRef(0)
 
   useEffect(() => subscribeOpenCards(() => setOpen(isCardOpen(link.id))), [link.id])
-  useEffect(() => () => clearTimeout(messageTimer.current), [])
 
   const hold = useLongPress(() => setPicking(true))
   const dragging = useDragging(link.id)
@@ -85,62 +61,15 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
   const [busyAct, withBusy] = useActionBusy()
   const [toggleBusy, withToggle] = useActionBusy()
 
-  const { check, toggle, resetTraffic, rebuild } = useCardActions({
+  const { check, speed, flip, toggle, resetTraffic, rebuild } = useCardActions({
     link,
     onReload,
     setMessage,
     withBusy,
     withToggle,
-    pickRebuild: async () => {
-      const got = await loadRebuild(link.id)
-      if (got) setPickingRebuild(got)
-      else if (got === false) onReload()
-    },
+    setPickingRebuild,
     register,
   })
-
-  const speed = async () => {
-    const r = await withBusy('speed', () => {
-      setMessage({ cls: '', text: T('speed_run') })
-      return apiPost('link-speed', { id: link.id })
-    })
-    if (!r) return
-    if (!(r.ok && r.d.ok)) {
-      setMessage({ cls: 'err', text: postError(r) })
-      return
-    }
-    const d = r.d
-    const up = num(d.up_mbit)
-    const down = num(d.down_mbit)
-    setMessage({
-      cls: up > 0 && down > 0 ? 'ok' : 'err',
-      speed: {
-        how: T('speed_how')
-          .replace('{s}', String(num(d.secs)))
-          .replace('{u}', String(num(d.up_streams)))
-          .replace('{d}', String(num(d.down_streams))),
-        down: fmtRate(down * 1e6),
-        up: fmtRate(up * 1e6),
-      },
-    })
-  }
-
-  const flip = async () => {
-    const r = await withBusy('flip', () => apiPost('link-view', { id: link.id }))
-    if (!r) return
-    if (!(r.ok && r.d.ok)) {
-      toast(postError(r), 'err')
-      return
-    }
-    const name = r.d.view_side === 'b' ? link.b_name : link.a_name
-    setMessage({ cls: 'ok', swap: true, text: T('view_switched') + name + T('view_switched2') })
-    clearTimeout(messageTimer.current)
-    messageTimer.current = setTimeout(
-      () => setMessage((cur) => (cur && cur.swap ? null : cur)),
-      VIEW_MSG_MS
-    )
-    onReload()
-  }
 
   const remove = async () => {
     const force =
@@ -175,7 +104,6 @@ function TunnelCard({ link, act, onEdit, onReload, onTag, register, sel }) {
           (sel && sel.picked ? ' sel' : '') +
           tagClass(link)
         }
-        id={'c_' + link.id}
         data-rid={link.id}
         data-rk="tunnels"
         style={tagStyle(link.tag)}

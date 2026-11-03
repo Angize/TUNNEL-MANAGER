@@ -83,7 +83,6 @@ function EdgePick({ form, at, live, label, patch }) {
         />
       </Field>
       {picked && picked.ips.length > 1 ? <EdgeIps form={form} at={at} picked={picked} patch={patch} /> : null}
-      <WarnCap text={picked && form.Tr !== 'ws' && !picked.nft ? TF('pedge_no_nft', { n: picked.name }) : ''} style={{ marginTop: 8 }} />
     </div>
   )
 }

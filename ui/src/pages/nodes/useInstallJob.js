@@ -39,7 +39,7 @@ export default function useInstallJob({ onFinished }) {
   useEffect(() => stop, [stop])
 
   const poll = useCallback((c) => {
-    apiGet('install-status?job=' + encodeURIComponent(c.job) + '&_=' + Date.now())
+    apiGet('install-status?job=' + encodeURIComponent(c.job))
       .then((d) => {
         c.polling = false
         c.failures = 0
@@ -128,7 +128,7 @@ export default function useInstallJob({ onFinished }) {
     (jobId) => {
       job.current = {
         job: jobId,
-        steps: installSteps().map((s) => ({ label: s.label, detail: s.detail })),
+        steps: installSteps(),
         confirmed: ['run', 'wait', 'wait', 'wait'],
         banner: T('inst_installing'),
         done: false,
@@ -153,5 +153,5 @@ export default function useInstallJob({ onFinished }) {
     setState(null)
   }, [stop])
 
-  return { state, start, stop, reset }
+  return { state, start, reset }
 }

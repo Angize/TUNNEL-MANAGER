@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 import { BULK_ACTIONS, bulkNames } from '../lib/useBulk.js'
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 import { leaveGhost } from '../lib/leaveGhost.js'
 import './bulk.css'
 
@@ -110,7 +110,7 @@ function Sheet({ bulk, links, core }) {
       }}
     >
       <div className="bsheet">
-        <div className="bst">{T('bulk_title').replace('{k}', String(chosen.length))}</div>
+        <div className="bst">{TF('bulk_title', { k: chosen.length })}</div>
         <div className="bss">{bulkNames(chosen)}</div>
         <div className="btiles">
           {actions.map((a, i) => (

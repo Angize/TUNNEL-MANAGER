@@ -23,10 +23,6 @@ import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import './tunnels.css'
 
-function ctagClass(family) {
-  return family
-}
-
 export default function TunnelsPage({ active }) {
   const { actFor, pendingFor, buildCount, refresh: actsRefresh } = useActs()
   const [query, setQuery] = usePageQuery('tunnels')
@@ -133,7 +129,7 @@ export default function TunnelsPage({ active }) {
               />
             ))}
             {builds.cards.map((act) => (
-              <PendingCard key={'pend_' + act.key} act={act} tagClass={ctagClass} />
+              <PendingCard key={'pend_' + act.key} act={act} />
             ))}
             {bulk.selecting ? <div className="bulkpad" /> : null}
           </>

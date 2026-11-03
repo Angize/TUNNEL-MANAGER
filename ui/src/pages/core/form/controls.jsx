@@ -57,30 +57,20 @@ function useSlidingFrame(pick, children) {
   return [box, frame]
 }
 
-export function Seg2({ label, style, children }) {
+export function Seg2({ wrap, label, style, children }) {
   const [box, frame] = useSlidingFrame(':scope > .segopt.on', children)
   return (
-    <div className="seg2" role="radiogroup" aria-label={label} style={style} ref={box}>
+    <div className={'seg2' + (wrap ? ' segwrap' : '')} role="radiogroup" aria-label={label} style={style} ref={box}>
       <i className="pframe" ref={frame} aria-hidden="true" />
       {children}
     </div>
   )
 }
 
-export function ScrollSeg({ label, children }) {
-  const [box, frame] = useSlidingFrame(':scope > .segopt.on', children)
-  return (
-    <div className="seg2 segwrap" role="radiogroup" aria-label={label} ref={box}>
-      <i className="pframe" ref={frame} aria-hidden="true" />
-      {children}
-    </div>
-  )
-}
-
-export function Tiles({ p3, label, children }) {
+export function Tiles({ label, children }) {
   const [grid, frame] = useSlidingFrame(':scope > .ptile.on', children)
   return (
-    <div className={'pgrid' + (p3 ? ' p3' : '')} role="radiogroup" aria-label={label} ref={grid}>
+    <div className="pgrid p3" role="radiogroup" aria-label={label} ref={grid}>
       <i className="pframe" ref={frame} aria-hidden="true" />
       {children}
     </div>

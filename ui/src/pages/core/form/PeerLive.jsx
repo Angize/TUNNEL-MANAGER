@@ -61,7 +61,6 @@ function PeerRow({ side, ip, section, status, pending, live }) {
 
 function PeerBox({ side, label, status, pending, live, open, onToggle }) {
   const section = status[side]
-  if (!section || section.addrs.length < 2) return null
 
   let suspect = 0
   let dead = 0
@@ -101,7 +100,7 @@ function PeerBox({ side, label, status, pending, live, open, onToggle }) {
 export default function PeerLive({ live, dstLabel }) {
   const [open, setOpen] = useState({ dst: true, src: true })
   const { status, pending } = live
-  useSecondTick(true)
+  useSecondTick()
   const shown = ['dst', 'src'].filter((side) => status[side] && status[side].addrs.length >= 2)
 
   return (

@@ -1,6 +1,6 @@
 import Icon from '../../../components/Icon.jsx'
 import RichText from '../../../components/RichText.jsx'
-import { ScrollSeg, SegOpt } from './controls.jsx'
+import { Seg2, SegOpt } from './controls.jsx'
 import { intOf } from './validate.js'
 import { cfWantsRule } from '../../../lib/cdn.js'
 import { faNum } from '../../../lib/num.js'
@@ -161,7 +161,7 @@ export default function CdnPortRules({ infos, port, tls, bad, onPick }) {
       {list.length ? (
         <>
           <div className="cprpick">{T('cpr_pick')}</div>
-          <ScrollSeg label={T('cpr_pick')}>
+          <Seg2 wrap label={T('cpr_pick')}>
             {list.map(([p, hits]) => {
               const off = chipOff(infos, p)
               return (
@@ -175,7 +175,7 @@ export default function CdnPortRules({ infos, port, tls, bad, onPick }) {
                 />
               )
             })}
-          </ScrollSeg>
+          </Seg2>
         </>
       ) : null}
     </div>

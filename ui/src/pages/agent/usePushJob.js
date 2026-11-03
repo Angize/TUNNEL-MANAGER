@@ -9,7 +9,6 @@ import { T } from '../../i18n/fa.js'
 const POLL_MS = 400
 const SETTLE_MS = 4500
 const RECOVER_MS = 5000
-const JOB_ALL = '*'
 
 export default function usePushJob({ onSettled }) {
   const [state, setState] = useState(null)
@@ -44,7 +43,7 @@ export default function usePushJob({ onSettled }) {
       for (;;) {
         let r = null
         try {
-          r = await apiGet('push-status?job=' + encodeURIComponent(JOB_ALL) + '&_=' + Date.now())
+          r = await apiGet('push-status')
         } catch {
           r = null
         }
@@ -94,7 +93,7 @@ export default function usePushJob({ onSettled }) {
       return
     }
     if (r.done) return
-    job.current = JOB_ALL
+    job.current = true
     window.clearTimeout(settle.current)
     setState(r)
     poll()
@@ -113,18 +112,13 @@ export default function usePushJob({ onSettled }) {
         toast(postError(res), 'err')
         return
       }
-      if (res.d.none) {
-        setSeeded({})
-        toast(T('ag_p_none'), 'ok')
-        return
-      }
       if (!res.d.job) {
         setSeeded({})
         toast(postError(res), 'err')
         return
       }
       if (job.current) return
-      job.current = JOB_ALL
+      job.current = true
       await poll()
     },
     [poll]
@@ -133,13 +127,13 @@ export default function usePushJob({ onSettled }) {
   const cancel = useCallback(async () => {
     if (!job.current) return
     if (!(await askBox(T('ag_p_cancel_q'), T('ag_p_cancel')))) return
-    const r = await apiPost('push-cancel', { job: job.current })
+    const r = await apiPost('push-cancel', {})
     if (!(r.ok && r.d.ok)) toast(postError(r), 'err')
   }, [])
 
   const pause = useCallback(async (paused) => {
     if (!job.current) return
-    const r = await apiPost('push-pause', { job: job.current, paused: !!paused })
+    const r = await apiPost('push-pause', { paused: !!paused })
     if (!(r.ok && r.d.ok)) {
       toast(postError(r), 'err')
       return

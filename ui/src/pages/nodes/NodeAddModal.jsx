@@ -9,6 +9,7 @@ import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import SwapCascade from '../../components/SwapCascade.jsx'
 import { reducedMotion } from '../../lib/motion.js'
+import useProxies from '../../lib/useProxies.js'
 import InstallProgress from './InstallProgress.jsx'
 import useInstallJob from './useInstallJob.js'
 import { BulkFooter, BulkForm, BulkRun, useBulkList } from './NodeBulk.jsx'
@@ -20,16 +21,17 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../lib/form.js'
 import useSaved from '../../lib/useSaved.js'
 import SaveLabel from '../../components/SaveLabel.jsx'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 const EMPTY_PROXY = { on: false, id: '' }
 
 export default function NodeAddModal({ onClose, onAdded, bulk }) {
+  const { limits } = useUiConfig()
   const [mode, setMode] = useState(bulk.batch ? 'bulk' : 'auto')
   const [authMode, setAuthMode] = useState('pass')
-  const [proxies, setProxies] = useState([])
   const [busy, setBusy] = useState(false)
   const [saved, markSaved] = useSaved()
   const [installed, setInstalled] = useState(false)
@@ -55,7 +57,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   useEffect(() => {
     if (mode !== 'manual') return undefined
     let alive = true
-    const port = String(manual.port || '').trim() || '8099'
+    const port = String(manual.port || '').trim()
     const t = setTimeout(() => {
       apiGet('node-install-cmd?port=' + encodeURIComponent(port))
         .then((r) => {
@@ -80,7 +82,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
       setBusy(false)
       if (!success) return
       setInstalled(true)
-      toast(banner || T('inst_node_installed'), 'ok')
+      toast(banner, 'ok')
       onAdded()
     },
     [onAdded]
@@ -97,17 +99,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
     }
   }, [stage])
 
-  useEffect(() => {
-    let alive = true
-    apiGet('proxies')
-      .then((r) => {
-        if (alive) setProxies(r.proxies)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
+  const proxies = useProxies()
 
   const switchMode = (next) => {
     setMode(next)
@@ -297,7 +289,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
               </Field>
             </div>
             <div className="grid2">
-              <Field label={rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}>
+              <Field label={rangeLabel(T('nadd_ssh_port'), ...limits.port)}>
                 <NumberInput
                   placeholder="22"
                   value={auto.sshPort}
@@ -314,7 +306,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
               </Field>
             </div>
             <div className="grid2">
-              <Field label={rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}>
+              <Field label={rangeLabel(T('nadd_agent_port'), ...limits.port)}>
                 <NumberInput
                   placeholder="8099"
                   value={auto.agentPort}
@@ -396,7 +388,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
               </div>
             )}
             <div className="grid2">
-              <Field label={T('nadd_manual_name')} first>
+              <Field label={T('f_name')} first>
                 <input
                   {...LTR_TEXT}
                   placeholder="frankfurt-1"
@@ -404,7 +396,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
                   onChange={(e) => setManual({ ...manual, name: e.target.value })}
                 />
               </Field>
-              <Field label={T('nadd_manual_host')} first>
+              <Field label={T('f_host_ip')} first>
                 <input
                   {...LTR_TEXT}
                   placeholder="203.0.113.10"
@@ -414,7 +406,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
               </Field>
             </div>
             <div className="grid2">
-              <Field label={rangeLabel(T('nadd_agent_port2'), 1, PORT_MAX)}>
+              <Field label={rangeLabel(T('nadd_agent_port'), ...limits.port)}>
                 <NumberInput
                   placeholder="8099"
                   value={manual.port}

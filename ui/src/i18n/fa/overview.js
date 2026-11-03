@@ -46,7 +46,6 @@ export default {
   ram: 'رم',
   load: 'لود',
   cores_word: 'هسته',
-  unit_mb: 'MB',
   unit_gb: 'GB',
   live: 'زنده',
   bw_hours: 'ساعت',

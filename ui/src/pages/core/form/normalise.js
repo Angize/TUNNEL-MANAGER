@@ -1,5 +1,6 @@
-import { RAW_DPORT_DEFAULT, RAW_SPORT_FIXED } from '../carrier.js'
+import { RAW_DPORT_DEFAULT, RAW_PROTO_BARE, RAW_SPORT_FIXED } from '../carrier.js'
 import {
+  coverOk,
   desyncOk,
   fecDatagram,
   protoVisOn,
@@ -23,7 +24,7 @@ export default function normalise(form, cfg, aIps, bIps) {
 
   if (at('Tr') === 'raw' && at('cipher') === 'none') set('cipher', 'auto')
   if (at('cipher') === 'none') set('Obfs', false)
-  if (!(at('Tr') === 'tcp' && at('cipher') !== 'none')) set('Cover', false)
+  if (!coverOk({ ...form, ...patch })) set('Cover', false)
 
   const view = { ...form, ...patch }
   if (!fecDatagram(view)) set('Fec', false)
@@ -42,9 +43,9 @@ export default function normalise(form, cfg, aIps, bIps) {
     set('rawDports', '')
   }
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
-  if (wssMandatory(view, form.pool)) set('WsTls', true)
+  if (wssMandatory(view)) set('WsTls', true)
 
-  if (protoVisOn(view) && at('rawProto') === '') set('rawProto', '253')
+  if (protoVisOn(view) && at('rawProto') === '') set('rawProto', String(RAW_PROTO_BARE))
   if (rawPorted(view, enums)) {
     if (at('rawPort') === '') set('rawPort', String(RAW_DPORT_DEFAULT))
     if (at('SportRandom')) set('rawSport', '')

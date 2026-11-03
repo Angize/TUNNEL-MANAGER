@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import Sidebar from './shell/Sidebar.jsx'
 import TopBar from './shell/TopBar.jsx'
@@ -7,11 +7,11 @@ import ReadinessBar from './shell/ReadinessBar.jsx'
 import ConnBar from './shell/ConnBar.jsx'
 import CommandPalette from './shell/CommandPalette.jsx'
 import { apiGet } from './lib/api.js'
-import { getLS, setLS } from './lib/storage.js'
-import { applyStoredTheme, isDark, toggleTheme } from './lib/theme.js'
+import { LOGS_SEEN_KEY, getLS, setLS } from './lib/storage.js'
+import { isDark, toggleTheme } from './lib/theme.js'
 import { num } from './lib/num.js'
 import { reducedMotion } from './lib/motion.js'
-import { runPageRefresh, setUiInterval } from './lib/poll.js'
+import { getUiInterval, runPageRefresh, setUiInterval } from './lib/poll.js'
 import { stopReorder } from './lib/reorder.js'
 import { mayLeave } from './lib/leaveGuard.js'
 import ToastHost from './components/ToastHost.jsx'
@@ -29,10 +29,8 @@ import { HUB_IDS, hasPage, hubFirst, hubOf, pageComponent } from './pages/index.
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
 const BOOT_INTERVAL = 6000
-const MIN_INTERVAL = 300
 const READY_RECHECK = 60000
 const LOST_AFTER = 2
-const SEEN_KEY = 'tnl_logs_seen'
 const PAGE_KEY = 'tnl_page'
 const KIND_KEY = 'tnl_kind_'
 
@@ -59,7 +57,7 @@ function withKind(prev, kind) {
 function Shell() {
   const [page, setPage] = useState(firstPage)
   const [kinds, setKinds] = useState(firstKinds)
-  const [summary, setSummary] = useState({ counts: {}, evSeq: '0-0', logCount: 0, loaded: false })
+  const [summary, setSummary] = useState({ counts: {}, evSeq: '0-0', loaded: false })
   const [unread, setUnread] = useState(0)
   const [dark, setDark] = useState(false)
   const [palette, setPalette] = useState(false)
@@ -68,7 +66,6 @@ function Shell() {
   const retry = useRef(() => {})
   const [uiConfig, setUiConfig] = useState(null)
   const { refresh: actsRefresh } = useActs()
-  const interval = useRef(DEFAULT_INTERVAL)
   const pageRef = useRef(page)
   const readinessRef = useRef(null)
   const readinessSeq = useRef(0)
@@ -98,9 +95,7 @@ function Shell() {
   useEffect(() => stopReorder, [page, kinds])
 
   useEffect(() => {
-    applyStoredTheme()
     setDark(isDark())
-    document.title = T('app_title')
   }, [])
 
   useEffect(() => {
@@ -142,7 +137,7 @@ function Shell() {
     let lastOk = 0
 
     const fetchSummary = async () => {
-      const raw = getLS(SEEN_KEY)
+      const raw = getLS(LOGS_SEEN_KEY)
       let s
       try {
         s = await apiGet('summary' + (raw === '' ? '' : '?seen=' + encodeURIComponent(raw)))
@@ -156,7 +151,7 @@ function Shell() {
       lastOk = Date.now()
       setLost(null)
 
-      const seq = String(s.ev_seq || '0-0')
+      const seq = s.ev_seq
       setSummary({
         counts: {
           nodes_total: num(s.nodes_total),
@@ -167,17 +162,13 @@ function Shell() {
           log_count: num(s.log_count),
         },
         evSeq: seq,
-        logCount: num(s.log_count),
         subnetFree: s.subnet_free || null,
         loaded: true,
       })
-      if (s.ui_interval) {
-        interval.current = Math.max(MIN_INTERVAL, Math.round(num(s.ui_interval) * 1000))
-        setUiInterval(interval.current)
-      }
+      setUiInterval(Math.round(num(s.ui_interval) * 1000))
 
       if (raw === '' || pageRef.current === 'logs') {
-        setLS(SEEN_KEY, String(seq))
+        setLS(LOGS_SEEN_KEY, String(seq))
         setUnread(0)
         return
       }
@@ -187,7 +178,7 @@ function Shell() {
     const tick = async () => {
       if (ticking) return
       if (document.hidden) {
-        timer = setTimeout(tick, Math.max(interval.current, HIDDEN_INTERVAL))
+        timer = setTimeout(tick, Math.max(getUiInterval(), HIDDEN_INTERVAL))
         return
       }
       ticking = true
@@ -208,7 +199,7 @@ function Shell() {
         ticking = false
       }
       if (!alive) return
-      timer = setTimeout(tick, interval.current)
+      timer = setTimeout(tick, getUiInterval())
     }
 
     const onVisible = () => {
@@ -257,17 +248,6 @@ function Shell() {
     document.startViewTransition(() => flushSync(swap))
   }, [])
 
-  const summaryValue = useMemo(
-    () => ({
-      counts: summary.counts,
-      evSeq: summary.evSeq,
-      logCount: summary.logCount,
-      subnetFree: summary.subnetFree,
-      loaded: summary.loaded,
-    }),
-    [summary]
-  )
-
   useEffect(() => {
     const onKey = (e) => {
       if (!((e.ctrlKey || e.metaKey) && (e.code === 'KeyK' || e.key.toLowerCase() === 'k'))) return
@@ -310,7 +290,7 @@ function Shell() {
           <div id="view" className="pg" key={page}>
             {uiConfig ? (
               <UiConfigProvider value={uiConfig}>
-                <SummaryProvider value={summaryValue}>
+                <SummaryProvider value={summary}>
                   <ErrorBoundary>
                     <Page onNavigate={navigate} kind={kinds[page]} onKind={onKind} />
                   </ErrorBoundary>

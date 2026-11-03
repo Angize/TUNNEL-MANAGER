@@ -1,5 +1,6 @@
 .sc-panel,
-.sc-perf {
+.sc-perf,
+.sc-conn {
   --sc: var(--acc-tx);
   --scbg: var(--accw);
 }
@@ -19,7 +20,8 @@
   gap: 9px;
 }
 
-.opc .ophd .sgt {
+.opc .ophd .sgt,
+.sghd .sgt {
   width: 30px;
   height: 30px;
   border-radius: 9px;
@@ -31,12 +33,14 @@
   color: var(--sc);
 }
 
-.opc .ophd .sgt .ic {
+.opc .ophd .sgt .ic,
+.sghd .sgt .ic {
   width: 15px;
   height: 15px;
 }
 
-.opc .ophd b {
+.opc .ophd b,
+.sghd b {
   font-size: 13.5px;
   font-weight: 800;
 }
@@ -188,10 +192,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.uprow > .upx .ic {
-  transition: transform .2s;
 }
 
 .uprow > .upx[aria-expanded='true'] .ic {

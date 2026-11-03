@@ -7,22 +7,7 @@ import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
-
-function Tile({ icon, label, value }) {
-  return (
-    <div className="nd-tile">
-      <span className="medi">
-        <Icon name={icon} />
-      </span>
-      <span>{label}</span>
-      <b>
-        <span className="mono" style={{ direction: 'ltr' }}>
-          {value}
-        </span>
-      </b>
-    </div>
-  )
-}
+import NodeTile from './NodeTile.jsx'
 
 export default function MovedIpModal({ node, onClose, onAdopted }) {
   const [busy, setBusy] = useState(false)
@@ -59,8 +44,16 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
     <Modal icon="warn" title={T('mv_title')} subtitle={node.name} footer={footer} onClose={onClose}>
       <div className="kt-desc">{T('mv_desc')}</div>
       <div className="nd-grid">
-        <Tile icon="globe" label={T('mv_new')} value={node.moved_to} />
-        <Tile icon="server" label={T('mv_old')} value={node.host + ':' + node.port} />
+        <NodeTile icon="globe" label={T('mv_new')}>
+          <span className="mono" style={{ direction: 'ltr' }}>
+            {node.moved_to}
+          </span>
+        </NodeTile>
+        <NodeTile icon="server" label={T('mv_old')}>
+          <span className="mono" style={{ direction: 'ltr' }}>
+            {node.host + ':' + node.port}
+          </span>
+        </NodeTile>
       </div>
       <Msg text={message} />
     </Modal>

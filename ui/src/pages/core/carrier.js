@@ -4,12 +4,13 @@ export const RAW_DPORT_DEFAULT = 443
 export const RAW_SPORT_FIXED = 51820
 export const RAW_ROT_LO = 10000
 export const RAW_ROT_HI = 59999
+export const RAW_PROTO_BARE = 253
 export const CT_WARN_PCT = 80
 
 const TAG_FAMILIES = { udp: 1, tcp: 1, raw: 1, ws: 1, http: 1, grpc: 1 }
 
 export function carrierFamily(link) {
-  const transport = link.transport || 'udp'
+  const transport = link.transport
   if (transport !== 'ws') return transport
   if (link.cdn_carrier === 'grpc') return 'grpc'
   if (link.cdn_carrier === 'http') return 'http'
@@ -25,13 +26,13 @@ export function tagClassForFamily(family) {
 }
 
 function rawTag(profile, link, ptype) {
-  if (profile === 'bare') return 'BARE(' + (num(link.raw_proto) || 253) + ')'
+  if (profile === 'bare') return 'BARE(' + (num(link.raw_proto) || RAW_PROTO_BARE) + ')'
   if (profile === 'gre' && ptype) return 'GRE·' + ptype.toString(16).padStart(4, '0')
   return profile.toUpperCase()
 }
 
 function rawProfileTag(link) {
-  const up = link.raw_profile || 'bare'
+  const up = link.raw_profile
   const down = link.raw_profile_down || up
   const upTag = rawTag(up, link, link.raw_gre_ptype)
   const dnTag = rawTag(down, link, link.raw_gre_ptype_down)
@@ -39,7 +40,7 @@ function rawProfileTag(link) {
 }
 
 export function carrierProfile(link) {
-  return (link.transport || 'udp') === 'raw' ? rawProfileTag(link) : ''
+  return link.transport === 'raw' ? rawProfileTag(link) : ''
 }
 
 export function edgeCount(link) {

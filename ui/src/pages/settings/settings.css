@@ -6,10 +6,6 @@
   --sc-g: 12px;
 }
 
-.stpage > .card {
-  margin-bottom: var(--sc-g);
-}
-
 .sgsec + .sgsec {
   border-top: 1px solid var(--bord);
 }
@@ -62,28 +58,6 @@
   border-bottom: 1px solid var(--bord);
 }
 
-.sghd .sgt {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  background: var(--scbg);
-  color: var(--sc);
-}
-
-.sghd .sgt .ic {
-  width: 15px;
-  height: 15px;
-}
-
-.sghd b {
-  font-size: 13.5px;
-  font-weight: 800;
-}
-
 .sghd .schip {
   margin-inline-start: auto;
   font-size: 10.5px;
@@ -93,11 +67,6 @@
   background: var(--scbg);
   color: var(--sc);
   white-space: nowrap;
-}
-
-.sc-conn {
-  --sc: var(--acc-tx);
-  --scbg: var(--accw);
 }
 
 .sc-pool {
@@ -132,12 +101,6 @@
   color: var(--tx);
   font-size: 13px;
   font-weight: 700;
-}
-
-.srlbl u {
-  text-decoration: none;
-  color: var(--sub);
-  font-weight: 600;
 }
 
 .srq {
@@ -524,10 +487,6 @@
   white-space: nowrap;
 }
 
-.stpage > .loadfail {
-  margin-bottom: var(--sc-g);
-}
-
 @keyframes dockin {
   from { opacity: 0; transform: translateY(8px) }
   to { opacity: 1; transform: none }
@@ -556,12 +515,9 @@
 }
 
 .setfield {
-  width: 100%;
   display: flex;
   align-items: center;
-  padding: 11px 13px;
   border: 1px solid var(--edge);
-  border-radius: 12px;
   background: var(--card);
   box-shadow: var(--dsh);
   color: var(--tx);
@@ -636,10 +592,6 @@
 
 .setfield .val {
   color: var(--gold-tx);
-}
-
-.bkcard {
-  margin-bottom: var(--sc-g);
 }
 
 .bkhint {
@@ -761,7 +713,7 @@
   margin-top: 4px;
   direction: ltr;
   text-align: left;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   user-select: all;
 }
 
@@ -881,7 +833,7 @@
   margin-inline-start: auto;
 }
 .cdnedge .rtips {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
   color: var(--sub);
   direction: ltr;

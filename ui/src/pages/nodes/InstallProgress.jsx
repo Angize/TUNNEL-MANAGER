@@ -11,9 +11,8 @@ export function StepIcon({ state }) {
   return <span className="istep-i wait" />
 }
 
-function displayState(confirmed, running) {
-  if (confirmed === 'ok' || confirmed === 'warn' || confirmed === 'err') return confirmed
-  return running ? 'run' : 'err'
+function displayState(confirmed) {
+  return confirmed === 'ok' || confirmed === 'warn' ? confirmed : 'err'
 }
 
 export function Roll({ text }) {
@@ -64,13 +63,11 @@ export default function InstallProgress({ state, onForgetKey }) {
   const running = !state.finished
   const total = state.steps.length
   const at = Math.min(Math.max(state.revealIdx, 1), total)
-  const bannerText = running
-    ? (state.steps[at - 1] || {}).label || T('inst_installing')
-    : state.error || state.banner || T('inst_done')
+  const bannerText = running ? state.steps[at - 1].label : state.error || state.banner
   const shownSteps = running
     ? []
     : state.steps
-        .map((step, i) => ({ step, shown: displayState(state.confirmed[i] || '', false), i }))
+        .map((step, i) => ({ step, shown: displayState(state.confirmed[i] || ''), i }))
         .filter((x, i) => i < state.revealIdx && x.shown !== 'ok')
 
   return (

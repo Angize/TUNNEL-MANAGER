@@ -3,10 +3,24 @@ import { apiPost } from './api.js'
 import { postError, translateError } from './errors.js'
 import { askBox } from './dialog.js'
 import { toast } from './toast.js'
+import { fmtRate, num } from './num.js'
+import { loadRebuild } from '../components/RebuildPicker.jsx'
 import { needsPick, sideText } from '../pages/tunnels/sideHealth.js'
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 
-export default function useCardActions({ link, onReload, setMessage, withBusy, withToggle, pickRebuild, register }) {
+const VIEW_MSG_MS = 4000
+
+export default function useCardActions({ link, onReload, setMessage, withBusy, withToggle, setPickingRebuild, register }) {
+  const messageTimer = useRef(0)
+
+  useEffect(() => () => clearTimeout(messageTimer.current), [])
+
+  const pickRebuild = async () => {
+    const got = await loadRebuild(link.id)
+    if (got) setPickingRebuild(got)
+    else if (got === false) onReload()
+  }
+
   const setEnabled = (next, quiet) =>
     withToggle('toggle', async () => {
       const r = await apiPost('link-toggle', { id: link.id, enabled: next })
@@ -47,6 +61,46 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
     return allOk ? 'ok' : 'bad'
   }
 
+  const speed = async () => {
+    const r = await withBusy('speed', () => {
+      setMessage({ cls: '', text: T('speed_run') })
+      return apiPost('link-speed', { id: link.id })
+    })
+    if (!r) return
+    if (!(r.ok && r.d.ok)) {
+      setMessage({ cls: 'err', text: postError(r) })
+      return
+    }
+    const d = r.d
+    const up = num(d.up_mbit)
+    const down = num(d.down_mbit)
+    setMessage({
+      cls: up > 0 && down > 0 ? 'ok' : 'err',
+      speed: {
+        how: TF('speed_how', { s: num(d.secs), u: num(d.up_streams), d: num(d.down_streams) }),
+        down: fmtRate(down * 1e6),
+        up: fmtRate(up * 1e6),
+      },
+    })
+  }
+
+  const flip = async () => {
+    const r = await withBusy('flip', () => apiPost('link-view', { id: link.id }))
+    if (!r) return
+    if (!(r.ok && r.d.ok)) {
+      toast(postError(r), 'err')
+      return
+    }
+    const name = r.d.view_side === 'b' ? link.b_name : link.a_name
+    setMessage({ cls: 'ok', swap: true, text: T('view_switched') + name + T('view_switched2') })
+    clearTimeout(messageTimer.current)
+    messageTimer.current = setTimeout(
+      () => setMessage((cur) => (cur && cur.swap ? null : cur)),
+      VIEW_MSG_MS
+    )
+    onReload()
+  }
+
   const reset = async (quiet) => {
     const r = await withBusy('reset', () => apiPost('traffic-reset', { id: link.id }))
     if (!r) return undefined
@@ -84,6 +138,8 @@ export default function useCardActions({ link, onReload, setMessage, withBusy, w
 
   return {
     check,
+    speed,
+    flip,
     toggle: (e) => {
       e.stopPropagation()
       setEnabled(link.enabled === false, false)

@@ -51,7 +51,7 @@ export default function CdnLeftAsk({ hosts, onBack, onClosed }) {
       setError(postError(r))
       return
     }
-    const failed = r.d.failed || []
+    const failed = r.d.failed
     if (failed.length) {
       toast(TF('cdn_drop_some', { h: failed.map((f) => f.host).join('، ') }), 'err')
     }

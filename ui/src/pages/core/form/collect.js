@@ -11,10 +11,10 @@ import {
   rawPorted,
   sprotLive,
   wkCarrier,
-  wkClamp,
 } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
 import { ptypeErr, ptypeInt } from './ptype.js'
+import { RAW_PROTO_BARE } from '../carrier.js'
 import {
   bandErr,
   cdnShapeErr,
@@ -32,10 +32,6 @@ import {
 
 function poolCollect(form, owners, body) {
   const pool = form.pool
-  if (!pool.pool) {
-    body.ws_pool = false
-    return ''
-  }
   if (!pool.ip.length) return T('pool_need_ip')
   if (!pool.sni.length) return T('pool_need_clean')
   if (pool.ip.length < 2 && pool.sni.length < 2) return T('pool_need_axis')
@@ -66,7 +62,6 @@ function shapeCollect(form, enums, body) {
 }
 
 function selfEchCollect(form, enums, body) {
-  if (form.Cdn === 'grpc') return T('selfech_grpc_alert')
   const inner = form.wsHost.trim()
   const decoy = form.echPublic.trim()
   if (!inner) return T('selfech_need_inner')
@@ -106,7 +101,6 @@ export function rotCollect(form, aIps, bIps) {
   if (!form.rot.on) return null
   const a = rotPicked(aIps, form.rot.aSel)
   const b = rotPicked(bIps, form.rot.bSel)
-  if (a.length < 2 && b.length < 2) return null
   return { a_ip_pool: a, b_ip_pool: b, rotate_secs: form.rot.secs }
 }
 
@@ -126,7 +120,6 @@ export function collectCarrier(form, cfg, owners, body) {
   if (form.EdgeOn) body.edge_rotate = form.edgeRotate
 
   if (form.Tr === 'raw') {
-    if (form.cipher === 'none') return T('raw_need_enc')
     body.raw_profile = form.RawProfile
     body.raw_profile_down = form.RawProfileDown !== form.RawProfile ? form.RawProfileDown : ''
     const upGre = form.RawProfile === 'gre'
@@ -138,7 +131,7 @@ export function collectCarrier(form, cfg, owners, body) {
     if (protoVisOn(form)) {
       const protoError = rawProtoErr(form.rawProto, enums)
       if (protoError) return protoError
-      body.raw_proto = intOf(form.rawProto) || 253
+      body.raw_proto = intOf(form.rawProto) || RAW_PROTO_BARE
     }
     const sprotError = sprotErr(form, enums)
     if (sprotError) return sprotError
@@ -183,8 +176,8 @@ export function collectCarrier(form, cfg, owners, body) {
   }
 
   if (wkCarrier(form)) {
-    body.a_workers = wkClamp(form.WorkersA, cfg.workers_max)
-    body.b_workers = wkClamp(form.WorkersB, cfg.workers_max)
+    body.a_workers = form.WorkersA
+    body.b_workers = form.WorkersB
   }
 
   if (desyncOk(form)) {
@@ -246,7 +239,6 @@ export function collectCarrier(form, cfg, owners, body) {
       body.edge_ip = form.wsEdge.trim()
       if (form.WsTls && !body.ws_host) return T('wss_need_host')
       if (form.WsTls && !body.edge_ip) return T('wss_need_edge')
-      if (form.Ech && !form.WsTls) return T('ech_need_wss')
       if (form.Cdn === 'grpc' && !form.WsTls) return T('cdn_need_wss')
     }
   }

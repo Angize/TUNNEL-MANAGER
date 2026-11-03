@@ -70,7 +70,7 @@ export default function useBulkInstall() {
     let alive = true
     apiGet('install-batch')
       .then((d) => {
-        if (alive && d.batch && !d.done && !current.current) {
+        if (alive && d.batch && !current.current) {
           adopt({ id: d.batch, rows: d.rows, done: false, stopped: !!d.stopped })
         }
       })
@@ -99,7 +99,7 @@ export default function useBulkInstall() {
     const gone = () => !alive || !latest.current || latest.current.id !== id
     const tick = async () => {
       try {
-        const d = await apiGet('install-batch?batch=' + encodeURIComponent(id) + '&_=' + Date.now())
+        const d = await apiGet('install-batch?batch=' + encodeURIComponent(id))
         if (gone()) return
         settle(d.rows, !!d.done, !!d.stopped)
         if (d.done) return

@@ -3,12 +3,12 @@ import Reveal from './Reveal.jsx'
 import { Check } from './Marks.jsx'
 import useHeightTween from '../lib/useHeightTween.js'
 
-export default function Msg({ text, cls, check, style }) {
+export default function Msg({ text, cls, check }) {
   const box = useRef(null)
   useHeightTween(box, text, !!text)
   return (
     <Reveal show={!!text}>
-      <div ref={box} className={'msg' + (cls ? ' ' + cls : '')} style={style}>
+      <div ref={box} className={'msg' + (cls ? ' ' + cls : '')}>
         {text ? (
           <span key={text} className="msgt">
             {check ? <Check /> : null}

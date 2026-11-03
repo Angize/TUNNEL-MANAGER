@@ -95,10 +95,9 @@
 }
 
 .lpager {
-  --gut: 26px;
   display: flex;
   align-items: flex-start;
-  margin-inline: calc(var(--gut) * -1);
+  margin-inline: calc(var(--main-px) * -1);
   margin-bottom: calc(var(--main-pb) * -1);
   overflow-x: auto;
   overflow-y: hidden;
@@ -131,17 +130,11 @@
 .lpane {
   flex: 0 0 100%;
   min-width: 0;
-  padding: 0 var(--gut) calc(28px + var(--main-pb));
+  padding: 0 var(--main-px) calc(28px + var(--main-pb));
   scroll-snap-align: start;
   scroll-snap-stop: always;
 }
 
 body.reord-on .lpager {
   overflow-x: hidden;
-}
-
-@media (max-width: 840px) {
-  .lpager {
-    --gut: 14px;
-  }
 }

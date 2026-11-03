@@ -9,19 +9,21 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { nodeIps } from '../../lib/nodes.js'
+import { LTR_TEXT, rangeLabel } from '../../lib/form.js'
+import { nodeIps, nodeItemsKeeping } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
 import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields.jsx'
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 export default function PortfwAddModal({ nodes, onClose, onCreated }) {
+  const { limits } = useUiConfig()
   const [busy, guard] = useBusy()
   const [saved, markSaved] = useSaved()
-  const nodeItems = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
+  const nodeItems = nodeItemsKeeping(nodes, [])
   const [nodeId, setNodeId] = useState(nodeItems.length ? nodeItems[0].v : '')
   const [listenIp, setListenIp] = useState('')
   const [listenPort, setListenPort] = useState('')
@@ -95,10 +97,10 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
       </Reveal>
 
       <div className="grid2">
-        <Field label={rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('pf_listen_port'), ...limits.port)}>
           <NumberInput placeholder="8080" value={listenPort} onChange={setListenPort} />
         </Field>
-        <Field label={rangeLabel(T('pf_dst_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('pf_dst_port'), ...limits.port)}>
           <NumberInput placeholder="443" value={dstPort} onChange={setDstPort} />
         </Field>
       </div>

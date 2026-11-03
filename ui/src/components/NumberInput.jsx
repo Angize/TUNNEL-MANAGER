@@ -1,4 +1,4 @@
-import { latinDigits } from '../lib/num.js'
+import { latinNumber } from '../lib/num.js'
 
 const KEEP = {
   int: /[^0-9]/g,
@@ -6,10 +6,10 @@ const KEEP = {
   list: /[^0-9,،\s]/g,
 }
 
-const MODE = { int: 'numeric', decimal: 'decimal', list: 'text' }
+const MODE = { int: 'numeric', decimal: 'decimal', list: 'numeric' }
 
 export function cleanNumber(raw, kind) {
-  return latinDigits(raw).replace(/٫/g, '.').replace(KEEP[kind || 'int'], '')
+  return latinNumber(raw).replace(KEEP[kind || 'int'], '')
 }
 
 export default function NumberInput({ value, onChange, kind, ...rest }) {

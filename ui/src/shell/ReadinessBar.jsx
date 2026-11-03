@@ -1,5 +1,5 @@
 import Icon from '../components/Icon.jsx'
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 
 export default function ReadinessBar({ readiness, onNavigate }) {
   if (!readiness || readiness.ok) return null
@@ -9,7 +9,7 @@ export default function ReadinessBar({ readiness, onNavigate }) {
   if (!readiness.core) {
     missing.push(
       readiness.core_version
-        ? T('rdy_core_arch').replace('{a}', (readiness.core_missing || []).join('، '))
+        ? TF('rdy_core_arch', { a: readiness.core_missing.join('، ') })
         : T('rdy_core')
     )
   }

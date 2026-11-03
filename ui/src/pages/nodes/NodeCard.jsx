@@ -168,7 +168,7 @@ function NodeCard({
               {T('nd_agent')} <b>{info.version}</b>
             </span>
           ) : null}
-          {info.core_sha && String(info.core_sha).length ? (
+          {info.core_sha ? (
             <span className="nchip">
               <Icon name="cpu" />
               {T('nd_core')} <b>{coreVersionName(info.core_ver) || '?'}</b>

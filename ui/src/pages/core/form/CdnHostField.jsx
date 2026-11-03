@@ -10,6 +10,7 @@ import { gsap, reducedMotion } from '../../../lib/motion.js'
 import { LTR_TEXT } from '../../../lib/form.js'
 import { cdnSingle, edgeFits, edgePort, hasCdnKey, providerName } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
+import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 
 let flyRect = null
 
@@ -68,11 +69,12 @@ function PlacedNote({ provider, hostSsl }) {
 }
 
 function EdgePick({ form, patch, edges, managed }) {
+  const { enums } = useUiConfig()
   const tls = !!form.WsTls
   const auto = managed && form.cdnEdgeAuto
   const port = edgePort(form.wsEdge.trim())
   const items = (managed ? [{ v: 'host', label: T('edge_same'), sub: T('edge_same_d') }] : []).concat(
-    (edges || []).filter((e) => edgeFits(e, tls)).map(edgeRow)
+    (edges || []).filter((e) => edgeFits(e, tls, enums.edge_ports)).map(edgeRow)
   )
 
   return (
@@ -130,7 +132,7 @@ export default function CdnHostField({ form, keys, serverIp, patch, onMade }) {
   const canMake = hasCdnKey(keys)
 
   return (
-    <div className="cdnhostf">
+    <div>
       <Field label={T('ws_host_lbl')}>
         {managed ? (
           <Placed

@@ -1,5 +1,5 @@
 import { T, TF } from '../../i18n/fa.js'
-import { latinDigits, num } from '../../lib/num.js'
+import { num } from '../../lib/num.js'
 
 export const FIELDS = {
   reconcile: { labelKey: 'set_rec_int', unitKey: 'set_u_sec', kind: 'int', setting: 'reconcile_interval', half: true },
@@ -24,7 +24,7 @@ const NUMBER = {
 }
 
 function minutesToSeconds(value) {
-  const n = parseInt(latinDigits(value), 10)
+  const n = parseInt(value, 10)
   return n >= 1 ? n * 60 : NaN
 }
 
@@ -33,8 +33,8 @@ export function secondsToMinutes(seconds) {
 }
 
 function numberList(text) {
-  return latinDigits(text)
-    .split(/[\s,،]+/)
+  return text
+    .split(/[\s,]+/)
     .filter(Boolean)
     .map((part) => (/^\d+$/.test(part) ? parseInt(part, 10) : NaN))
 }
@@ -43,14 +43,9 @@ function parseMinuteList(text) {
   return numberList(text).map((n) => (n >= 1 ? n * 60 : NaN))
 }
 
-function parseSecondList(text) {
-  return numberList(text)
-}
-
 function fieldValues(text, kind) {
   if (kind === 'list') return numberList(text)
-  const s = latinDigits(text).trim()
-  return [NUMBER[kind].test(s) ? Number(s) : NaN]
+  return [NUMBER[kind].test(text) ? Number(text) : NaN]
 }
 
 export function fieldRange(key, config) {
@@ -100,10 +95,10 @@ export function formErrors(form, config) {
 export function collectTuning(form) {
   return {
     dead_retest_secs: minutesToSeconds(form.deadRetest),
-    probe_min_pct: parseInt(latinDigits(form.probeMin), 10),
-    sock_buf_mb: parseInt(latinDigits(form.sockBuf), 10),
-    tcp_buf_mb: parseInt(latinDigits(form.tcpBuf), 10),
+    probe_min_pct: parseInt(form.probeMin, 10),
+    sock_buf_mb: parseInt(form.sockBuf, 10),
+    tcp_buf_mb: parseInt(form.tcpBuf, 10),
     suspect_backoff: parseMinuteList(form.suspect),
-    ladder_revive: parseSecondList(form.revive),
+    ladder_revive: numberList(form.revive),
   }
 }

@@ -7,7 +7,6 @@
   background: var(--card);
   border: 1px solid var(--edge);
   box-shadow: var(--dsh);
-  transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s;
 }
 
 .card.acc {
@@ -238,16 +237,12 @@
   max-width: 100%;
 }
 
-.grow {
-  flex: 1;
-}
-
 .muted {
   color: var(--sub);
 }
 
 .mono {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   direction: ltr;
   overflow-wrap: anywhere;
 }
@@ -281,23 +276,8 @@
   border: 1px solid color-mix(in srgb, var(--bad) 32%, transparent);
 }
 
-.badge.na {
-  background: var(--glass);
-  color: var(--sub);
-  border: 1px solid var(--bord);
-}
-
-.badge.warn {
-  background: color-mix(in srgb, var(--gold) 15%, transparent);
-  color: var(--gold-tx);
-  border: 1px solid color-mix(in srgb, var(--gold) 34%, transparent);
-}
-
 .nact {
-  display: flex;
-  gap: 8px;
   margin-top: 13px;
-  flex-wrap: wrap;
 }
 
 .nact.iconly {
@@ -410,10 +390,6 @@ button.act.danger:hover {
   height: 15px;
 }
 
-.tbtnrow + .sec {
-  margin-top: 0;
-}
-
 .sec {
   font-size: 12.5px;
   font-weight: 700;
@@ -433,7 +409,6 @@ button.act.danger:hover {
 
 .cpv {
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
   text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 3px;
 }
@@ -536,6 +511,7 @@ body.reord-on .reordbtn {
 
 .rbrow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   padding: 10px 11px;
@@ -578,17 +554,19 @@ body.reord-on .reordbtn {
   background: var(--acc);
 }
 
+.rbrow .ipv {
+  flex: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 .rbrow .rbtags {
+  flex: 1 1 0;
   margin-inline-start: auto;
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-
-.ctag.core {
-  background: var(--accw);
-  color: var(--acc-tx);
 }
 
 .ctag.c-sys {
@@ -671,36 +649,6 @@ body.reord-on .reordbtn {
   border-radius: 7px;
   padding: 0 6px;
   font-weight: 700;
-}
-
-.tag.sit {
-  color: var(--gold-tx);
-  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
-}
-
-.tag.gre {
-  color: var(--ok-tx);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
-}
-
-.tag.ipip {
-  color: var(--h-teal);
-  border-color: color-mix(in srgb, var(--h-teal) 45%, transparent);
-}
-
-.tag.l2tpv3 {
-  color: var(--h-purple);
-  border-color: color-mix(in srgb, var(--h-purple) 45%, transparent);
-}
-
-.tag.fou {
-  color: var(--h-pink);
-  border-color: color-mix(in srgb, var(--h-pink) 45%, transparent);
-}
-
-.tag.ipsec {
-  color: var(--h-rose);
-  border-color: color-mix(in srgb, var(--h-rose) 45%, transparent);
 }
 
 .tag.obfs {

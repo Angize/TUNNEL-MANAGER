@@ -3,7 +3,7 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Select from '../../../components/Select.jsx'
-import { ScrollSeg, SegOpt, WarnCap } from './controls.jsx'
+import { Seg2, SegOpt, WarnCap } from './controls.jsx'
 import RawDirGrid from './RawDirGrid.jsx'
 import ProtoSection from './ProtoSection.jsx'
 import PortSection from './PortSection.jsx'
@@ -28,7 +28,7 @@ function RouteChip({ form, fronts, onRoute }) {
   return (
     <button type="button" className="routechip" onClick={onRoute}>
       <Icon name="swap" />
-      <span>{TF('pedge_chip', { n: names.join('، ') })}</span>
+      <span>{TF('pedge_via', { n: names.join('، ') })}</span>
       <em>{T('pedge_chip_go')}</em>
     </button>
   )
@@ -65,7 +65,7 @@ export default function SettingsTab({
       </Field>
 
       <label>{T('transport_lbl')}</label>
-      <ScrollSeg label={T('transport_lbl')}>
+      <Seg2 wrap label={T('transport_lbl')}>
         {TRANSPORTS.map((tr) => (
           <SegOpt
             key={tr.v}
@@ -75,7 +75,7 @@ export default function SettingsTab({
             onClick={() => patch({ Tr: tr.v })}
           />
         ))}
-      </ScrollSeg>
+      </Seg2>
 
       <Reveal show={form.Tr === 'raw'}>
         <div>
@@ -106,7 +106,6 @@ export default function SettingsTab({
         form={form}
         cfg={cfg}
         sides={sides}
-        lid={poolLive.lid}
         live={poolLive}
         cdnKeys={cdnKeys}
         serverIp={serverIp}

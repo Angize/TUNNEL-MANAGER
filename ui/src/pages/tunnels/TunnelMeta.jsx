@@ -1,8 +1,7 @@
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
 import { T } from '../../i18n/fa.js'
-
-const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
+import { PORT_TYPES } from '../../lib/subnet.js'
 
 function SubnetRow({ link }) {
   return (

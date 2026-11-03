@@ -91,7 +91,6 @@ export function createForm(cfg) {
 }
 
 export function editForm(cfg, link) {
-  const transport = ['tcp', 'raw', 'ws'].includes(link.transport) ? link.transport : 'udp'
   const rotSel = (list, single) => {
     const out = {}
     for (const ip of list || []) out[ip] = true
@@ -101,9 +100,9 @@ export function editForm(cfg, link) {
 
   return {
     Srv: link.server_side === 'b' ? 'b' : 'a',
-    Tr: transport,
+    Tr: link.transport,
     Obfs: !!link.obfs,
-    Cover: !!link.cover && transport === 'tcp',
+    Cover: !!link.cover,
     RawProfile: link.raw_profile || 'bare',
     RawProfileDown: link.raw_profile_down || link.raw_profile || 'bare',
     GrePtype: ptypeHex(link.raw_gre_ptype),
@@ -118,10 +117,8 @@ export function editForm(cfg, link) {
     SelfEch: !!link.self_ech,
     EdgeOn: !!(link.edges || []).length,
     SniSplit: !!link.sni_split,
-    SniMode:
-      link.sni_mode === 'disorder' || link.sni_mode === 'fake' ? link.sni_mode : 'split',
-    Cdn:
-      link.cdn_carrier === 'http' || link.cdn_carrier === 'grpc' ? link.cdn_carrier : 'ws',
+    SniMode: link.sni_mode || 'split',
+    Cdn: link.cdn_carrier || 'ws',
     PortRoll: !!link.ws_port_roll,
     Fec: !!link.fec,
     FecData: link.fec_data || 16,
@@ -176,7 +173,7 @@ export function editForm(cfg, link) {
       pool: !!link.ws_pool,
       rotate: link.ws_rotate_secs != null ? link.ws_rotate_secs : 600,
       ip: (link.ws_edge_ips || []).slice(),
-      sni: (link.ws_edge_snis || []).map((s) => (s && s.host) || '').filter(Boolean),
+      sni: (link.ws_edge_snis || []).map((s) => s.host),
       ipCdn: { ...(link.ws_edge_ip_groups || {}) },
     },
   }

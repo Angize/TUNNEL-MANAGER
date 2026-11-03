@@ -67,7 +67,7 @@ export function Badges({ total, suspect, dead }) {
   if (!total) return null
   return (
     <>
-      <span className="pbadge ok">{total - suspect - dead + ' ' + T('pb_healthy')}</span>
+      <span className="pbadge ok">{total - suspect - dead + ' ' + T('ph_healthy')}</span>
       {suspect ? <span className="pbadge warn">{suspect + ' ' + T('pb_temp')}</span> : null}
       {dead ? <span className="pbadge bad">{dead + ' ' + T('pb_dead')}</span> : null}
     </>

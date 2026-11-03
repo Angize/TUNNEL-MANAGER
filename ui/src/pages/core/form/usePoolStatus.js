@@ -43,7 +43,6 @@ export default function usePoolStatus(lid, enabled) {
   const alive = useRef(true)
 
   const tick = useCallback(async () => {
-    if (!lid) return
     const r = await apiPost('edge-status', { id: lid })
     if (!alive.current) return
     if (r.ok && r.d.ok && r.d.pool && !r.d.error) setStatus(applyStatus(r.d))
@@ -91,10 +90,6 @@ export default function usePoolStatus(lid, enabled) {
 
   const retest = useCallback(
     async (kind, key) => {
-      if (!lid) {
-        toast(T('pool_make_first'), 'err')
-        return
-      }
       const r = await apiPost('pool-retest-now', { id: lid, kind, key })
       if (r.ok && r.d.ok) {
         toast(T('peer_probe_pulled'), 'ok')
@@ -106,10 +101,6 @@ export default function usePoolStatus(lid, enabled) {
 
   const select = useCallback(
     async (kind, key) => {
-      if (!lid) {
-        toast(T('pool_make_first'), 'err')
-        return
-      }
       if (pending) return
       setPending({ kind, key, ts: Date.now() })
       const r = await apiPost('pool-select', { id: lid, kind, key })

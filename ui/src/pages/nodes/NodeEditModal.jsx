@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import { T } from '../../i18n/fa.js'
-import { apiGet, apiPost } from '../../lib/api.js'
+import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
 import useBusy from '../../lib/useBusy.js'
+import useProxies from '../../lib/useProxies.js'
 
 import { LTR_TEXT } from '../../lib/form.js'
 import Msg from '../../components/Msg.jsx'
@@ -17,7 +18,6 @@ import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
 
 export default function NodeEditModal({ node, onClose, onSaved }) {
-  const [proxies, setProxies] = useState([])
   const [busy, guard] = useBusy()
   const [saved, markSaved] = useSaved()
   const [name, setName] = useState(node.name)
@@ -26,18 +26,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
   const [token, setToken] = useState('')
   const [proxy, setProxy] = useState({ on: !!node.proxy_on, id: node.proxy_id || '' })
   const [message, setMessage] = useState('')
-
-  useEffect(() => {
-    let alive = true
-    apiGet('proxies')
-      .then((r) => {
-        if (alive) setProxies(r.proxies)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [])
+  const proxies = useProxies()
 
   const save = async () => {
     if (!name.trim() || !host.trim() || !port.trim()) {

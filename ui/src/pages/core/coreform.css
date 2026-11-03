@@ -59,7 +59,7 @@
 .rrow .rip {
   flex: 1;
   text-align: center;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 12.5px;
   direction: ltr;
   letter-spacing: -.02em;
@@ -226,7 +226,7 @@
 .eip {
   flex: 1 1 150px;
   min-width: 0;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   direction: ltr;
   text-align: right;
   unicode-bidi: isolate;
@@ -308,11 +308,6 @@
   color: var(--bad-tx);
 }
 
-.eib.on {
-  border-color: var(--ok);
-  color: var(--ok-tx);
-}
-
 .eib.aim.on {
   color: var(--ok-tx);
   border-color: color-mix(in srgb, var(--ok) 55%, transparent);
@@ -320,7 +315,7 @@
 }
 
 .pcd {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--sub);
   direction: ltr;
@@ -490,7 +485,7 @@
 }
 
 .epn code {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   color: var(--sub);
   direction: ltr;

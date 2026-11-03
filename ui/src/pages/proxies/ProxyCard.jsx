@@ -82,7 +82,7 @@ function UsedBy({ nodes, tunnels, panel, cdn }) {
 function ProxyCard({ proxy, onEdit, onChanged }) {
   const [msg, setMsg] = useState(null)
 
-  const status = proxy.status || {}
+  const status = proxy.status
   const dot = proxy.online ? 'on' : proxy.pending ? '' : 'off'
   const title =
     (proxy.pending ? T('pending_check') : proxy.online ? T('online') : T('offline')) +
@@ -101,8 +101,7 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
       setMsg({
         cls: 'ok',
         text:
-          T('px_up') + ' · ' + num(d.ms) + 'ms' +
-          (d.reach != null ? ' · ' + T('px_google') + ' ' + num(d.reach) + 'ms' : ''),
+          T('px_up') + ' · ' + num(d.ms) + 'ms · ' + T('px_google') + ' ' + num(d.reach) + 'ms',
         check: true,
       })
     } else {
@@ -145,7 +144,7 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
           {status.error ? <span>· {translateError(status.error)}</span> : null}
         </div>
       )}
-      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn || []} />
+      <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn} />
       <div className="nact iconly">
         <ActBtn cls="ok" icon="bolt" title={T('px_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(proxy)} />

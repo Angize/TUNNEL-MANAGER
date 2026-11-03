@@ -107,7 +107,6 @@ export default function ListField({ value, onChange, range, ...rest }) {
         {...rest}
         ref={input}
         kind="list"
-        inputMode="numeric"
         value={draft}
         onChange={(text) => (SEP.test(text) ? commit(text) : setDraft(text))}
         onBlur={() => commit(draft)}

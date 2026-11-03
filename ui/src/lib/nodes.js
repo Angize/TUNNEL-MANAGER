@@ -1,3 +1,9 @@
+export function isCentralStale(node) {
+  const got = (node.info && node.info.central) || ''
+  const want = node.central_want || ''
+  return !!(got && want && got !== want)
+}
+
 export function nodeIps(nodes, id) {
   const node = (nodes || []).find((n) => n.id === id)
   if (!node || !node.info || !node.info.ips) return []

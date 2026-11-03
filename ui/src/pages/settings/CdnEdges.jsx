@@ -7,12 +7,14 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { LTR_TEXT } from '../../lib/form.js'
-import { latinDigits } from '../../lib/num.js'
-import { edgeError, edgePort } from '../../lib/cdn.js'
+import { latinNumber } from '../../lib/num.js'
+import { edgeError, edgePortLabel } from '../../lib/cdn.js'
 import { T, TF } from '../../i18n/fa.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import '../core/coreform.css'
 
 export default function CdnEdges({ edges, onStatus }) {
+  const { enums } = useUiConfig()
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -35,7 +37,7 @@ export default function CdnEdges({ edges, onStatus }) {
   const add = async () => {
     const v = draft.trim()
     if (!v) return
-    const bad = edgeError(v)
+    const bad = edgeError(v, enums.edge_ports)
     if (bad) {
       setError(bad)
       return
@@ -74,7 +76,7 @@ export default function CdnEdges({ edges, onStatus }) {
               <span className="eip" dir="ltr">
                 {e}
               </span>
-              <span className="cdnhostm">{edgePort(e) ? TF('edges_port', { p: edgePort(e) }) : T('edges_port_any')}</span>
+              <span className="cdnhostm">{edgePortLabel(e)}</span>
             </span>
             <span className="eacts">
               <ActionButton
@@ -98,7 +100,7 @@ export default function CdnEdges({ edges, onStatus }) {
           placeholder="104.16.0.1:443"
           value={draft}
           onChange={(e) => {
-            setDraft(latinDigits(e.target.value).replace(/٫/g, '.'))
+            setDraft(latinNumber(e.target.value))
             setError('')
           }}
           onKeyDown={(e) => {

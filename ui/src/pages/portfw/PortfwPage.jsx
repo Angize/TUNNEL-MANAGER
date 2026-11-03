@@ -25,7 +25,7 @@ export default function PortfwPage({ active }) {
   const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
     const r = await apiGet('portfw-list?q=' + encodeURIComponent(query), onProgress)
-    return r.portfw.filter((x) => x.name)
+    return r.portfw
   }, [query])
 
   const [list, reload, progress] = usePolledData(load, query, active)

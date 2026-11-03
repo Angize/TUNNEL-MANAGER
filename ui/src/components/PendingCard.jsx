@@ -3,7 +3,7 @@ import { T } from '../i18n/fa.js'
 
 const TITLE = { fail: 'a_pending_fail', cancel: 'a_pending_cancel' }
 
-export default function PendingCard({ act, tagClass }) {
+export default function PendingCard({ act, tagClass = (family) => family }) {
   const family = String(act.ttype || '').toLowerCase()
   return (
     <div className={'card acc open apend' + (act.state === 'run' ? ' acting' : '')}>

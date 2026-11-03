@@ -2,17 +2,16 @@ import { useEffect, useRef } from 'react'
 import Modal from '../../components/Modal.jsx'
 import { checkable } from '../../lib/keys.js'
 import { T } from '../../i18n/fa.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 export function modeLabel(mode) {
   return mode === 'auto' ? T('set_mode_auto') : T('set_mode_alert')
 }
 
-const OPTIONS = [
-  { mode: 'auto', isDefault: false },
-  { mode: 'alert', isDefault: true },
-]
+const MODES = ['auto', 'alert']
 
 export default function ModePicker({ value, onPick, onClose }) {
+  const defaultMode = useUiConfig().settings_defaults.reconcile_mode
   const listRef = useRef(null)
 
   useEffect(() => {
@@ -24,7 +23,7 @@ export default function ModePicker({ value, onPick, onClose }) {
   return (
     <Modal bare cls="modesheet" label={T('set_on_ipchange')} onClose={onClose}>
       <div className="modelist" ref={listRef}>
-        {OPTIONS.map(({ mode, isDefault }) => (
+        {MODES.map((mode) => (
           <div
             key={mode}
             className={'mopt' + (value === mode ? ' on' : '')}
@@ -32,7 +31,7 @@ export default function ModePicker({ value, onPick, onClose }) {
           >
             <span className="mrad" />
             <span className="mt">{modeLabel(mode)}</span>
-            {isDefault ? <span className="mdf">{T('set_default')}</span> : null}
+            {mode === defaultMode ? <span className="mdf">{T('set_default')}</span> : null}
           </div>
         ))}
       </div>

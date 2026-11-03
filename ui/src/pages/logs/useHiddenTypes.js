@@ -44,17 +44,12 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
 
   const isPending = useCallback(() => saving.current || dirty.current || !!timer.current, [])
 
-  const orderedList = useCallback(
-    () => evTypesRef.current.filter(([key]) => current.current[key]).map(([key]) => key),
-    []
-  )
-
   const saveNow = useCallback(async () => {
     if (saving.current) return
     saving.current = true
     while (dirty.current) {
       dirty.current = false
-      const list = orderedList()
+      const list = Object.keys(current.current)
       const r = await apiPost('settings-set', { log_hidden: list })
       if (!(r.ok && r.d.ok)) {
         dirty.current = false
@@ -67,7 +62,7 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
     }
     saving.current = false
     onSavedRef.current()
-  }, [orderedList, publish])
+  }, [publish])
 
   saveRef.current = saveNow
 
@@ -121,7 +116,6 @@ export default function useHiddenTypes({ evTypes, onSaved }) {
     hiddenCount: Object.keys(hidden).length,
     known,
     adoptFromServer,
-    isPending,
     toggleType,
     toggleGroup,
   }

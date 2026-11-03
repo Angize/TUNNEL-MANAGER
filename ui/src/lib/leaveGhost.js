@@ -1,8 +1,10 @@
+import { reducedMotion } from './motion.js'
+
 const LEAVE_MS = 280
 
 export function leaveGhost(node) {
   if (!node || !node.isConnected) return
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (reducedMotion()) return
   const ghost = node.cloneNode(true)
   const scrolls = [...node.querySelectorAll('*')].map((el) => el.scrollTop)
   queueMicrotask(() => {

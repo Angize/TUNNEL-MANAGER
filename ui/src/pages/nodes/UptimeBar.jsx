@@ -1,18 +1,19 @@
 import { T, TF } from '../../i18n/fa.js'
 import { fmtClock } from '../../lib/num.js'
+import { uptimeLevel } from '../../lib/health.js'
 import useScrub from '../../lib/useScrub.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
-function tone(value, [ok, bad]) {
-  if (value == null) return 'g'
-  if (value >= ok) return ''
-  return value < bad ? 'd' : 'w'
+const TONE = { ok: '', warn: 'w', crit: 'd' }
+
+function tone(value, levels) {
+  return value == null ? 'g' : TONE[uptimeLevel(value, levels)]
 }
 
 export default function UptimeBar({ node, windowHours }) {
   const levels = useUiConfig().uptime_levels
-  const cells = node.uptime || []
-  const pct = node.uptime_pct != null ? node.uptime_pct : 100
+  const cells = node.uptime
+  const pct = node.uptime_pct
   const tones = cells.map((value) => tone(value, levels))
   const last = cells.length - 1
   const { at, handlers } = useScrub(cells.length)
@@ -46,7 +47,7 @@ export default function UptimeBar({ node, windowHours }) {
       <div
         className={'upbar' + (at == null ? '' : ' insp')}
         role="slider"
-        tabIndex={cells.length ? 0 : -1}
+        tabIndex={0}
         aria-label={TF('up_bar', { ok: count(''), warn: count('w'), bad: count('d') })}
         aria-valuemin={0}
         aria-valuemax={Math.max(0, last)}

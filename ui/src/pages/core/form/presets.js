@@ -62,30 +62,26 @@ export function sniModes() {
   ]
 }
 
-const ROT_PRESETS = [180, 300, 600, 900, 1800, 3600]
-const ROT_LABELS = {
-  180: 'rot_3m',
-  300: 'rot_5m',
-  600: 'rot_10m',
-  900: 'rot_15m',
-  1800: 'rot_30m',
-  3600: 'rot_1h',
+const ROT_PRESETS = [
+  [180, 'rot_3m'],
+  [300, 'rot_5m'],
+  [600, 'rot_10m'],
+  [900, 'rot_15m'],
+  [1800, 'rot_30m'],
+  [3600, 'rot_1h'],
+]
+
+function rotPresetItems() {
+  return ROT_PRESETS.map(([v, key]) => ({ v, label: T(key) }))
 }
 
 export function rotIntervalItems() {
-  const items = ROT_PRESETS.map((v) => ({ v, label: T(ROT_LABELS[v]) }))
-  items.push({ v: 0, label: T('rot_onfail') })
-  return items
+  return [...rotPresetItems(), { v: 0, label: T('rot_onfail') }]
 }
 
 export function poolRotateItems() {
   return [
-    { v: 180, label: T('rot_3m') },
-    { v: 300, label: T('rot_5m') },
-    { v: 600, label: T('rot_10m') },
-    { v: 900, label: T('rot_15m') },
-    { v: 1800, label: T('rot_30m') },
-    { v: 3600, label: T('rot_1h') },
+    ...rotPresetItems(),
     { v: 14400, label: T('rot_4h') },
     { v: 28800, label: T('rot_8h') },
     { v: 0, label: T('rot_off_fo') },
@@ -102,11 +98,10 @@ const CDN_FIELD_KEYS = {
 export const CDN_FIELD_NAMES = ['upw', 'upkb', 'uprate', 'downw']
 
 export function cdnShape(enums) {
-  const shape = (enums && enums.http_shape) || {}
   const out = {}
   for (const name of CDN_FIELD_NAMES) {
     const key = CDN_FIELD_KEYS[name]
-    const spec = shape[key] || { lo: 0, hi: 0, d: 0 }
+    const spec = enums.http_shape[key]
     out[name] = { k: key, lo: spec.lo, hi: spec.hi, d: spec.d }
   }
   return out
@@ -122,7 +117,7 @@ export function cdnLabel(name) {
 }
 
 export function cipherItems(enums, transport) {
-  return ((enums && enums.ciphers) || [])
+  return enums.ciphers
     .filter((v) => !(v === 'none' && transport === 'raw'))
     .map((v) => ({
       v,

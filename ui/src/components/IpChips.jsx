@@ -35,10 +35,10 @@ function PeerChip({ peer }) {
 export default function IpChips({ entry }) {
   return (
     <>
-      {(entry.peers || []).map((peer, i) => (
+      {entry.peers.map((peer, i) => (
         <PeerChip key={peer.node + ':' + i} peer={peer} />
       ))}
-      {(entry.pf || []).map((name) => (
+      {entry.pf.map((name) => (
         <span className="ippf" key={'pf:' + name}>
           <Icon name="globe" />
           {T('nd_portfw') + ' ·'}

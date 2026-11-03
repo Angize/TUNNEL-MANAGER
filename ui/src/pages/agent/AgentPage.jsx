@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import PageHead from '../../components/PageHead.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import Icon from '../../components/Icon.jsx'
@@ -27,7 +26,7 @@ import './agent.css'
 const STAGE_POLL_MS = 400
 
 function mbText(bytes) {
-  return (bytes / 1048576).toFixed(1) + ' ' + T('unit_mb_full')
+  return (bytes / 1048576).toFixed(1) + ' ' + T('set_u_mb')
 }
 
 function Facts({ items }) {
@@ -82,7 +81,7 @@ function MessageSlot({ value, onCancel }) {
   return <Reveal show={!!value}>{value ? <Message value={value} onCancel={onCancel} /> : null}</Reveal>
 }
 
-export default function AgentPage({ headless }) {
+export default function AgentPage() {
   const [agentMeta, setAgentMeta] = useState(null)
   const [versions, setVersions] = useState(null)
   const [staged, setStaged] = useState(null)
@@ -131,7 +130,7 @@ export default function AgentPage({ headless }) {
     markRead('core', false)
     setVersions(r.versions)
     setStaged(r.staged)
-    setCoreReady({ ready: !!r.ready, missing: r.missing || [] })
+    setCoreReady({ ready: !!r.ready, missing: r.missing })
     setDelivery((prev) => ({ ...prev, core: r.delivery }))
     setWanted((prev) => {
       if (prev) return prev
@@ -294,7 +293,7 @@ export default function AgentPage({ headless }) {
         : d.latest === d.staged
           ? T('cor_check_same')
           : d.first_check
-            ? T('cor_check_first').replace('{n}', d.count)
+            ? TF('cor_check_first', { n: d.count })
             : d.newer
               ? TF('cor_check_new', { b: stageLabel })
               : TF('cor_check_avail', { v: d.latest, b: stageLabel }),
@@ -302,7 +301,7 @@ export default function AgentPage({ headless }) {
   }
 
   const stageDone = async (d) => {
-    const missing = d.missing || []
+    const missing = d.missing
     setCoreMsg({
       cls: missing.length ? '' : 'ok',
       check: !missing.length,
@@ -310,8 +309,8 @@ export default function AgentPage({ headless }) {
         T('cor_staged_pre') +
         d.version +
         T(d.meta_only ? 'cor_picked_post' : 'cor_staged_post') +
-        ((d.arches || []).length ? ' (' + d.arches.join(', ') + ')' : '') +
-        (missing.length ? T('cor_arch_missing').replace('{a}', missing.join('، ')) : ''),
+        (d.arches.length ? ' (' + d.arches.join(', ') + ')' : '') +
+        (missing.length ? TF('cor_arch_missing', { a: missing.join('، ') }) : ''),
     })
     await loadCoreVersions()
   }
@@ -346,7 +345,7 @@ export default function AgentPage({ headless }) {
         }
         return
       }
-      if (r) setCoreMsg({ cls: '', progress: Math.max(0, Math.min(100, num(r.pct))) })
+      if (r) setCoreMsg({ cls: '', progress: num(r.pct) })
       await new Promise((done) => setTimeout(done, STAGE_POLL_MS))
     }
   }
@@ -501,7 +500,7 @@ export default function AgentPage({ headless }) {
     : staged
       ? [
           stagedSize ? { text: mbText(stagedSize) } : null,
-          (staged.arches || []).length ? { text: staged.arches.join(' · ') } : null,
+          staged.arches.length ? { text: staged.arches.join(' · ') } : null,
           stagedSha ? { text: String(stagedSha).slice(0, 12), mono: true } : null,
         ].filter(Boolean)
       : custom
@@ -513,12 +512,10 @@ export default function AgentPage({ headless }) {
 
   return (
     <>
-      {headless ? null : <PageHead icon="server" titleKey="ag_title" subKey="ag_sub" />}
-
       <div className="card opc sc-panel upc">
         <UpdateRow
           icon="server"
-          title={T('ag_word_agent')}
+          title={T('ag_lbl_agent')}
           sub={agentUnknown ? unknownSub('agent') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
           state={agentUnknown ? null : agentReady ? { cls: 'ok', text: T('ag_ready') } : { cls: 'na', text: T('ag_empty') }}
           goIcon="redo"
@@ -554,7 +551,7 @@ export default function AgentPage({ headless }) {
 
         <UpdateRow
           icon="cpu"
-          title={T('ag_word_core')}
+          title={T('ag_lbl_core')}
           sub={
             coreUnknown ? (
               unknownSub('core')
@@ -586,7 +583,7 @@ export default function AgentPage({ headless }) {
           {coreFacts.length ? <Facts items={coreFacts} /> : null}
           {staged && !coreReady.ready && coreReady.missing.length ? (
             <div className="muted" style={{ fontSize: 12 }}>
-              {T('cor_not_ready').replace('{a}', coreReady.missing.join('، '))}
+              {TF('cor_not_ready', { a: coreReady.missing.join('، ') })}
             </div>
           ) : null}
           <div className="oprow">

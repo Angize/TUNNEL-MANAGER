@@ -47,7 +47,7 @@ export default function Gauge({ label, pct, sub }) {
         </div>
       </div>
       <div className="gl">{label}</div>
-      <div className="gsub">{sub == null ? '…' : sub}</div>
+      <div className="gsub">{sub}</div>
     </div>
   )
 }

@@ -83,14 +83,14 @@ export function EdgeRow({ value, label, kind, owner, health, active, lid, pendin
   )
 }
 
-export default function WsPool({ form, enums, lid, live, edges, keys, owners, serverIp, onCdnMade, patch }) {
+export default function WsPool({ form, enums, live, edges, keys, owners, serverIp, onCdnMade, patch }) {
   const [open, setOpen] = useState({})
   const [draft, setDraft] = useState({})
   const [fresh, setFresh] = useState('')
   const [making, setMaking] = useState(false)
   const pool = form.pool
   const status = live.status
-  useSecondTick(true)
+  useSecondTick()
   const items = poolRotateItems()
   const { owned, provs, mixed, groupOf } = poolOwners(pool, owners)
   const cfOwned = provs.includes('cf')
@@ -107,7 +107,7 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
   }, [groups, pool, patch])
   const needs443 = (group) => (group ? group === 'cf' : cfOwned)
   const cleanFor = (group) =>
-    tlsEdges(edges).filter((v) => !pool.ip.includes(v) && (!needs443(group) || edgePort(v) === 443))
+    tlsEdges(edges, enums.edge_ports).filter((v) => !pool.ip.includes(v) && (!needs443(group) || edgePort(v) === 443))
 
   const setPool = (next) => patch({ pool: { ...pool, ...next } })
 
@@ -190,7 +190,7 @@ export default function WsPool({ form, enums, lid, live, edges, keys, owners, se
                     owner={kind === 'sni' ? ((owners || {})[value] || {}).provider : ''}
                     health={status.live[kind + ':' + value]}
                     active={status.act[kind] === value}
-                    lid={lid}
+                    lid={live.lid}
                     pending={live.pending}
                     status={status}
                     fresh={fresh === kind + ':' + value}
