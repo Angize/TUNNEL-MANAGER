@@ -2,7 +2,7 @@ import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import PushBar, { pushTone } from './PushBar.jsx'
 import { coreVersionName, versionIsNewer } from './versions.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 
 function VersionPill({ tone, version, title }) {
   return (
@@ -32,7 +32,7 @@ function customPill(label, info, installed, customSha) {
   }
   return {
     tone: installed ? 'ok' : 'na',
-    title: label + ': ' + T('ag_ver_pick').replace('{v}', coreVersionName('custom')),
+    title: label + ': ' + TF('ag_ver_pick', { v: coreVersionName('custom') }),
     disabled: false,
     highlight: false,
   }
@@ -70,7 +70,7 @@ function corePill(node, staged, wanted, customSha) {
   if (wantDiff || stagedDiff) {
     return {
       tone: 'ok',
-      title: label + ': ' + T('ag_ver_pick').replace('{v}', coreVersionName(wanted || stagedVersion)),
+      title: label + ': ' + TF('ag_ver_pick', { v: coreVersionName(wanted || stagedVersion) }),
       disabled: false,
       highlight,
     }

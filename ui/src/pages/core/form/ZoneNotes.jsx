@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { WarnCap } from './controls.jsx'
-import { wsProfOf } from './gates.js'
 import { apiPost } from '../../../lib/api.js'
 
 export default function ZoneNotes({ form, zones }) {
-  const sig = JSON.stringify([zones, { ws_tls: !!form.WsTls, cdn_carrier: wsProfOf(form.Cdn) }])
+  const sig = JSON.stringify([zones, { ws_tls: !!form.WsTls, cdn_carrier: form.Cdn }])
   const [got, setGot] = useState({ sig: '', notes: [] })
 
   useEffect(() => {

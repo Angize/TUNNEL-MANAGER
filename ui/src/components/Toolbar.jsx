@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { GripIcon } from './Grip.jsx'
 import { reorderMode, subscribeReorder, toggleReorder } from '../lib/reorder.js'
-import { latinDigits } from '../lib/num.js'
+import { latinNumber } from '../lib/num.js'
 import { T } from '../i18n/fa.js'
 
 const DEBOUNCE = 280
@@ -20,7 +20,7 @@ export default function Toolbar({ value, placeholder, reorder, onSearch }) {
   useEffect(() => () => clearTimeout(timer.current), [])
 
   const change = (raw) => {
-    const v = latinDigits(raw).replace(/٫/g, '.')
+    const v = latinNumber(raw)
     setText(v)
     clearTimeout(timer.current)
     timer.current = setTimeout(() => onSearch(v.trim()), DEBOUNCE)

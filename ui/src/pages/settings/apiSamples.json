@@ -2497,24 +2497,6 @@
   ]
  },
  "_acts": {
-  "run": {
-   "key": "new:7cfcbcc8",
-   "target": "N1 ↔ N2",
-   "page": "core",
-   "ttype": "udp",
-   "name": "",
-   "link": "",
-   "state": "run",
-   "step": "reading both nodes",
-   "si": 0,
-   "sn": 4,
-   "pct": 0,
-   "note": "",
-   "offer": "",
-   "can": true,
-   "started": 1790276395,
-   "ended": 0
-  },
   "done": {
    "key": "new:7cfcbcc8",
    "target": "N1 ↔ N2",

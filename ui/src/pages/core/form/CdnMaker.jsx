@@ -24,7 +24,7 @@ function useZones(keys) {
     let alive = true
     for (const p of sig ? sig.split(',') : []) {
       apiGet('cdn-zones?provider=' + p)
-        .then((r) => alive && setBy((x) => ({ ...x, [p]: r.zones || [] })))
+        .then((r) => alive && setBy((x) => ({ ...x, [p]: r.zones })))
         .catch((e) => alive && setErrs((x) => ({ ...x, [p]: TF('cdn_zones_failed', { p: providerName(p), e: readError(e) }) })))
     }
     return () => {
@@ -46,7 +46,7 @@ function useReady(inUse) {
   useEffect(() => {
     let alive = true
     apiGet('cdn')
-      .then((r) => alive && setRows(((r.cdn && r.cdn.hosts) || []).filter((h) => !h.link)))
+      .then((r) => alive && setRows(r.cdn.hosts.filter((h) => !h.link)))
       .catch((e) => alive && setError(readError(e)))
     return () => {
       alive = false
@@ -101,7 +101,7 @@ function CheckLine({ check, provider }) {
           <b>{T('cdn_taken')}</b>
           {' — '}
           <Host h={host} />
-          {TF('cdn_taken_tunnel', { n: check.tunnel || '?' })}
+          {TF('cdn_taken_tunnel', { n: check.tunnel })}
         </span>
       </div>
     )
@@ -115,7 +115,7 @@ function CheckLine({ check, provider }) {
           {' — '}
           <Host h={host} />
           {T('cdn_taken_manual')}
-          {(check.records || []).map((r) => (
+          {check.records.map((r) => (
             <code key={r} className="mono cdnrec" dir="ltr">
               {r}
             </code>
@@ -238,7 +238,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
       setPhase('form')
       return
     }
-    setCheck(random ? { state: 'names', hosts: r.d.hosts || [], zone } : r.d)
+    setCheck(random ? { state: 'names', hosts: r.d.hosts, zone } : r.d)
     setPhase('plan')
   }
 
@@ -248,7 +248,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
     setPhase('making')
     setError('')
     const r = await apiPost('cdn-make', { provider, zone, labels, replace, ip: serverIp })
-    const rows = r.ok && r.d.ok ? r.d.hosts || [] : []
+    const rows = r.ok && r.d.ok ? r.d.hosts : []
     if (rows.length) onMade(rows)
     if (my !== seq.current) return
     if (!(r.ok && r.d.ok)) {
@@ -256,7 +256,7 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
       setPhase('plan')
       return
     }
-    setMade({ rows, provider, steps: r.d.steps || [] })
+    setMade({ rows, provider, steps: r.d.steps })
     setPhase('made')
   }
 

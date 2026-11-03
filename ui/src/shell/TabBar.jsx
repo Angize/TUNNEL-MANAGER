@@ -1,18 +1,11 @@
 import Icon from '../components/Icon.jsx'
+import { NAV_ITEMS, unreadText } from './Sidebar.jsx'
 import { T } from '../i18n/fa.js'
-
-const ITEMS = [
-  { id: 'overview', icon: 'dash' },
-  { id: 'fleet', icon: 'server' },
-  { id: 'links', icon: 'link' },
-  { id: 'logs', icon: 'list' },
-  { id: 'settings', icon: 'cog' },
-]
 
 export default function TabBar({ page, unread, onNavigate }) {
   return (
     <nav className="tabbar">
-      {ITEMS.map((it) => (
+      {NAV_ITEMS.map((it) => (
         <button
           key={it.id}
           type="button"
@@ -25,7 +18,7 @@ export default function TabBar({ page, unread, onNavigate }) {
           <Icon name={it.icon} />
           <span className="tlbl">{T('nav_' + it.id)}</span>
           {it.id === 'logs' && unread > 0 ? (
-            <i className="tbadge">{unread > 99 ? '99+' : String(unread)}</i>
+            <i className="tbadge">{unreadText(unread)}</i>
           ) : null}
         </button>
       ))}

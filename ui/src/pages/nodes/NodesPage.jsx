@@ -15,7 +15,7 @@ import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
-import { latinDigits, num } from '../../lib/num.js'
+import { isCentralStale } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
@@ -23,12 +23,6 @@ import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy, reorderMode } from '../../lib/reorder.js'
 import useFlipList from '../../lib/useFlipList.js'
 import './nodes.css'
-
-function isCentralStale(node) {
-  const got = (node.info && node.info.central) || ''
-  const want = node.central_want || ''
-  return !!(got && want && got !== want)
-}
 
 function StaleBanner({ count }) {
   if (!count) return null
@@ -61,13 +55,13 @@ export default function NodesPage({ active }) {
     const epoch = settled.current
     let r
     try {
-      r = await apiGet('nodes?q=' + encodeURIComponent(latinDigits(query).replace(/٫/g, '.')), onProgress)
+      r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
     } catch (e) {
       setLoadErr(readError(e))
       throw e
     }
     setLoadErr('')
-    return { nodes: r.nodes, windowHours: num(r.uptime_window) || 1, epoch }
+    return { nodes: r.nodes, windowHours: r.uptime_window, epoch }
   }, [query])
 
   const [data, reload, progress] = usePolledData(load, query, active)

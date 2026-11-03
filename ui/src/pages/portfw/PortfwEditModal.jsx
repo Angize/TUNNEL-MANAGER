@@ -9,7 +9,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../lib/form.js'
 import { nodeIps, nodeItemsKeeping } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
 import ListenIpField from './ListenIpField.jsx'
@@ -17,8 +17,10 @@ import RotateFields, { DEFAULT_ROTATE_MINUTES, rotateBody } from './RotateFields
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
+  const { limits } = useUiConfig()
   const [busy, guard] = useBusy()
   const [saved, markSaved] = useSaved()
   const nodeItems = nodeItemsKeeping(nodes, [[item.node_id, item.node]])
@@ -28,7 +30,7 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
   const [listenIp, setListenIp] = useState(item.listen_ip || '')
   const [listenPort, setListenPort] = useState(String(item.listen_port))
   const [dstPort, setDstPort] = useState(String(item.dst_port))
-  const [dstIps, setDstIps] = useState((item.dst_ips || []).join(', '))
+  const [dstIps, setDstIps] = useState(item.dst_ips.join(', '))
   const [rotate, setRotate] = useState(rotatedBefore)
   const [rotateMinutes, setRotateMinutes] = useState(
     String(rotatedBefore ? item.switch_interval / 60 : DEFAULT_ROTATE_MINUTES)
@@ -107,10 +109,10 @@ export default function PortfwEditModal({ item, nodes, onClose, onSaved }) {
       </Reveal>
 
       <div className="grid2">
-        <Field label={rangeLabel(T('pf_listen_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('pf_listen_port'), ...limits.port)}>
           <NumberInput value={listenPort} onChange={setListenPort} />
         </Field>
-        <Field label={rangeLabel(T('pf_dst_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('pf_dst_port'), ...limits.port)}>
           <NumberInput value={dstPort} onChange={setDstPort} />
         </Field>
       </div>

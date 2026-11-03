@@ -1,6 +1,6 @@
 import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
-import { edgePort, providerName } from '../../../lib/cdn.js'
+import { edgePort, isIpv4, providerName } from '../../../lib/cdn.js'
 import { POOL_MAX, RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
 import { cdnShapeApplies, cdnShapeOn, rawUpPorted, sprotLive } from './gates.js'
 
@@ -38,7 +38,7 @@ export function limitErr(form, key, limits) {
 }
 
 function rawProtoOwner(value, enums) {
-  const map = (enums && enums.raw_protos) || {}
+  const map = enums.raw_protos
   for (const key of Object.keys(map)) if (map[key] === value) return key
   return ''
 }
@@ -114,7 +114,6 @@ export function cdnShapeErr(form, enums) {
   return ''
 }
 
-const IP4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 export const DOMAIN = /^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+([A-Za-z]{2,}|xn--[A-Za-z0-9-]*[A-Za-z0-9])$/
 
 export function poolValid(kind, value, enums) {
@@ -124,10 +123,10 @@ export function poolValid(kind, value, enums) {
   if (colon >= 0) {
     host = value.slice(0, colon)
     const port = value.slice(colon + 1)
-    const allowed = ((enums && enums.edge_ports) || {}).tls || []
+    const allowed = enums.edge_ports.tls
     if (!(/^\d+$/.test(port) && allowed.includes(+port))) return false
   }
-  return IP4.test(host)
+  return isIpv4(host)
 }
 
 export function poolOwners(pool, owners) {

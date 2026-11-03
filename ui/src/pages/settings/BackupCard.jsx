@@ -137,7 +137,7 @@ export default function BackupCard() {
   }
 
   return (
-    <div className="card opc sc-panel upc bkcard">
+    <div className="card opc sc-panel upc">
       <UpdateRow
         icon="shield"
         title={T('bk_card')}

@@ -42,7 +42,6 @@
   padding: 10px 0;
 }
 
-.oalert + .oalert,
 .oalerts > .rv + .rv .oalert,
 .oalerts > .rv + .oalert {
   border-top: 1px solid var(--bord);

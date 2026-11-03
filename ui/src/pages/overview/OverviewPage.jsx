@@ -11,7 +11,7 @@ import TrafficChart, { pushLive } from './TrafficChart.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import { scoreColor, uptimeColor } from '../../lib/health.js'
-import { fmtBytes, num } from '../../lib/num.js'
+import { fmtBytes, fmtGb, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
@@ -40,11 +40,6 @@ function Kpi({ label, value, total, color, note }) {
       {note ? <div className="okn">{note}</div> : null}
     </div>
   )
-}
-
-function gb(mb) {
-  const v = num(mb) / 1024
-  return v < 10 ? v.toFixed(1) : Math.round(v)
 }
 
 export default function OverviewPage({ onNavigate }) {
@@ -83,7 +78,7 @@ export default function OverviewPage({ onNavigate }) {
     : linksOff
       ? TF('ov_kpi_tun_off', { n: linksOff })
       : null
-  const uptimeWindow = num(summary.uptime_window) || 1
+  const uptimeWindow = summary.uptime_window
 
   return (
     <>
@@ -161,7 +156,7 @@ export default function OverviewPage({ onNavigate }) {
                   pct={central.ram_pct}
                   sub={
                     central.mem_used_mb != null
-                      ? gb(central.mem_used_mb) + ' / ' + gb(central.mem_total_mb) + ' ' + T('unit_gb')
+                      ? fmtGb(central.mem_used_mb) + ' / ' + fmtGb(central.mem_total_mb) + ' ' + T('unit_gb')
                       : '—'
                   }
                 />
@@ -170,7 +165,7 @@ export default function OverviewPage({ onNavigate }) {
                   pct={central.disk_pct}
                   sub={
                     central.disk_used_mb != null
-                      ? gb(central.disk_used_mb) + ' / ' + gb(central.disk_total_mb) + ' ' + T('unit_gb')
+                      ? fmtGb(central.disk_used_mb) + ' / ' + fmtGb(central.disk_total_mb) + ' ' + T('unit_gb')
                       : '—'
                   }
                 />

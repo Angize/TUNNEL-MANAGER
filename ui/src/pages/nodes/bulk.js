@@ -1,8 +1,8 @@
 import { latinDigits } from '../../lib/num.js'
+import { isIpv4 } from '../../lib/cdn.js'
 import { isNodeNameValid } from './nodeName.js'
 import { TF } from '../../i18n/fa.js'
 
-const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
 const FQDN = /^(?=.{1,253}$)[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z0-9-]*$/
 const USER = /^[A-Za-z0-9_.-]{1,32}$/
 const PORT = /^\d{1,5}$/
@@ -22,12 +22,12 @@ function splitTarget(token) {
 }
 
 function hostRank(t) {
-  if (IPV4.test(t.host)) return 2
+  if (isIpv4(t.host)) return 2
   if (FQDN.test(t.host)) return 1
   return 0
 }
 
-export function parseLine(raw, line) {
+function parseLine(raw, line) {
   const words = [...raw.matchAll(/\S+/g)]
   const targets = words.map((w) => splitTarget(w[0]))
   let at = -1

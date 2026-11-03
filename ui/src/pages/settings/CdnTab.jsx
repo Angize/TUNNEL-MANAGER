@@ -102,7 +102,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
   const [copying, setCopying] = useState(false)
   const [pend, setPend] = useState(null)
   const now = { ...status, ...pend }
-  const sslNow = now.ssl_mode || 'host'
+  const sslNow = now.ssl_mode
 
   const copyKey = async () => {
     setCopying(true)
@@ -321,7 +321,7 @@ export default function CdnTab() {
   }, [])
 
   return (
-    <div className="stpage cdnset" ref={box}>
+    <div className="stpage" ref={box}>
       <LoadBar on={!cdn && !err} value={progress} />
       {!cdn && err ? (
         <div className="card loadfail">
@@ -337,7 +337,7 @@ export default function CdnTab() {
             <ProviderCard
               key={p}
               provider={p}
-              status={cdn[p] || {}}
+              status={cdn[p]}
               made={(cdn.hosts || []).filter((h) => h.provider === p).length}
               proxies={proxies}
               onStatus={setCdn}

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from 'react'
 
-export default function useIndicator(box, active, axis) {
+export default function useIndicator(box, active) {
   const [style, setStyle] = useState(null)
 
   useLayoutEffect(() => {
@@ -10,16 +10,12 @@ export default function useIndicator(box, active, axis) {
         setStyle(null)
         return
       }
-      setStyle(
-        axis === 'x'
-          ? { left: el.offsetLeft, width: el.offsetWidth }
-          : { top: el.offsetTop, height: el.offsetHeight }
-      )
+      setStyle({ top: el.offsetTop, height: el.offsetHeight })
     }
     place()
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
-  }, [box, active, axis])
+  }, [box, active])
 
   return style || { opacity: 0 }
 }

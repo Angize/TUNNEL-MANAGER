@@ -3,28 +3,14 @@ import { createPortal } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import usePresence from '../../lib/usePresence.js'
+import useMedia from '../../lib/useMedia.js'
 
 const EXIT_MS = 180
 
 const PHONE = '(max-width: 840px)'
 
-function usePhone() {
-  const [phone, setPhone] = useState(() => !!(window.matchMedia && window.matchMedia(PHONE).matches))
-
-  useEffect(() => {
-    if (!window.matchMedia) return undefined
-    const query = window.matchMedia(PHONE)
-    const update = () => setPhone(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-
-  return phone
-}
-
 function Bar({ count, busy, leaving, onRevert, onSave }) {
-  const phone = usePhone()
+  const phone = useMedia(PHONE)
 
   useEffect(() => {
     if (!phone || leaving) return undefined

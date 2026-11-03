@@ -4,6 +4,10 @@ export function latinDigits(text) {
   return String(text == null ? '' : text).replace(/[۰-۹٠-٩]/g, (d) => String(d.charCodeAt(0) & 0xf))
 }
 
+export function latinNumber(text) {
+  return latinDigits(text).replace(/٫/g, '.')
+}
+
 export function faNum(n) {
   return num(n).toLocaleString('fa-IR')
 }
@@ -33,6 +37,11 @@ export function fmtClock(ms, withSec) {
 
 export function fmtDay(ms) {
   return new Date(ms).toLocaleDateString('fa-IR-u-nu-latn', { month: 'short', day: 'numeric' })
+}
+
+export function fmtGb(mb) {
+  const v = num(mb) / 1024
+  return v < 10 ? v.toFixed(1) : Math.round(v)
 }
 
 export function fmtBytes(n) {

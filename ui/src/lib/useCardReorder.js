@@ -13,27 +13,24 @@ const MAX_STEP = 24
 function capturePointer(node, id) {
   try {
     node.setPointerCapture(id)
-    return true
   } catch {
-    return false
+    return
   }
 }
 
 function releasePointer(node, id) {
   try {
     node.releasePointerCapture(id)
-    return true
   } catch {
-    return false
+    return
   }
 }
 
 function buzz() {
   try {
     if (navigator.vibrate) navigator.vibrate(10)
-    return true
   } catch {
-    return false
+    return
   }
 }
 

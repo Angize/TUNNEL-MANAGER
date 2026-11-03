@@ -26,7 +26,7 @@ import { alertBox, confirmBox } from '../../lib/dialog.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { useBulk } from '../../state/BulkInstallContext.jsx'
 import { T, TF } from '../../i18n/fa.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../lib/form.js'
 
 export function useBulkList(bulk, listing) {
   const [known, setKnown] = useState([])
@@ -97,7 +97,8 @@ function PreviewRow({ row, onJump }) {
 
 export function BulkForm({ bulk, list, proxies }) {
   const box = useRef(null)
-  const parallel = useUiConfig().limits.install_parallel
+  const { limits } = useUiConfig()
+  const parallel = limits.install_parallel
   const { form, setForm, starting } = bulk
   const { rows, counts: c, prefixOk } = list
   const prefix = form.prefix.trim() || 'DE'
@@ -159,7 +160,7 @@ export function BulkForm({ bulk, list, proxies }) {
         <Field label={T('nb_prefix')} error={prefixOk ? '' : T('nb_prefix_bad')}>
           <input {...LTR_TEXT} placeholder="DE" value={form.prefix} onChange={(e) => setForm({ prefix: e.target.value })} />
         </Field>
-        <Field label={rangeLabel(T('nadd_agent_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('nadd_agent_port'), ...limits.port)}>
           <NumberInput placeholder="8099" value={form.agentPort} onChange={(v) => setForm({ agentPort: v })} />
         </Field>
       </div>
@@ -171,7 +172,7 @@ export function BulkForm({ bulk, list, proxies }) {
         </span>
       </div>
       <div className="grid2">
-        <Field label={rangeLabel(T('nadd_ssh_port'), 1, PORT_MAX)}>
+        <Field label={rangeLabel(T('nadd_ssh_port'), ...limits.port)}>
           <NumberInput placeholder="22" value={form.sshPort} onChange={(v) => setForm({ sshPort: v })} />
         </Field>
         <Field label={T('nadd_ssh_user')}>

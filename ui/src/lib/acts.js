@@ -1,4 +1,4 @@
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 import { translateError } from './errors.js'
 import { num } from './num.js'
 
@@ -19,7 +19,7 @@ export function actWords(act, now) {
   if (act.state === 'fail') return translateError(act.error) || T('a_st_fail')
   if (act.state === 'cancel') return T('a_stopped')
   if (act.state === 'done') {
-    return act.note ? translateError(act.note) : T('a_took').replace('{t}', actAge(act, now))
+    return act.note ? translateError(act.note) : TF('a_took', { t: actAge(act, now) })
   }
   return act.step || T('a_working')
 }

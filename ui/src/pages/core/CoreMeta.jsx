@@ -15,7 +15,7 @@ import {
 import { poolRotateItems } from './form/presets.js'
 import { hostAddress } from '../../lib/subnet.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { num } from '../../lib/num.js'
 
 const SERVER_HOST = 1
@@ -31,7 +31,7 @@ function capabilities(link) {
   if (link.obfs) tags.push('obfs')
   if (link.cover) tags.push('TLS')
   if (link.gso) tags.push('GSO')
-  if (link.fec) tags.push('FEC ' + ((link.fec_data || 16) + '+' + (link.fec_parity || 4)))
+  if (link.fec) tags.push('FEC ' + link.fec_data + '+' + link.fec_parity)
   if (link.fake_desync) tags.push('desync')
   return tags
 }
@@ -43,7 +43,7 @@ function ConntrackWarning({ link, ported }) {
   const pct = num(ct.pct)
   if (!pct || pct < CT_WARN_PCT) return null
 
-  const parts = T('ctb_warn').replace('{p}', String(pct)).split('{n}')
+  const parts = TF('ctb_warn', { p: pct }).split('{n}')
 
   return (
     <div className="warncap no emwarn">
@@ -88,7 +88,7 @@ function rawRotating(link) {
 }
 
 function sidePorts(link, rungTransports, ported) {
-  const transport = link.transport || 'udp'
+  const transport = link.transport
   if (transport === 'raw') {
     if (!rawPorted(link, ported)) return []
     const live = link.rot_live || {}
@@ -129,16 +129,16 @@ function rawCells(link, ported) {
   const live = link.rot_live || {}
   const cells = []
   const dports = num(live.dports) || num(link.raw_dports)
-  if (dports > 1) cells.push(cell(T('rot_dst'), <b>{T('n_ports').replace('{n}', String(dports))}</b>))
+  if (dports > 1) cells.push(cell(T('rot_dst'), <b>{TF('n_ports', { n: dports })}</b>))
   if (!rawRotating(link)) return cells
 
   const every = num(live.every) || num(link.raw_sport_rotate)
   const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
   const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
   const drawn = num(live.drawn)
-  cells.push(cell(T('rot_src'), <b>{every ? T('rot_every').replace('{n}', String(every)) : T('rot_on_fail')}</b>))
+  cells.push(cell(T('rot_src'), <b>{every ? TF('rot_every', { n: every }) : T('rot_on_fail')}</b>))
   cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
-  if (drawn) cells.push(cell(T('rot_drawn'), <b>{T('n_ports').replace('{n}', compact.format(drawn))}</b>))
+  if (drawn) cells.push(cell(T('rot_drawn'), <b>{TF('n_ports', { n: compact.format(drawn) })}</b>))
   return cells
 }
 
@@ -151,7 +151,7 @@ function edgeRotation(link) {
 
 function sharedCells(link, ported) {
   const profile = carrierProfile(link)
-  const cipher = link.cipher && link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
+  const cipher = link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
     ...(profile ? [cell(T('raw_prof'), <span className={'ctag c-' + carrierFamily(link)}>{profile}</span>)] : []),
     cell(

@@ -5,7 +5,7 @@ import { ctbDefault } from './gates.js'
 import { rawProfiles } from './presets.js'
 import { Seg2, SegOpt } from './controls.jsx'
 import { cleanPtype, ptypeErr } from './ptype.js'
-import { T } from '../../../i18n/fa.js'
+import { T, TF } from '../../../i18n/fa.js'
 
 const PTYPE_SEGS = [
   ['', '0x0800', 'raw_ptype_def'],
@@ -80,7 +80,7 @@ function DirChip({ dir, on, profile, onPick }) {
       type="button"
       className={'dirchip ' + dir + (on ? ' on' : '')}
       aria-pressed={on ? 'true' : 'false'}
-      aria-label={T(up ? 'raw_dir_up_aria' : 'raw_dir_down_aria').replace('{p}', profile)}
+      aria-label={TF(up ? 'raw_dir_up_aria' : 'raw_dir_down_aria', { p: profile })}
       onClick={onPick}
     >
       <Icon name={up ? 'upload' : 'download'} />
@@ -121,7 +121,7 @@ export default function RawDirGrid({ form, cfg, sides, patch }) {
   return (
     <div>
       <label>{T('raw_dir_lbl')}</label>
-      <div className="pgrid dirgrid" role="group" aria-label={T('raw_dir_lbl')}>
+      <div className="pgrid" role="group" aria-label={T('raw_dir_lbl')}>
         {rawProfiles().map((profile) => {
           const up = profile.v === form.RawProfile
           const down = profile.v === form.RawProfileDown

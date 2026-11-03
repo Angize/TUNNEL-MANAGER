@@ -10,20 +10,20 @@ import LogEvent from './LogEvent.jsx'
 import LogFiltersPanel from './LogFiltersPanel.jsx'
 import useHiddenTypes from './useHiddenTypes.js'
 import { eventKey } from './logFormat.js'
-import { T } from '../../i18n/fa.js'
+import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { setLS } from '../../lib/storage.js'
+import { LOGS_SEEN_KEY, setLS } from '../../lib/storage.js'
 import { setPageRefresh } from '../../lib/poll.js'
 import { reducedMotion } from '../../lib/motion.js'
+import { num } from '../../lib/num.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import './logs.css'
 
 const PAGE_SIZE = 200
-const SEEN_KEY = 'tnl_logs_seen'
 const BORN_STEP_MS = 40
 const BORN_SPAN_MS = 200
 const BORN_MS = 600
@@ -49,7 +49,8 @@ function newestId(events, start) {
 
 export default function LogsPage() {
   const { ev_types: evTypes, ev_groups: evGroups } = useUiConfig()
-  const { evSeq, logCount, loaded } = useSummary()
+  const { evSeq, counts: summaryCounts, loaded } = useSummary()
+  const logCount = num(summaryCounts.log_count)
 
   const [events, setEvents] = useState(null)
   const [progress, setProgress] = useState(0)
@@ -77,7 +78,7 @@ export default function LogsPage() {
     loadRef.current()
   }, [])
 
-  const { hidden, hiddenCount, known, adoptFromServer, isPending, toggleType, toggleGroup } =
+  const { hidden, hiddenCount, known, adoptFromServer, toggleType, toggleGroup } =
     useHiddenTypes({ evTypes, onSaved: refetch })
 
   const load = useCallback(async () => {
@@ -103,8 +104,8 @@ export default function LogsPage() {
     }
     setEvents(r.events)
     setHiddenOut(r.hidden_out)
-    if (!isPending()) adoptFromServer(r.hidden)
-  }, [evSeq, logCount, adoptFromServer, isPending])
+    adoptFromServer(r.hidden)
+  }, [evSeq, logCount, adoptFromServer])
 
   loadRef.current = load
 
@@ -115,7 +116,7 @@ export default function LogsPage() {
   useEffect(() => setPageRefresh(() => loadRef.current()), [])
 
   useEffect(() => {
-    if (loaded) setLS(SEEN_KEY, String(evSeq))
+    if (loaded) setLS(LOGS_SEEN_KEY, String(evSeq))
   }, [evSeq, loaded])
 
   useEffect(() => {
@@ -208,7 +209,7 @@ export default function LogsPage() {
     ([key]) => key === 'all' || key === filter || counts[key] > 0
   )
 
-  const hiddenTypes = hiddenCount ? T('logf_types').replace('{n}', hiddenCount) : undefined
+  const hiddenTypes = hiddenCount ? TF('logf_types', { n: hiddenCount }) : undefined
 
   const openFilters = (e, open) => {
     setKbFilters(!e.detail)
@@ -297,7 +298,7 @@ export default function LogsPage() {
             {hiddenOut && !filtersOpen ? (
               <button type="button" className="fchip lgfhid" onClick={(e) => openFilters(e, true)}>
                 <Icon name="cog" />
-                {T('logf_hidden').replace('{n}', hiddenOut)}
+                {TF('logf_hidden', { n: hiddenOut })}
               </button>
             ) : null}
           </div>
@@ -326,7 +327,7 @@ export default function LogsPage() {
             )}
             {remaining > 0 ? (
               <button type="button" className="card muted logmore" onClick={more}>
-                {T('logs_more').replace('{n}', remaining)}
+                {TF('logs_more', { n: remaining })}
               </button>
             ) : null}
           </div>

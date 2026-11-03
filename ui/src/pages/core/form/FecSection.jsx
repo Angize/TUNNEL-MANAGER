@@ -17,7 +17,7 @@ function Fec({ form, patch }) {
       <Reveal show={!!form.Fec}>
         <div>
           <label>{T('fec_rate_lbl')}</label>
-          <Tiles p3 label={T('fec_rate_lbl')}>
+          <Tiles label={T('fec_rate_lbl')}>
             {fecRates().map((rate) => (
               <Tile
                 key={rate.d + '+' + rate.p}

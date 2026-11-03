@@ -12,7 +12,7 @@ import BandSection from './BandSection.jsx'
 import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
 import { intOf, sprotErr } from './validate.js'
 import { rangeLabel } from '../../../lib/form.js'
-import { RAW_SPORT_FIXED } from '../carrier.js'
+import { RAW_DPORT_DEFAULT, RAW_SPORT_FIXED } from '../carrier.js'
 import { T } from '../../../i18n/fa.js'
 
 const DPORT_PRESETS = {
@@ -179,7 +179,7 @@ function RawPort({ form, cfg, patch }) {
         id={id}
         className="mono"
         maxLength={5}
-        placeholder="443"
+        placeholder={String(RAW_DPORT_DEFAULT)}
         style={{ textAlign: 'center', direction: 'ltr' }}
         value={form.rawPort}
         onChange={(v) => patch({ rawPort: v })}

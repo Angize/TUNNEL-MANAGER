@@ -5,8 +5,7 @@ label {
   margin: 13px 2px 6px;
 }
 
-input,
-select {
+input {
   width: 100%;
   padding: 11px 12px;
   border: 1px solid var(--edge);
@@ -26,7 +25,6 @@ textarea::placeholder {
 }
 
 input:focus,
-select:focus,
 textarea:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--acc) 55%, transparent);
@@ -68,7 +66,6 @@ textarea:focus {
   border: 3px solid rgba(255, 255, 255, .4);
   border-top-color: #fff;
   border-radius: 50%;
-  animation: isp .9s linear infinite;
 }
 
 .bspin.ink {
@@ -85,10 +82,6 @@ textarea:focus {
 
 @keyframes isp {
   to { transform: rotate(360deg) }
-}
-
-.primary:active:not(:disabled) {
-  transform: scale(.98);
 }
 
 .primary.danger {
@@ -247,7 +240,6 @@ textarea:focus {
   box-shadow: var(--dsh);
   cursor: pointer;
   user-select: none;
-  -webkit-tap-highlight-color: transparent;
 }
 
 .swrow:not(.dis):hover {
@@ -305,7 +297,6 @@ textarea:focus {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
-  transition: inset-inline-start .3s cubic-bezier(.25, 1.2, .4, 1);
 }
 
 .tglsw.on {
@@ -712,8 +703,6 @@ textarea:focus {
 }
 
 .fld.bad input,
-.fld.bad select,
-.fld.bad .msbtn,
 .fld.bad .stepper {
   border-color: color-mix(in srgb, var(--bad) 60%, transparent);
 }
@@ -739,13 +728,10 @@ textarea:focus {
   flex: 0 0 44px;
   display: grid;
   place-items: center;
-  margin: 0;
-  padding: 0;
   border: 0;
   background: var(--ctl);
   color: var(--tx);
   cursor: pointer;
-  transition: background .2s, color .2s;
 }
 
 .stpb:hover:not([aria-disabled='true']) {

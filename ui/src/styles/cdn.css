@@ -1,19 +1,6 @@
-.cdnset {
-  gap: 12px;
-}
-
 .cdnprov .sgt.cf {
   --scbg: color-mix(in srgb, var(--h-orange) 14%, transparent);
   --sc: var(--h-orange);
-}
-
-.cdnprov .sgt.ar {
-  --scbg: var(--accw);
-  --sc: var(--acc-tx);
-}
-
-.cdnprov .fld {
-  margin: 0;
 }
 
 .cdnedit {
@@ -139,10 +126,6 @@
   min-width: 0;
 }
 
-.cdnpermr .mono {
-  font-size: 11px;
-}
-
 .cdnpermr small {
   margin-inline-start: auto;
   color: var(--sub);
@@ -162,11 +145,9 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 12px;
 }
 
 .cdngrid .fld {
-  margin: 0;
   min-width: 0;
 }
 
@@ -187,7 +168,6 @@
 .cdnlabel input {
   flex: 1;
   min-width: 0;
-  margin: 0;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -207,7 +187,7 @@
   white-space: nowrap;
   align-self: center;
   padding: 0 10px 0 2px;
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 12px;
   color: var(--sub);
 }
@@ -257,15 +237,6 @@
   margin: 0;
 }
 
-.ltrv {
-  display: inline-block;
-  direction: ltr;
-  unicode-bidi: isolate;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  vertical-align: bottom;
-}
-
 .apcard.cdnprov .oprow {
   flex-wrap: wrap;
 }
@@ -312,11 +283,6 @@
   min-width: 0;
 }
 
-.cdnchip.off {
-  background: var(--field);
-  color: var(--sub);
-}
-
 .cdnpermn {
   font-size: 10.5px;
   line-height: 1.7;
@@ -359,10 +325,6 @@
   cursor: not-allowed;
 }
 
-.cdnsteps li.info {
-  color: var(--sub);
-}
-
 @media (max-width: 520px) {
   .cdngrid {
     grid-template-columns: 1fr;
@@ -403,10 +365,6 @@
 .cdnmake .ic {
   width: 14px;
   height: 14px;
-}
-
-.ghost.tone.cdnmake.on {
-  background: color-mix(in srgb, var(--c) 18%, var(--card));
 }
 
 .cdnplaced {
@@ -625,10 +583,6 @@
   animation: msgswap .2s var(--ease-out);
 }
 
-.cdngrid.cdnmkgrid {
-  margin-top: 0;
-}
-
 .cdnmkgrid .fld label {
   margin-top: 0;
 }
@@ -729,7 +683,6 @@
   flex-wrap: wrap;
   width: 100%;
   min-height: 44px;
-  margin: 0;
   padding: 6px 10px;
   border-radius: 10px;
   border: 1px solid var(--bord);
@@ -813,17 +766,12 @@
   font-size: 12.5px;
 }
 
-.ghost.cdnact {
-  margin-inline-start: 0;
-}
-
 .cdnact .ic {
   width: 14px;
   height: 14px;
 }
 
 .cdnact:disabled {
-  opacity: .45;
   pointer-events: none;
 }
 
@@ -865,7 +813,6 @@
 .cdnaskl {
   list-style: none;
   margin: 10px 0 0;
-  padding: 0;
   display: grid;
   gap: 4px;
 }
@@ -899,10 +846,6 @@
   color: var(--sub);
 }
 
-.cdnask .warncap {
-  margin: 10px 0 0;
-}
-
 .cdnaskb {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -919,10 +862,6 @@
   justify-content: center;
   gap: 7px;
   white-space: nowrap;
-}
-
-.cdnaskb .ghost {
-  margin-inline-start: 0;
 }
 
 .cdnaskb .ic,
@@ -956,12 +895,6 @@
     background: var(--ctl);
     color: var(--tx);
   }
-}
-
-.cdnhosts {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 .cdnhosts > .cdnused {
@@ -1034,7 +967,6 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 8px;
-  margin: 0;
 }
 
 .cdnedgeadd input {

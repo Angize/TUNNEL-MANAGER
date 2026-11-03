@@ -47,7 +47,8 @@
   background: var(--accw);
 }
 
-.ast.cancel {
+.ast.cancel,
+.ast.warn {
   color: var(--gold-tx);
   background: var(--goldw);
 }
@@ -60,11 +61,6 @@
 .ast.done {
   color: var(--ok-tx);
   background: var(--okw);
-}
-
-.ast.warn {
-  color: var(--gold-tx);
-  background: var(--goldw);
 }
 
 .astep {
@@ -86,7 +82,7 @@
 }
 
 .aclock {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--sub);
@@ -116,7 +112,8 @@
   transition: width .6s cubic-bezier(.4, 0, .2, 1), background-color 240ms var(--ease-out);
 }
 
-.abar.cancel > i {
+.abar.cancel > i,
+.abar.warn > i {
   background: var(--gold);
 }
 
@@ -126,10 +123,6 @@
 
 .abar.done > i {
   background: var(--ok);
-}
-
-.abar.warn > i {
-  background: var(--gold);
 }
 
 .abar.spin > i {

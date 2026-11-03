@@ -3,6 +3,7 @@ import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import IpChips from '../../components/IpChips.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
+import NodeTile from './NodeTile.jsx'
 import Gauge from '../overview/Gauge.jsx'
 import TrafficChart, { pushLive } from '../overview/TrafficChart.jsx'
 import { T } from '../../i18n/fa.js'
@@ -10,32 +11,14 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { readError, translateError } from '../../lib/errors.js'
 import { getUiInterval } from '../../lib/poll.js'
 import { toast } from '../../lib/toast.js'
-import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
+import { fmtBytes, fmtGb, fmtRate, fmtUptime, num } from '../../lib/num.js'
+import { isCentralStale } from '../../lib/nodes.js'
 import useBusy from '../../lib/useBusy.js'
-
-function gb(mb) {
-  const v = num(mb) / 1024
-  return v < 10 ? v.toFixed(1) : Math.round(v)
-}
-
-function Tile({ icon, label, children, wide, ltr }) {
-  return (
-    <div className={'nd-tile' + (wide ? ' nd-wide nd-line' : '')}>
-      <span className="medi">
-        <Icon name={icon} />
-      </span>
-      <span>{label}</span>
-      <b className={ltr ? 'ltr' : undefined}>{children}</b>
-    </div>
-  )
-}
 
 function CentralCell({ node }) {
   const got = (node.info && node.info.central) || ''
   if (!got) return <span className="muted">{T('nd_central_none')}</span>
-  const want = node.central_want || ''
-  const stale = !!(got && want && got !== want)
-  return <span className={'mono' + (stale ? ' cn-stale' : '')}>{got}</span>
+  return <span className={'mono' + (isCentralStale(node) ? ' cn-stale' : '')}>{got}</span>
 }
 
 function TrafficRow({ row }) {
@@ -197,7 +180,7 @@ export default function NodeDetailsModal({ node, onClose }) {
               pct={ramPct}
               sub={
                 stats.mem_used_mb != null
-                  ? gb(stats.mem_used_mb) + ' / ' + gb(stats.mem_total_mb) + ' ' + T('unit_gb')
+                  ? fmtGb(stats.mem_used_mb) + ' / ' + fmtGb(stats.mem_total_mb) + ' ' + T('unit_gb')
                   : '—'
               }
             />
@@ -206,7 +189,7 @@ export default function NodeDetailsModal({ node, onClose }) {
               pct={stats.disk_pct}
               sub={
                 stats.disk_used_mb != null
-                  ? gb(stats.disk_used_mb) + ' / ' + gb(stats.disk_total_mb) + ' ' + T('unit_gb')
+                  ? fmtGb(stats.disk_used_mb) + ' / ' + fmtGb(stats.disk_total_mb) + ' ' + T('unit_gb')
                   : '—'
               }
             />
@@ -244,30 +227,30 @@ export default function NodeDetailsModal({ node, onClose }) {
           <div className="nd-divider" />
 
           <div className="nd-grid">
-            <Tile icon="os" label={T('os')} ltr>
+            <NodeTile icon="os" label={T('os')} ltr>
               {stats.os || '?'}
-            </Tile>
-            <Tile icon="clock" label={T('uptime')}>
+            </NodeTile>
+            <NodeTile icon="clock" label={T('uptime')}>
               {stats.uptime ? fmtUptime(stats.uptime) : '?'}
-            </Tile>
-            <Tile icon="cores" label={T('cpu_cores')}>
+            </NodeTile>
+            <NodeTile icon="cores" label={T('cpu_cores')}>
               {num(stats.cpus) || '?'}
-            </Tile>
-            <Tile icon="link" label={T('nd_tunnels')}>
+            </NodeTile>
+            <NodeTile icon="link" label={T('nd_tunnels')}>
               {num(info.tunnels)}
-            </Tile>
-            <Tile icon="globe" label={T('nd_portfw')}>
+            </NodeTile>
+            <NodeTile icon="globe" label={T('nd_portfw')}>
               {num(info.portfw)}
-            </Tile>
-            <Tile icon="shield" label={T('nd_ctrlproxy')}>
+            </NodeTile>
+            <NodeTile icon="shield" label={T('nd_ctrlproxy')}>
               {node.proxy_on ? node.proxy_name || '?' : '—'}
-            </Tile>
-            <Tile icon="server" label={T('host')} wide ltr>
+            </NodeTile>
+            <NodeTile icon="server" label={T('host')} wide line ltr>
               {info.hostname || '?'}
-            </Tile>
-            <Tile icon="globe" label={T('nd_central')} wide ltr>
+            </NodeTile>
+            <NodeTile icon="globe" label={T('nd_central')} wide line ltr>
               <CentralCell node={node} />
-            </Tile>
+            </NodeTile>
           </div>
 
           <div className="nd-divider" />

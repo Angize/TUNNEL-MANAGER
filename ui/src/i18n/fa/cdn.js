@@ -74,8 +74,6 @@ export default {
   cdn_zone_lbl: 'دامنه',
   cdn_zone_pick: 'یک دامنه انتخاب کن',
   cdn_zone_loading: 'در حالِ خواندنِ دامنه‌ها…',
-  cdn_zone_bad: 'این دامنه الان ترافیک را پروکسی نمی‌کند',
-  cdn_zone_need: 'دامنهٔ CDN را انتخاب کن',
   cdn_label_lbl: 'زیردامنه',
   cdn_label_ph: 'ge9',
   cdn_cf_443:

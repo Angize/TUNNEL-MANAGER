@@ -11,18 +11,18 @@ export function usageLevel(pct, crit) {
   return 'ok'
 }
 
-export function usageColor(pct, crit) {
-  return LEVEL_COLOR[usageLevel(pct, crit)]
-}
-
 export function scoreColor(score) {
   if (score >= 85) return LEVEL_COLOR.ok
   if (score >= 60) return LEVEL_COLOR.warn
   return LEVEL_COLOR.crit
 }
 
-export function uptimeColor(pct, [ok, bad]) {
-  if (pct >= ok) return LEVEL_COLOR.ok
-  if (pct >= bad) return LEVEL_COLOR.warn
-  return LEVEL_COLOR.crit
+export function uptimeLevel(pct, [ok, bad]) {
+  if (pct >= ok) return 'ok'
+  if (pct >= bad) return 'warn'
+  return 'crit'
+}
+
+export function uptimeColor(pct, levels) {
+  return LEVEL_COLOR[uptimeLevel(pct, levels)]
 }

@@ -4,7 +4,6 @@ import FormTabs from '../../components/FormTabs.jsx'
 import modalLoading from '../../components/ModalLoading.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import Field from '../../components/Field.jsx'
-import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import IpField from '../../components/IpField.jsx'
@@ -14,16 +13,22 @@ import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { endIp, nodeIps, nodeItemsForEdit, nodeLabel, seedIp } from '../../lib/nodes.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { TUNNEL_TYPES, subnetBaseOf, subnetFitError, subnetForBase, subnetRangeItems } from '../../lib/subnet.js'
+import { LTR_TEXT } from '../../lib/form.js'
+import {
+  PORT_TYPES,
+  TUNNEL_TYPES,
+  subnetBaseOf,
+  subnetFitError,
+  subnetForBase,
+  subnetRangeItems,
+} from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
-
-const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
+import PortField from './PortField.jsx'
 
 function EndIpField({ label, ips, current, value, onChange }) {
   const list = ips && ips.length ? ips : current ? [current] : []
@@ -103,19 +108,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const aCur = aNode === link.a_node ? link.a_ip : ''
   const bCur = bNode === link.b_node ? link.b_ip : ''
   const showPort = PORT_TYPES.includes(type)
-  const vxlan = type === 'vxlan'
 
   const save = async () => {
     if (aNode === bNode) {
       setMessage('')
       setTab('ip')
       alertBox(T('two_diff_nodes'))
-      return
-    }
-    if (!type) {
-      setMessage('')
-      setTab('set')
-      alertBox(T('tun_type'))
       return
     }
     const fitError = base === 'custom' ? '' : subnetFitError(type, link.tunnel_id, base)
@@ -260,16 +258,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
               </Field>
 
               <Reveal show={showPort}>
-                <Field
-                  label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)}
-                  hint={T(vxlan ? 'ttype_vxlan_note' : 'ttype_l2_note')}
-                >
-                  <NumberInput
-                    placeholder={T(vxlan ? 'ttype_vxlan_ph' : 'ttype_port_ph')}
-                    value={port}
-                    onChange={setPort}
-                  />
-                </Field>
+                <PortField type={type} value={port} onChange={setPort} />
               </Reveal>
             </>
           ),

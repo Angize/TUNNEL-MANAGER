@@ -1,29 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import modalLoading from '../../components/ModalLoading.jsx'
-import Icon from '../../components/Icon.jsx'
+import NodeTile from './NodeTile.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiPost } from '../../lib/api.js'
 import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import Msg from '../../components/Msg.jsx'
 import { WarnCap } from '../core/form/controls.jsx'
-
-function Tile({ icon, label, children, wide, line, warn, fresh }) {
-  return (
-    <div
-      className={
-        'nd-tile' + (wide ? ' nd-wide' : '') + (line ? ' nd-line' : '') + (warn ? ' kt-warn' : '') + (fresh ? ' kt-new' : '')
-      }
-    >
-      <span className="medi">
-        <Icon name={icon} />
-      </span>
-      <span>{label}</span>
-      <b>{children}</b>
-    </div>
-  )
-}
 
 export default function KernelTuneModal({ node, onClose }) {
   const [status, setStatus] = useState(null)
@@ -102,20 +86,20 @@ export default function KernelTuneModal({ node, onClose }) {
     <Modal icon="gauge" title={T('kt_title')} subtitle={T('kt_sub')} footer={footer} onClose={onClose}>
       <div className="kt-desc">{T('kt_desc')}</div>
       <div className="nd-grid">
-        <Tile icon="activity" label={T('kt_state')} wide line>
+        <NodeTile icon="activity" label={T('kt_state')} wide line>
           <span className={'lpill' + (active ? (changed.length ? ' warn' : '') : ' off')}>
             <span className="pd" />
             {T(active ? (changed.length ? 'kt_on_changed' : 'kt_on') : 'kt_off')}
           </span>
-        </Tile>
-        <Tile icon="traf" label={T('kt_cc')}>
+        </NodeTile>
+        <NodeTile icon="traf" label={T('kt_cc')}>
           <span className="mono">{status.cc || '?'}</span>
-        </Tile>
-        <Tile icon="swap" label={T('kt_qdisc')}>
+        </NodeTile>
+        <NodeTile icon="swap" label={T('kt_qdisc')}>
           <span className="mono">{status.qdisc || '?'}</span>
-        </Tile>
+        </NodeTile>
         {changed.length ? (
-          <Tile icon="warn" label={T('kt_changed_head')} wide warn fresh={chgNew}>
+          <NodeTile icon="warn" label={T('kt_changed_head')} wide warn fresh={chgNew}>
             {changed.map((c) => (
               <span key={c.key} className="kt-chg">
                 <span className="mono kt-k">{c.key}</span>
@@ -129,7 +113,7 @@ export default function KernelTuneModal({ node, onClose }) {
                 </span>
               </span>
             ))}
-          </Tile>
+          </NodeTile>
         ) : null}
       </div>
       <WarnCap tone="gold" text={bbr ? '' : T('kt_nobbr')} />

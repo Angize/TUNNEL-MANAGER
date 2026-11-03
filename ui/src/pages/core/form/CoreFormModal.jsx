@@ -18,7 +18,7 @@ import { apiGet, apiPost } from '../../../lib/api.js'
 import { alertBox } from '../../../lib/dialog.js'
 import { postError, readError, translateError } from '../../../lib/errors.js'
 import { toast } from '../../../lib/toast.js'
-import { nodeIps, nodeItemsForEdit, nodeLabel } from '../../../lib/nodes.js'
+import { nodeIps, nodeItemsForEdit, nodeItemsKeeping, nodeLabel } from '../../../lib/nodes.js'
 import { cdnAuto, cfHosts } from '../../../lib/cdn.js'
 import { subnetFitError, subnetForBase } from '../../../lib/subnet.js'
 import { useActs } from '../../../state/ActsContext.jsx'
@@ -108,9 +108,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const items = useMemo(() => {
     if (!nodes) return []
     if (link) return nodeItemsForEdit(nodes, link)
-    return nodes
-      .filter((n) => n.online && !n.hidden)
-      .map((n) => ({ v: n.id, label: n.name, sub: n.host }))
+    return nodeItemsKeeping(nodes, [])
   }, [nodes, link])
 
   const aIps = useMemo(() => (form ? nodeIps(nodes, form.aNode) : []), [nodes, form])
@@ -169,7 +167,9 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
   const srvSide = form && form.Srv === 'b' ? 'b' : 'a'
   const srvIps = srvSide === 'b' ? bIps : aIps
-  const srvStored = link ? link[srvSide + '_ip'] || '' : ''
+  const storedA = link ? link.a_ip || '' : ''
+  const storedB = link ? link.b_ip || '' : ''
+  const srvStored = srvSide === 'b' ? storedB : storedA
   const serverIp = form
     ? pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvIps[0] || srvStored || ''
     : ''
@@ -228,30 +228,18 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
-    const body = link
-      ? {
-          id: link.id,
-          type: 'core',
-          a_node: form.aNode,
-          b_node: form.bNode,
-          server_side: form.Srv,
-          cipher: form.cipher,
-          transport: form.Tr,
-          obfs: form.Obfs,
-          cover: form.Cover && form.Tr === 'tcp',
-          gso: form.Gso,
-        }
-      : {
-          a_node: form.aNode,
-          b_node: form.bNode,
-          type: 'core',
-          server_side: form.Srv,
-          cipher: form.cipher,
-          transport: form.Tr,
-          obfs: form.Obfs,
-          cover: form.Cover && form.Tr === 'tcp',
-          gso: form.Gso,
-        }
+    const body = {
+      type: 'core',
+      a_node: form.aNode,
+      b_node: form.bNode,
+      server_side: form.Srv,
+      cipher: form.cipher,
+      transport: form.Tr,
+      obfs: form.Obfs,
+      cover: form.Cover,
+      gso: form.Gso,
+    }
+    if (link) body.id = link.id
 
     const edgeError = edgeValidate(form)
     if (edgeError) {
@@ -288,16 +276,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       return
     }
 
-    const storedA = link ? link.a_ip || '' : ''
-    const storedB = link ? link.b_ip || '' : ''
     const aIp = pickedIp(form, aIps, form.rot.aSel, form.aIp, storedA)
     if (aIp) body.a_ip = aIp
     const bIp = pickedIp(form, bIps, form.rot.bSel, form.bIp, storedB)
     if (bIp) body.b_ip = bIp
 
     const rot = rotCollect(form, aIps, bIps)
-    if (link) body.ip_rotate = !!rot
-    else if (rot) body.ip_rotate = true
+    body.ip_rotate = !!rot
     if (rot) {
       body.a_ip_pool = rot.a_ip_pool
       body.b_ip_pool = rot.b_ip_pool
@@ -391,8 +376,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
               items={items}
               aIps={aIps}
               bIps={bIps}
-              storedA={link ? link.a_ip || '' : ''}
-              storedB={link ? link.b_ip || '' : ''}
+              storedA={storedA}
+              storedB={storedB}
               peer={peerLid ? peerLive : null}
               edgeLive={onEdges ? poolLive : null}
               fronts={cdnKeys && cdnKeys.fronts}

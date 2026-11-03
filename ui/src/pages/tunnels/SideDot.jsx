@@ -14,3 +14,8 @@ export default function SideDot({ link, side }) {
   const state = linkSideState(link, side)
   return <span className={'sdot ' + state.kind} title={state.title} />
 }
+
+export function SideStatus({ link, side }) {
+  const state = linkSideState(link, side)
+  return state.word ? <span className={'stw ' + state.kind}>{state.word}</span> : null
+}

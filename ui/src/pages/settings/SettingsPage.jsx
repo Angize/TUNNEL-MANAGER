@@ -16,7 +16,7 @@ const CDN_PAGES = [
 
 const CDN_PAGE_KEY = 'tnl_kind_cdn'
 
-function CdnPages({ active, onNavigate }) {
+function CdnPages({ active }) {
   const [page, setPage] = useState(() => {
     const saved = getLS(CDN_PAGE_KEY)
     return CDN_PAGES.some((p) => p.id === saved) ? saved : CDN_PAGES[0].id
@@ -25,7 +25,7 @@ function CdnPages({ active, onNavigate }) {
     setPage(id)
     setLS(CDN_PAGE_KEY, id)
   }, [])
-  return <TabPager nested kinds={CDN_PAGES} kind={page} onKind={pick} active={active} onNavigate={onNavigate} />
+  return <TabPager nested kinds={CDN_PAGES} kind={page} onKind={pick} active={active} />
 }
 
 export const SETTINGS_KINDS = [

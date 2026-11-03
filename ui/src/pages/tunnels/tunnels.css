@@ -100,11 +100,6 @@
   box-shadow: 0 0 0 3px var(--okw);
 }
 
-.sdot.warn {
-  background: var(--gold);
-  box-shadow: 0 0 0 3px var(--goldw);
-}
-
 .sdot.bad {
   background: var(--bad);
   box-shadow: 0 0 0 3px var(--badw);
@@ -208,7 +203,6 @@
   font-weight: 800;
 }
 
-.stw.warn { color: var(--gold-tx) }
 .stw.bad { color: var(--bad-tx) }
 .stw.na { color: var(--sub) }
 
@@ -299,7 +293,7 @@
   border: 1px solid var(--edge);
   border-radius: 22px;
   padding: 16px 18px;
-  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .5), inset 0 1px 0 var(--hi);
+  box-shadow: var(--msh);
   max-width: 340px;
   width: 100%;
 }

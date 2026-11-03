@@ -91,7 +91,7 @@ function PortfwCard({ item, onEdit, onChanged }) {
 
   const rotates = item.switch_interval > 0
   const rotateEvery = rotates ? rotateLabel(item.switch_interval / 60) : ''
-  const targets = item.dst_ips || []
+  const targets = item.dst_ips
   const multiTarget = targets.length > 1
   const listenIp = item.listen_ip || item.node_ip || ''
   const activeTarget = override != null ? override : serverActive

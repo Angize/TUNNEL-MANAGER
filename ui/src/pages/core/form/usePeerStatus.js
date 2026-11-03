@@ -36,7 +36,6 @@ export default function usePeerStatus(lid) {
   const alive = useRef(true)
 
   const tick = useCallback(async () => {
-    if (!lid) return
     const r = await apiPost('peer-status', { id: lid })
     if (!alive.current) return
     if (r.ok && r.d.ok && !r.d.pool) return
@@ -96,7 +95,6 @@ export default function usePeerStatus(lid) {
 
   const retest = useCallback(
     async (side, key) => {
-      if (!lid) return
       const r = await apiPost('peer-retest-now', {
         id: lid,
         kind: side === 'src' ? 'src' : 'dst',
@@ -112,7 +110,7 @@ export default function usePeerStatus(lid) {
 
   const select = useCallback(
     async (side, key) => {
-      if (!lid || pending || !key) return
+      if (pending || !key) return
       setPending({ side, key, ts: Date.now() })
       const r = await apiPost('peer-select', { id: lid, side, key })
       if (r.ok && r.d.ok) {

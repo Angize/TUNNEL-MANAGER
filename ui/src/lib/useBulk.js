@@ -4,7 +4,7 @@ import { toast } from './toast.js'
 import { closeAllCards } from './openCards.js'
 import { registerCommand } from './pageCommand.js'
 import { useActs } from '../state/ActsContext.jsx'
-import { T } from '../i18n/fa.js'
+import { T, TF } from '../i18n/fa.js'
 
 const NAMES_SHOWN = 3
 
@@ -22,7 +22,7 @@ const PING = BULK_ACTIONS.find((a) => a.key === 'ping')
 export function bulkNames(links) {
   const shown = links.slice(0, NAMES_SHOWN).map((l) => '\u2068' + l.name + '\u2069').join('، ')
   const rest = links.length - NAMES_SHOWN
-  return rest > 0 ? shown + T('bulk_more').replace('{n}', String(rest)) : shown
+  return rest > 0 ? shown + TF('bulk_more', { n: rest }) : shown
 }
 
 export default function useBulk({ list, command, onDone }) {
@@ -140,12 +140,13 @@ export default function useBulk({ list, command, onDone }) {
       setRun(null)
     }
 
-    let msg = T(action.key === 'ping' ? 'bulk_ping_done' : 'bulk_done')
-      .replace('{a}', T('bulk_t_' + action.key))
-      .replace('{ok}', String(ok))
-      .replace('{k}', String(k))
-    if (bad && action.key !== 'ping') msg += T('bulk_bad').replace('{n}', String(bad))
-    if (skipped) msg += T('bulk_skip').replace('{n}', String(skipped))
+    let msg = TF(action.key === 'ping' ? 'bulk_ping_done' : 'bulk_done', {
+      a: T('bulk_t_' + action.key),
+      ok,
+      k,
+    })
+    if (bad && action.key !== 'ping') msg += TF('bulk_bad', { n: bad })
+    if (skipped) msg += TF('bulk_skip', { n: skipped })
     if (firstErr) msg += ' — ' + firstErr
     toast(msg, bad ? 'err' : 'ok')
     await onDone()
@@ -157,7 +158,7 @@ export default function useBulk({ list, command, onDone }) {
     const k = links.length
     if (!k || runRef.current) return
     if (action.key !== 'ping') {
-      const ask = T('bulk_q_' + action.key).replace('{k}', String(k)) + '\n' + bulkNames(links)
+      const ask = TF('bulk_q_' + action.key, { k }) + '\n' + bulkNames(links)
       const box = action.tone === 'bad' ? confirmBox : askBox
       if (!(await box(ask, T('bulk_yes_' + action.key)))) return
     }

@@ -36,7 +36,6 @@
 .lgfhead .mssub {
   margin-right: 0;
   font-weight: 600;
-  font-size: 12px;
   direction: rtl;
 }
 
@@ -59,9 +58,7 @@
 }
 
 .lgfgh .mssub {
-  margin-right: auto;
   font-size: 11px;
-  direction: ltr;
 }
 
 .lgf .mslist {
@@ -159,7 +156,6 @@
   gap: 7px;
   user-select: none;
   white-space: nowrap;
-  transition: background .15s, color .15s, transform .18s cubic-bezier(.2, .8, .2, 1);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -245,13 +241,7 @@
   color: var(--acc-tx);
 }
 
-.logmore:active {
-  opacity: .6;
-}
-
 .lev {
-  --sev: var(--sub);
-  --sev-tx: var(--sub);
   display: grid;
   grid-template-columns: 3px minmax(0, 1fr);
   gap: 12px;
@@ -345,7 +335,7 @@
 }
 
 .lev-v {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   direction: ltr;
   unicode-bidi: isolate;
@@ -466,7 +456,7 @@
 }
 
 .lev-row span {
-  font-family: ui-monospace, Consolas, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   direction: ltr;
   unicode-bidi: isolate;

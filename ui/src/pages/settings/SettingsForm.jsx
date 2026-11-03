@@ -19,24 +19,21 @@ function changedCount(form, mode, saved) {
   if (!form || !saved) return 0
   let n = mode === saved.mode ? 0 : 1
   for (const key of Object.keys(form)) {
-    const a = form[key]
-    const b = saved.form[key]
-    const same = typeof a === 'string' && typeof b === 'string' ? a.trim() === b.trim() : a === b
-    if (!same) n += 1
+    if (form[key] !== saved.form[key]) n += 1
   }
   return n
 }
 
 export function SettingsFormProvider({ tabs, children }) {
   const config = useUiConfig()
-  const defaults = useMemo(() => config.settings_defaults || {}, [config])
-  const tuningDefaults = useMemo(() => config.tuning_defaults || {}, [config])
-  const probeSamples = num(config.probe_samples) || 20
+  const defaults = config.settings_defaults
+  const tuningDefaults = config.tuning_defaults
+  const probeSamples = num(config.probe_samples)
   const [agentGen, setAgentGen] = useState(0)
 
   const [form, setForm] = useState(null)
   const [token, setToken] = useState('')
-  const [mode, setMode] = useState('alert')
+  const [mode, setMode] = useState(defaults.reconcile_mode)
   const [saved, setSaved] = useState(null)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -45,35 +42,28 @@ export function SettingsFormProvider({ tabs, children }) {
   const [touched, setTouched] = useState({})
   const [tried, setTried] = useState(0)
 
-  const settingValue = useCallback(
-    (source, key) => (source && source[key] != null && source[key] !== '' ? source[key] : defaults[key]),
-    [defaults]
-  )
-
   const apply = useCallback((s) => {
-    const tuning = s.tuning || {}
-    const tuned = (key) => (tuning[key] != null ? tuning[key] : tuningDefaults[key])
-    const nextMode = s.reconcile_mode === 'auto' ? 'auto' : 'alert'
+    const { tuning } = s
     const next = {
       apiOn: !!s.api_external,
-      reconcile: String(settingValue(s, 'reconcile_interval')),
-      poll: String(settingValue(s, 'poll_interval')),
-      ui: String(settingValue(s, 'ui_interval')),
-      ech: String(settingValue(s, 'ech_refresh_mins')),
-      window: String(settingValue(s, 'uptime_window')),
-      probeMin: String(tuned('probe_min_pct')),
-      revive: (tuned('ladder_revive') || []).join(', '),
-      suspect: (tuned('suspect_backoff') || []).map((x) => secondsToMinutes(x)).join(', '),
-      deadRetest: String(secondsToMinutes(tuned('dead_retest_secs'))),
-      sockBuf: String(tuned('sock_buf_mb')),
-      tcpBuf: String(tuned('tcp_buf_mb')),
+      reconcile: String(s.reconcile_interval),
+      poll: String(s.poll_interval),
+      ui: String(s.ui_interval),
+      ech: String(s.ech_refresh_mins),
+      window: String(s.uptime_window),
+      probeMin: String(tuning.probe_min_pct),
+      revive: tuning.ladder_revive.join(', '),
+      suspect: tuning.suspect_backoff.map((x) => secondsToMinutes(x)).join(', '),
+      deadRetest: String(secondsToMinutes(tuning.dead_retest_secs)),
+      sockBuf: String(tuning.sock_buf_mb),
+      tcpBuf: String(tuning.tcp_buf_mb),
     }
-    setMode(nextMode)
+    setMode(s.reconcile_mode)
     setForm(next)
-    setSaved({ form: next, mode: nextMode })
+    setSaved({ form: next, mode: s.reconcile_mode })
     setTouched({})
     setTried(0)
-  }, [settingValue, tuningDefaults])
+  }, [])
 
   const load = useCallback(async () => {
     setLoadError('')
@@ -128,10 +118,10 @@ export function SettingsFormProvider({ tabs, children }) {
     const r = await apiPost('settings-set', {
       api_external: form.apiOn,
       reconcile_mode: mode,
-      reconcile_interval: form.reconcile.trim(),
-      poll_interval: form.poll.trim(),
-      ui_interval: form.ui.trim(),
-      ech_refresh_mins: form.ech.trim(),
+      reconcile_interval: form.reconcile,
+      poll_interval: form.poll,
+      ui_interval: form.ui,
+      ech_refresh_mins: form.ech,
       uptime_window: form.window,
       tuning,
     })

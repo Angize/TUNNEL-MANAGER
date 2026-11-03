@@ -4,6 +4,7 @@ import NumberInput from '../../../components/NumberInput.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
 import { intOf, rawProtoErr } from './validate.js'
 import { protoVisOn } from './gates.js'
+import { RAW_PROTO_BARE } from '../carrier.js'
 import { T } from '../../../i18n/fa.js'
 
 function Proto({ form, enums, patch }) {
@@ -19,10 +20,10 @@ function Proto({ form, enums, patch }) {
       </label>
       <Seg2 label={label} style={{ marginBottom: 8 }}>
         <SegOpt
-          on={current === 253}
-          title="253"
+          on={current === RAW_PROTO_BARE}
+          title={String(RAW_PROTO_BARE)}
           sub={T('raw_proto_native')}
-          onClick={() => patch({ rawProto: '253' })}
+          onClick={() => patch({ rawProto: String(RAW_PROTO_BARE) })}
         />
         <SegOpt
           on={current === 252}
@@ -35,7 +36,7 @@ function Proto({ form, enums, patch }) {
         id={id}
         className="mono"
         maxLength={3}
-        placeholder="253"
+        placeholder={String(RAW_PROTO_BARE)}
         style={{ textAlign: 'center', direction: 'ltr' }}
         value={form.rawProto}
         onChange={(v) => patch({ rawProto: v })}

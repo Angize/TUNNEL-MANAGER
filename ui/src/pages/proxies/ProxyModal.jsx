@@ -8,12 +8,14 @@ import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
+import { LTR_TEXT, rangeLabel } from '../../lib/form.js'
 import useBusy from '../../lib/useBusy.js'
 import useSaved from '../../lib/useSaved.js'
 import SaveLabel from '../../components/SaveLabel.jsx'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 
 export default function ProxyModal({ proxy, onClose, onSaved }) {
+  const { limits } = useUiConfig()
   const nodesId = useId()
   const [name, setName] = useState(proxy ? proxy.name : '')
   const [busy, guard] = useBusy()
@@ -127,7 +129,7 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
             onChange={(e) => setHost(e.target.value)}
           />
         </Field>
-        <Field label={rangeLabel(T('px_port'), 1, PORT_MAX)} first>
+        <Field label={rangeLabel(T('px_port'), ...limits.port)} first>
           <NumberInput className="mono" value={port} onChange={setPort} />
         </Field>
       </div>

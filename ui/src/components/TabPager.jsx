@@ -39,7 +39,7 @@ function pageTop(el) {
   return top
 }
 
-export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNavigate, snug, nested, active = true }) {
+export default function TabPager({ icon, titleKey, kinds, kind, onKind, snug, nested, active = true }) {
   const { counts } = useSummary()
   const index = Math.max(0, kinds.findIndex((k) => k.id === kind))
   const pager = useRef(null)
@@ -252,7 +252,7 @@ export default function TabPager({ icon, titleKey, kinds, kind, onKind, onNaviga
             }}
             inert={i !== index}
           >
-            <k.Page active={active && i === index} onNavigate={onNavigate} />
+            <k.Page active={active && i === index} />
           </section>
         ))}
       </div>

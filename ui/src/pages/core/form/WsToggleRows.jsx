@@ -35,7 +35,7 @@ function EchProxyPicker({ proxies, value, patch, ...aria }) {
 }
 
 function Toggles({ form, cfg, proxies, patch }) {
-  const locked = wssMandatory(form, form.pool)
+  const locked = wssMandatory(form)
 
   const toggleTls = () => {
     if (form.WsTls) patch({ WsTls: false, Ech: false, SniSplit: false })

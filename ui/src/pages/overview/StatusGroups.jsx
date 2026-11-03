@@ -1,16 +1,9 @@
 import { useId, useState } from 'react'
 import Reveal from '../../components/Reveal.jsx'
+import Chevron from '../../components/Chevron.jsx'
 
 export function byName(a, b) {
   return String(a.name).localeCompare(String(b.name), 'en', { numeric: true })
-}
-
-function Chevron() {
-  return (
-    <svg className="sgc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  )
 }
 
 function Group({ group, open, onToggle }) {
@@ -22,7 +15,7 @@ function Group({ group, open, onToggle }) {
         <b>{group.title}</b>
         {group.hint ? <small className="ogt">{group.hint}</small> : null}
         <em>{group.items.length}</em>
-        <Chevron />
+        <Chevron className="sgc" />
       </button>
       {!open && group.preview ? <div className="sgp">{group.preview}</div> : null}
       <Reveal show={open}>

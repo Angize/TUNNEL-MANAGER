@@ -10,19 +10,6 @@ import { T } from '../i18n/fa.js'
 
 const ActsContext = createContext(null)
 
-const EMPTY = {
-  acts: {},
-  now: 0,
-  buildCount: 0,
-  actFor: () => null,
-  pendingFor: () => [],
-  dismiss: () => {},
-  cancel: async () => {},
-  refresh: async () => {},
-  waitAccepted: async () => ({ ok: true }),
-  waitDone: async () => ({ ok: true }),
-}
-
 const ACCEPT_TIMEOUT_MS = 45000
 const ACCEPT_POLL_MS = 280
 const DONE_TIMEOUT_MS = 600000
@@ -193,5 +180,5 @@ export function ActsProvider({ children }) {
 }
 
 export function useActs() {
-  return useContext(ActsContext) || EMPTY
+  return useContext(ActsContext)
 }

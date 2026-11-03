@@ -37,14 +37,10 @@ function WorstTunnelNote({ worst }) {
           </span>
         </>
       ) : null}
-      {worst.rtt != null ? (
-        <>
-          {' · '}
-          <span className="nw">
-            {T('ov_ping')} <b>{Math.round(num(worst.rtt))}ms</b>
-          </span>
-        </>
-      ) : null}
+      {' · '}
+      <span className="nw">
+        {T('ov_ping')} <b>{Math.round(num(worst.rtt))}ms</b>
+      </span>
     </div>
   )
 }

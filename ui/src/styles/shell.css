@@ -138,8 +138,7 @@
   margin-inline-start: 0;
 }
 
-.navi .ct.ctun,
-.navi.on .ct.ctun {
+.navi .ct.ctun {
   color: #fff;
   background: var(--bad-fill);
   border-radius: 20px;
@@ -155,7 +154,8 @@
   max-width: 2200px;
   margin-inline: auto;
   --main-pb: 64px;
-  padding: 22px 26px var(--main-pb);
+  --main-px: 26px;
+  padding: 22px var(--main-px) var(--main-pb);
 }
 
 .mtop {
@@ -179,7 +179,6 @@
   font-size: 13.5px;
   padding: 0;
   letter-spacing: .3px;
-  direction: ltr;
 }
 
 .hb {
@@ -295,7 +294,8 @@
 
   .main {
     --main-pb: 92px;
-    padding: 12px 14px var(--main-pb);
+    --main-px: 14px;
+    padding: 12px var(--main-px) var(--main-pb);
     max-width: none;
   }
 }

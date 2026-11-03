@@ -25,7 +25,6 @@ function bottomOf(els) {
 
 function ghostOut(root, g, slide) {
   const ghost = g.el.cloneNode(true)
-  ghost.removeAttribute('id')
   ghost.setAttribute('aria-hidden', 'true')
   ghost.inert = true
   ghost.classList.add('flghost')
@@ -37,32 +36,24 @@ function ghostOut(root, g, slide) {
   gsap.to(ghost, { ...to, onComplete: () => ghost.remove() })
 }
 
-export default function useFlipList(
-  box,
-  keys,
-  context,
-  { enter = true, exit = true, hold = false, slides = () => true } = {}
-) {
+export default function useFlipList(box, keys, context, { hold = false, slides = () => true } = {}) {
   const last = useRef(null)
   const plan = useRef(null)
-  const quiet = useRef(false)
   const entered = useRef(false)
   const sig = keys && !hold ? keys.join('\n') : null
   const prev = last.current
 
   if (box.current && prev && sig !== null && prev.sig !== sig && !plan.current) {
-    if (prev.context === context && !quiet.current && !reducedMotion()) {
+    if (prev.context === context && !reducedMotion()) {
       const next = new Set(keys)
       const where = new Map([...prev.els.values()].map((el) => [el, place(el)]))
       plan.current = {
         where,
         height: box.current.offsetHeight,
         top: box.current.getBoundingClientRect().top,
-        ghosts: exit
-          ? [...prev.els]
-              .filter(([key]) => !next.has(key))
-              .map(([key, el]) => ({ el, slide: slides(key), ...where.get(el), w: el.offsetWidth }))
-          : [],
+        ghosts: [...prev.els]
+          .filter(([key]) => !next.has(key))
+          .map(([key, el]) => ({ el, slide: slides(key), ...where.get(el), w: el.offsetWidth })),
       }
     }
   }
@@ -71,7 +62,6 @@ export default function useFlipList(
     const root = box.current
     const p = plan.current
     plan.current = null
-    quiet.current = false
     if (!root || sig === null) {
       last.current = null
       return
@@ -81,7 +71,7 @@ export default function useFlipList(
     last.current = { sig, context, els }
     if (!entered.current) {
       entered.current = true
-      if (enter) riseIn([...els.values()])
+      riseIn([...els.values()])
     }
     if (!p) return
     const fresh = [...els.values()].filter((el) => !p.where.has(el))
@@ -118,7 +108,7 @@ export default function useFlipList(
         onComplete: () => el.classList.remove('flipping'),
       })
     }
-    if (enter && fresh.length) {
+    if (fresh.length) {
       fresh.forEach((el) => el.classList.add('flipping'))
       gsap.fromTo(fresh, { opacity: 0, scale: 0.97 }, {
         opacity: 1,
@@ -131,8 +121,4 @@ export default function useFlipList(
       })
     }
   })
-
-  return () => {
-    quiet.current = true
-  }
 }

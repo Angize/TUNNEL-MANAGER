@@ -2,12 +2,11 @@ import { useRef, useState } from 'react'
 import Icon from '../../../components/Icon.jsx'
 import { SelectPop } from '../../../components/Select.jsx'
 import { checkable } from '../../../lib/keys.js'
-import { edgePort } from '../../../lib/cdn.js'
+import { edgePortLabel } from '../../../lib/cdn.js'
 import { T, TF } from '../../../i18n/fa.js'
 
 export function edgeRow(v) {
-  const port = edgePort(v)
-  return { v, label: v, sub: port ? TF('edges_port', { p: port }) : T('edges_port_any') }
+  return { v, label: v, sub: edgePortLabel(v) }
 }
 
 export default function CleanEdges({ items, value, note, onPick }) {

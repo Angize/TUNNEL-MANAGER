@@ -8,7 +8,7 @@ import WorkersSection from './WorkersSection.jsx'
 import WsPool from './WsPool.jsx'
 import CdnHostField from './CdnHostField.jsx'
 import { cdnAuto } from '../../../lib/cdn.js'
-import { cdnPathOff, cdnShapeOn, wsProfOf } from './gates.js'
+import { cdnPathOff, cdnShapeApplies, cdnShapeOn } from './gates.js'
 import { CDN_FIELD_NAMES, cdnLabel, cdnShape, wsProfiles } from './presets.js'
 import { cdnShapeErr } from './validate.js'
 import { T } from '../../../i18n/fa.js'
@@ -32,7 +32,7 @@ function Shape({ form, enums, patch }) {
       >
         {CDN_FIELD_NAMES.map((name) => {
           const field = shape[name]
-          const hidden = name !== 'downw' && !uploadOnly
+          const hidden = !cdnShapeApplies(field, form.Cdn, enums)
           return (
             <Field
               key={name}
@@ -66,9 +66,7 @@ function CdnShape(props) {
   )
 }
 
-function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMade, patch }) {
-  const current = wsProfOf(form.Cdn)
-
+function Ws({ form, cfg, sides, live, cdnKeys, cdnOwners, serverIp, onCdnMade, patch }) {
   const toggleSelfEch = () => {
     if (form.SelfEch) {
       patch({ SelfEch: false, WsTls: false })
@@ -80,13 +78,13 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
   return (
     <div>
       <label>{T('ws_prof_lbl')}</label>
-      <Tiles p3 label={T('ws_prof_lbl')}>
+      <Tiles label={T('ws_prof_lbl')}>
         {wsProfiles()
           .filter((profile) => !form.SelfEch || profile.v !== 'grpc')
           .map((profile) => (
             <Tile
               key={profile.v}
-              on={profile.v === current}
+              on={profile.v === form.Cdn}
               name={profile.v}
               meta={profile.m}
               onClick={() => patch({ Cdn: profile.v })}
@@ -137,7 +135,6 @@ function Ws({ form, cfg, sides, lid, live, cdnKeys, cdnOwners, serverIp, onCdnMa
                 onCdnMade={onCdnMade}
                 form={form}
                 enums={cfg.enums}
-                lid={lid}
                 live={live}
                 patch={patch}
               />

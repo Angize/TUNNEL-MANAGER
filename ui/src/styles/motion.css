@@ -81,7 +81,6 @@ body.reord-on .flist {
 .hb,
 .srq,
 .stpb,
-.swrow,
 .tbtnrow > button,
 .msbtn,
 .reordbtn,
@@ -94,8 +93,6 @@ body.reord-on .flist {
 .tagnone,
 .authseg button,
 .seg button,
-.ib,
-.pfb,
 .mopt,
 .padd,
 .eib {
@@ -172,7 +169,6 @@ body.reord-on .flist {
 
 .logmore:active {
   transform: scale(.98);
-  opacity: 1;
 }
 
 .secbtn {

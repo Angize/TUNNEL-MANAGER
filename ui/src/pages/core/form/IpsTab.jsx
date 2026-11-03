@@ -174,11 +174,11 @@ export default function IpsTab({
         />
       </Reveal>
       <Reveal show={multi && form.rot.on}>
-        <Field label={T('rot_interval')} first style={{ marginTop: 8 }}>
+        <Field label={T('rot_int_lbl')} first style={{ marginTop: 8 }}>
           <Select
             items={rotIntervalItems()}
             value={form.rot.secs}
-            placeholder={T('rot_interval')}
+            placeholder={T('rot_int_lbl')}
             onChange={(v) => patch({ rot: { ...form.rot, secs: +v } })}
           />
         </Field>

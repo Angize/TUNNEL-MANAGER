@@ -34,13 +34,6 @@ const PATHS = {
       <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
     </>
   ),
-  fwd: (
-    <>
-      <path d="M3 12h11" />
-      <path d="M10 8l4 4-4 4" />
-      <path d="M19 5v14" />
-    </>
-  ),
   list: (
     <>
       <path d="M9 6h11M9 12h11M9 18h8" />
@@ -60,7 +53,6 @@ const PATHS = {
     </>
   ),
   logout: <path d="M15 12H4M9 7l-5 5 5 5M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4" />,
-  menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   moon: <path d="M20 14a8 8 0 01-10-10 8 8 0 1010 10z" />,
   activity: <path d="M3 12h4l3 8 4-16 3 8h4" />,
   clock: (

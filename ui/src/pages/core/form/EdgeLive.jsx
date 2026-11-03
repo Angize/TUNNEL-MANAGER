@@ -14,7 +14,7 @@ function rowsOf(status) {
 
 export default function EdgeLive({ live, lid }) {
   const { status, pending } = live
-  useSecondTick(true)
+  useSecondTick()
   const rows = rowsOf(status)
 
   return (

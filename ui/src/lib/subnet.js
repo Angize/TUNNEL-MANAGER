@@ -11,6 +11,8 @@ export const TUNNEL_TYPES = [
   { v: 'ipsec', label: 'IPsec' },
 ]
 
+export const PORT_TYPES = ['l2tpv3', 'fou', 'vxlan']
+
 const BASE_NETS = {
   '192.168': [3232235520, 16],
   '172.16': [2886729728, 12],
@@ -35,12 +37,12 @@ export function hostAddress(subnet, host) {
 }
 
 function subnetCap(base) {
-  const entry = BASE_NETS[base] || BASE_NETS['192.168']
+  const entry = BASE_NETS[base]
   return (1 << (24 - entry[1])) - 1
 }
 
 export function subnetForBase(type, tunnelId, base) {
-  const tid = num(tunnelId) || 0
+  const tid = num(tunnelId)
   if (type === 'sit') {
     return 'fd00:' + (tid >> 16).toString(16) + ':' + (tid & 0xffff).toString(16) + '::/64'
   }
@@ -63,7 +65,7 @@ export function subnetBaseOf(link) {
   )
 }
 
-export function subnetFree(base, free) {
+function subnetFree(base, free) {
   if (free && free[base] != null) return num(free[base])
   return subnetCap(base)
 }

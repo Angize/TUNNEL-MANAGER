@@ -1,5 +1,4 @@
 export default {
-  app_title: 'tnl · کنترل فلیت',
   brand_sub: 'کنترل فلیت',
 
   nav_overview: 'نمای کلی',
@@ -96,7 +95,6 @@ export default {
   pct: '٪',
   list_sep: '، ',
   unit_kb: 'کیلوبایت',
-  unit_mb_full: 'مگابایت',
   reorder_err: 'ذخیرهٔ ترتیب ناموفق بود',
 
   pal_search: 'جستجوی نود، تونل یا دستور…',

@@ -4,7 +4,6 @@ import FormTabs from '../../components/FormTabs.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import modalLoading from '../../components/ModalLoading.jsx'
 import Field from '../../components/Field.jsx'
-import NumberInput from '../../components/NumberInput.jsx'
 import Select from '../../components/Select.jsx'
 import Icon from '../../components/Icon.jsx'
 import IpField from '../../components/IpField.jsx'
@@ -13,33 +12,19 @@ import { apiGet, apiPost } from '../../lib/api.js'
 import { postError, readError, translateError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
-import { nodeIps } from '../../lib/nodes.js'
-import { LTR_TEXT, PORT_MAX, rangeLabel } from '../../lib/form.js'
-import { TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
+import { nodeIps, nodeItemsKeeping } from '../../lib/nodes.js'
+import { LTR_TEXT } from '../../lib/form.js'
+import { PORT_TYPES, TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
-
-const PORT_TYPES = ['l2tpv3', 'fou']
+import PortField from './PortField.jsx'
 
 function TypeExtra({ type, port, onPort }) {
-  if (PORT_TYPES.includes(type)) {
-    return (
-      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_l2_note')}>
-        <NumberInput placeholder={T('ttype_port_ph')} value={port} onChange={onPort} />
-      </Field>
-    )
-  }
-  if (type === 'vxlan') {
-    return (
-      <Field label={rangeLabel(T('ttype_port_lbl'), 1, PORT_MAX)} hint={T('ttype_vxlan_note')}>
-        <NumberInput placeholder={T('ttype_vxlan_ph')} value={port} onChange={onPort} />
-      </Field>
-    )
-  }
+  if (PORT_TYPES.includes(type)) return <PortField type={type} value={port} onChange={onPort} />
   if (type === 'ipsec') {
     return (
       <div className="autonote" style={{ marginBottom: 11 }}>
@@ -52,8 +37,8 @@ function TypeExtra({ type, port, onPort }) {
 }
 
 function extraKind(type) {
-  if (PORT_TYPES.includes(type)) return 'l2'
-  return type === 'vxlan' || type === 'ipsec' ? type : ''
+  if (type === 'vxlan' || type === 'ipsec') return type
+  return PORT_TYPES.includes(type) ? 'l2' : ''
 }
 
 function TypeExtraBox({ type, port, onPort }) {
@@ -127,7 +112,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
     return modalLoading({ icon: 'plus', title: T('add_tunnel_t'), subtitle: T('create_sub'), onClose })
   }
 
-  const items = nodes.map((n) => ({ v: n.id, label: n.name, sub: n.host }))
+  const items = nodeItemsKeeping(nodes, [])
   const aIps = nodeIps(nodes, aNode)
   const bIps = nodeIps(nodes, bNode)
 
@@ -161,7 +146,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
     }
     if (range === 'custom') body.subnet = customSubnet.trim()
     else if (type !== 'sit') body.subnet_base = range
-    if ((PORT_TYPES.includes(type) || type === 'vxlan') && port.trim()) body.port = port.trim()
+    if (PORT_TYPES.includes(type) && port.trim()) body.port = port.trim()
 
     setMessage(T('creating_tun'))
     const r = await apiPost('create-tunnel', body)

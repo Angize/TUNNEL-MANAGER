@@ -17,9 +17,9 @@ const SIDES = [
 ]
 
 function firstChoice(side) {
-  const free = (side.ips || []).find((x) => x.free)
+  const free = side.ips.find((x) => x.free)
   if (free) return free.ip
-  return ((side.ips || [])[0] || {}).ip || ''
+  return (side.ips[0] || {}).ip || ''
 }
 
 export async function loadRebuild(id) {
@@ -30,7 +30,7 @@ export async function loadRebuild(id) {
   }
   const chosen = {}
   for (const [side, key] of SIDES) {
-    if (!r.d[side] || !r.d[side].drifted) continue
+    if (!r.d[side].drifted) continue
     chosen[key] = firstChoice(r.d[side])
   }
   if (!Object.keys(chosen).length && !r.d.edge) {
@@ -97,8 +97,8 @@ export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
       </div>
       {SIDES.map(([side, key]) => {
         const block = info[side]
-        if (!block || !block.drifted) return null
-        const ips = block.ips || []
+        if (!block.drifted) return null
+        const ips = block.ips
         return (
           <div key={key}>
             <div className="nd-sec">{block.node + ' — ' + T('rb_newip')}</div>

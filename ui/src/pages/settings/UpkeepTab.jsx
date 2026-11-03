@@ -11,7 +11,7 @@ export default function UpkeepTab() {
   return (
     <div className="upkeep" ref={box}>
       <BackupCard />
-      <AgentPage key={agentGen} headless />
+      <AgentPage key={agentGen} />
     </div>
   )
 }
