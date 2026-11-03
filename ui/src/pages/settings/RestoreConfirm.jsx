@@ -27,6 +27,7 @@ const LABELS = {
   dl_proxy_on: 'dlpx_on',
   dl_proxy_id: 'bk_s_dlpx',
   log_hidden: 'bk_s_hidden',
+  cdn_edges: 'edges_t',
   'tuning.probe_min_pct': 'set_t_probemin',
   'tuning.ladder_revive': 'set_t_revive',
   'tuning.suspect_backoff': 'set_t_suspect',

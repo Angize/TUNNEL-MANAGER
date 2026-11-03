@@ -32,6 +32,7 @@ function curlOf(base, cmd, method, sample) {
 function answers(cmd, method, token, act) {
   const s = SAMPLES[cmd] || {}
   const e = ERRS[cmd] || {}
+  const cdn = ((DOCS[cmd] || {}).p || []).some(([k]) => k === 'cdn' || k === 'edges')
   const out = []
   const add = (key, code, note, bodies, rows) => {
     if (bodies.length || rows.length) out.push({ key, code, note, bodies, rows })
@@ -40,7 +41,7 @@ function answers(cmd, method, token, act) {
   if (act) add('act', 'acts', TEXT.c.act, [SAMPLES._acts.done, SAMPLES._acts.fail], e.act || [])
   add('400', 400, TEXT.c[400], [], e.bad || [])
   add('401', 401, TEXT.c[401], [], G['401'])
-  add('403', 403, TEXT.c[403], [], token ? G['403'] : [...G['403d'], ...G['403']])
+  add('403', 403, TEXT.c[403], [], token ? [...G['403'], ...(cdn ? G['403c'] : [])] : [...G['403d'], ...G['403']])
   if (method === 'POST') {
     add('405', 405, TEXT.c[405], [], G['405'])
     add('413', 413, TEXT.c[413], [], G['413'])

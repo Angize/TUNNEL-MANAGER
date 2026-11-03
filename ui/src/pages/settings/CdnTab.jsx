@@ -257,9 +257,11 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
         </div>
       </Reveal>
 
-      <Field label={T('cdn_route_lbl_' + provider)}>
-        <Select items={routes} value={now.proxy_id || 'direct'} onChange={route} />
-      </Field>
+      {status.set ? (
+        <Field label={T('cdn_route_lbl_' + provider)}>
+          <Select items={routes} value={now.proxy_id || 'direct'} onChange={route} />
+        </Field>
+      ) : null}
 
       {provider === 'cf' && status.set ? (
         <div className="cdnsslmode">
@@ -336,7 +338,7 @@ export default function CdnTab() {
               key={p}
               provider={p}
               status={cdn[p] || {}}
-              made={(cdn.hosts || []).filter((h) => h.provider === p && !h.link).length}
+              made={(cdn.hosts || []).filter((h) => h.provider === p).length}
               proxies={proxies}
               onStatus={setCdn}
             />

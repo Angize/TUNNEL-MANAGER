@@ -10,7 +10,7 @@ export const CASCADE = [
   '.okpis > .card',
   '.osec > .card',
   '.ostat2 > .card',
-  '.sgrp > .sg',
+  '.sgrp > .og',
   '.card.sg > .sgsec',
   '.stpage > .card:not(.sg)',
   '.upkeep > .card',

@@ -146,6 +146,12 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       alertBox(T('two_diff_nodes'))
       return
     }
+    if (range === 'custom' && !customSubnet.trim()) {
+      setMessage('')
+      setTab('ip')
+      alertBox(T('snr_custom_need'))
+      return
+    }
     const body = {
       a_node: aNode,
       b_node: bNode,
@@ -154,7 +160,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
       b_ip: bIps.length > 1 ? bIp || bIps[0] : '',
     }
     if (range === 'custom') body.subnet = customSubnet.trim()
-    else body.subnet_base = range
+    else if (type !== 'sit') body.subnet_base = range
     if ((PORT_TYPES.includes(type) || type === 'vxlan') && port.trim()) body.port = port.trim()
 
     setMessage(T('creating_tun'))
@@ -235,7 +241,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
 
               <Field label={T('local_range')}>
                 <Select
-                  items={subnetRangeItems(subnetFree)}
+                  items={subnetRangeItems(subnetFree, type, range)}
                   value={range}
                   placeholder={T('range')}
                   onChange={setRange}

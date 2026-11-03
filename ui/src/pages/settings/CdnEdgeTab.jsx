@@ -10,6 +10,7 @@ import Stepper from '../../components/Stepper.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import SettingsGroup from './SettingsGroup.jsx'
 import { WarnCap } from '../core/form/controls.jsx'
+import { DOMAIN } from '../core/form/validate.js'
 import { carrierProfile } from '../core/carrier.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import { apiPost } from '../../lib/api.js'
@@ -104,7 +105,7 @@ function EdgeCard({ edge, onToggle, onSave, busy }) {
   const n = Number(port)
   const mb = Number(buf)
   const portError = port && n >= 1 && n <= 65535 ? '' : T('edge_port_bad')
-  const decoyError = decoy.trim() ? '' : T('edge_decoy_bad')
+  const decoyError = DOMAIN.test(decoy.trim()) ? '' : T('edge_decoy_bad')
   const bufError = /^\d+$/.test(buf) && mb >= lo && mb <= hi ? '' : TF('edge_buf_bad', { lo, hi })
   const onCdn = edge.tunnels.filter((t) => t.transport === 'ws').length
   const reseat = onCdn && (decoy.trim().toLowerCase() !== edge.decoy || n !== edge.port)

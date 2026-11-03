@@ -72,7 +72,13 @@ function freeSub(base, free) {
   return '\u2067' + TF('snr_free', { n: subnetFree(base, free) }) + '\u2069'
 }
 
-export function subnetRangeItems(free) {
+export function subnetRangeItems(free, type, base) {
+  if (type === 'sit') {
+    return [
+      { v: base === 'custom' ? '192.168' : base, label: T('snr_sit') },
+      { v: 'custom', label: T('snr_custom') },
+    ]
+  }
   return [
     { v: '192.168', label: T('snr_192'), sub: freeSub('192.168', free) },
     { v: '10', label: T('snr_10'), sub: freeSub('10', free) },

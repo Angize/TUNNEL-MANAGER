@@ -77,7 +77,7 @@ function EdgePick({ form, patch, edges, managed }) {
 
   return (
     <div className="cdnedge">
-      <Field label={T(tls ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
+      <Field label={T(tls && !managed ? 'ws_edge_lbl_wss' : 'ws_edge_lbl')}>
         {auto ? (
           <div className="cdnplaced">
             <span className="cdnpbadge" aria-hidden="true">

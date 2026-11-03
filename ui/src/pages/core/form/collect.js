@@ -21,6 +21,7 @@ import {
   cdnShapeValue,
   intOf,
   limitErr,
+  poolCaps,
   portErr,
   portTriesRangeErr,
   rawProtoErr,
@@ -29,7 +30,7 @@ import {
   sprotOf,
 } from './validate.js'
 
-function poolCollect(form, body) {
+function poolCollect(form, owners, body) {
   const pool = form.pool
   if (!pool.pool) {
     body.ws_pool = false
@@ -38,6 +39,8 @@ function poolCollect(form, body) {
   if (!pool.ip.length) return T('pool_need_ip')
   if (!pool.sni.length) return T('pool_need_clean')
   if (pool.ip.length < 2 && pool.sni.length < 2) return T('pool_need_axis')
+  const caps = poolCaps(form, owners)
+  if (caps.length) return caps[0].text
   body.ws_pool = true
   body.ws_tls = true
   body.ws_edge_ips = pool.ip
@@ -68,7 +71,7 @@ function selfEchCollect(form, enums, body) {
   const decoy = form.echPublic.trim()
   if (!inner) return T('selfech_need_inner')
   if (!decoy) return T('selfech_need_public')
-  if (inner === decoy) return T('selfech_decoy_eq')
+  if (inner.toLowerCase() === decoy.toLowerCase()) return T('selfech_decoy_eq')
   body.ech = false
   body.ws_pool = false
   body.ws_tls = true
@@ -115,7 +118,7 @@ export function rotValidate(form, aIps, bIps) {
   return ''
 }
 
-export function collectCarrier(form, cfg, body) {
+export function collectCarrier(form, cfg, owners, body) {
   const enums = cfg.enums
   const limits = cfg.limits
 
@@ -230,7 +233,7 @@ export function collectCarrier(form, cfg, body) {
     const shapeError = shapeCollect(form, enums, body)
     if (shapeError) return shapeError
     if (form.pool.pool) {
-      const poolError = poolCollect(form, body)
+      const poolError = poolCollect(form, owners, body)
       if (poolError) return poolError
     } else if (cdnSingle(form)) {
       body.ws_pool = false

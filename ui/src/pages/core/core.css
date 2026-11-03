@@ -169,6 +169,12 @@
   border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
 }
 
+.warncap.gold {
+  background: var(--goldw);
+  color: var(--gold-tx);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
 .warncap.wait {
   background: var(--field);
   color: var(--sub);

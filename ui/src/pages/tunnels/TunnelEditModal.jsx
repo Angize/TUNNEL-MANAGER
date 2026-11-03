@@ -80,6 +80,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
     if (next === type) return
     setType(next)
     setPort(next === link.type ? linkPort : '')
+    if (base === 'custom' && (subnet || '').includes(':') !== (next === 'sit')) setSubnet('')
     recalc(next, base)
   }
 
@@ -122,6 +123,12 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       setMessage('')
       setTab('ip')
       alertBox(fitError)
+      return
+    }
+    if (base === 'custom' && !(subnet || '').trim()) {
+      setMessage('')
+      setTab('ip')
+      alertBox(T('snr_custom_need'))
       return
     }
     const body = {
@@ -225,7 +232,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
 
               <Field label={T('local_range')}>
                 <Select
-                  items={subnetRangeItems(subnetFree)}
+                  items={subnetRangeItems(subnetFree, type, base)}
                   value={base}
                   placeholder={T('range')}
                   onChange={changeBase}

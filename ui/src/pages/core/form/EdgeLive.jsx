@@ -22,7 +22,7 @@ export default function EdgeLive({ live, lid }) {
       <div className="pllabel">{T('peer_live_hd')}</div>
       <StaleCap status={status} />
       {rows.length ? (
-        <div className="elist">
+        <div className="rpool">
           {rows.map((r) => (
             <EdgeRow
               key={r.id}

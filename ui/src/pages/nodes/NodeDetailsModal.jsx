@@ -4,7 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import IpChips from '../../components/IpChips.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import Gauge from '../overview/Gauge.jsx'
-import TrafficChart from '../overview/TrafficChart.jsx'
+import TrafficChart, { pushLive } from '../overview/TrafficChart.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
 import { readError, translateError } from '../../lib/errors.js'
@@ -12,8 +12,6 @@ import { getUiInterval } from '../../lib/poll.js'
 import { toast } from '../../lib/toast.js'
 import { fmtBytes, fmtRate, fmtUptime, num } from '../../lib/num.js'
 import useBusy from '../../lib/useBusy.js'
-
-const LIVE_POINTS = 30
 
 function gb(mb) {
   const v = num(mb) / 1024
@@ -99,10 +97,7 @@ export default function NodeDetailsModal({ node, onClose }) {
             .then((r) => {
               if (!alive) return
               setTraffic(r.node)
-              live.current = [
-                ...live.current,
-                { t: Date.now(), rx: num(r.node.rx_bps), tx: num(r.node.tx_bps) },
-              ].slice(-LIVE_POINTS)
+              live.current = pushLive(live.current, num(r.node.rx_bps), num(r.node.tx_bps))
               setRows(r.tunnels.concat(r.portfw))
             })
             .catch(() => {}),

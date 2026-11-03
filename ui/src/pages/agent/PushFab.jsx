@@ -32,8 +32,8 @@ function Fab({ state, leaving, onPause, onResume, onCancel }) {
   const done = order.filter((id) => FINISHED.includes((nodes[id] || {}).state)).length
   const paused = !!state.paused
   const stoppable = order.some((id) => {
-    const s = (nodes[id] || {}).state
-    return s === 'wait' || s === 'run'
+    const n = nodes[id] || {}
+    return n.state === 'wait' || (n.state === 'run' && !(n.remote && n.si >= n.sn))
   })
 
   return createPortal(

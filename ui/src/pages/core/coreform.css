@@ -119,12 +119,12 @@
 }
 
 .pbadge.ok {
-  background: rgba(78, 201, 154, .16);
+  background: var(--okw);
   color: var(--ok-tx);
 }
 
 .pbadge.bad {
-  background: rgba(240, 115, 106, .16);
+  background: var(--badw);
   color: var(--bad-tx);
 }
 

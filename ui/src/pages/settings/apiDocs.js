@@ -152,22 +152,22 @@ const TUNNEL_FIELDS = [
   ['raw_sport_rotate', 0, N, 'a fresh source port every few packets (1 to 60), on each direction that is udp, tcp or sctp'],
   ['raw_dports', 0, N, 'number of client destination ports (1 to 16) — only with raw_sport_rotate and a udp, tcp or sctp raw_profile (upload)'],
   ['conntrack_bypass', 0, B, 'bypass the conntrack table — when either direction is udp, tcp or sctp; turns on when sctp newly appears in either direction and the body leaves it out'],
-  ['sport_lo', 0, N, 'start of the source port band (1024 and up)'],
+  ['sport_lo', 0, N, 'start of the source port band (1024 and up) — udp, tcp and ws; on raw only with raw_sport_random or raw_sport_rotate on a udp, tcp or sctp profile, otherwise ignored'],
   ['sport_hi', 0, N, 'end of the source port band — the band is at least 100 ports wide'],
-  ['port_tries', 0, N, 'number of source port draws (1 to 60); on ws only with ws_port_roll on'],
+  ['port_tries', 0, N, 'number of source port draws (1 to 60) — udp and tcp; on ws only with ws_port_roll on; on raw only with raw_sport_random; otherwise ignored'],
   ['fec', 0, B, 'forward error correction — udp and raw only'],
   ['fec_data', 0, N, 'data packets per FEC group (default 16, at most 64)'],
   ['fec_parity', 0, N, 'parity packets (default 4; data plus parity at most 255)'],
   ['a_workers', 0, N, 'parallel queues on end a (1 to 8), any carrier but not with FEC; on tcp and ws (http and grpc included) each queue is its own connection and the panel form sets both ends to one number'],
   ['b_workers', 0, N, 'parallel queues on end b (1 to 8)'],
-  ['fake_desync', 0, B, 'send decoy packets before the handshake — raw, tcp and ws'],
+  ['fake_desync', 0, B, 'send decoy packets before the handshake — raw, tcp and ws; ignored with cdn_carrier http or grpc'],
   ['fake_ttl', 0, N, 'decoy TTL (1 to 8, default 4)'],
   ['fake_count', 0, N, 'number of decoys (1 to 64, default 2)'],
   ['fake_mode', 0, S, 'ttl, badsum or both'],
   ['ip_rotate', 0, B, 'rotate between several node IPs — udp, tcp and raw'],
   ['a_ip_pool', 0, L, 'IPs of end a to rotate over'],
   ['b_ip_pool', 0, L, 'IPs of end b to rotate over'],
-  ['rotate_secs', 0, N, 'IP rotation interval in seconds'],
+  ['rotate_secs', 0, N, 'IP rotation interval in seconds, 0 = only on failure (default 600)'],
   ['cdn_carrier', 0, S, 'CDN carrier on ws: ws, http or grpc (grpc needs ws_tls)'],
   ['ws_host', 0, S, 'CDN domain'],
   ['ws_path', 0, S, 'WebSocket path — starts with /'],
@@ -176,9 +176,11 @@ const TUNNEL_FIELDS = [
   ['ech', 0, B, 'Encrypted ClientHello — needs ws_tls'],
   ['ech_proxy', 0, B, 'fetch the ECH key through a proxy'],
   ['ech_proxy_id', 0, S, 'id of that proxy'],
+  ['self_ech', 0, B, 'self-hosted ECH on the ws transport (cdn_carrier ws or http, not grpc): TLS and ECH end on the server itself and the client dials the server IP directly; ws_host is the inner name on the server certificate; the panel turns ws_tls on and makes the ECH key and certificate; needs ech_public; not with ech, ws_pool, edge_ip or edges'],
+  ['ech_public', 0, S, 'with self_ech: the public decoy domain that goes on the wire in the clear (for example www.google.com); a valid domain different from ws_host; on an edit, not sent = keep the stored one'],
   ['http_up_workers', 0, N, 'http carrier: number of upload channels (1 to 16)'],
   ['http_up_batch_kb', 0, N, 'http carrier: batch size in KB (8 to 512)'],
-  ['http_up_rate', 0, N, 'http carrier: upload rate cap (0 to 1000; 0 = no cap)'],
+  ['http_up_rate', 0, N, 'http carrier: upload POSTs per second (0 to 1000; 0 = unpaced)'],
   ['http_streams', 0, N, 'http and grpc carriers: number of streams (1 to 16)'],
   ['sni_split', 0, B, 'split the SNI in the ClientHello — needs ws_tls'],
   ['split_pos', 0, N, 'split point (0 to 1400; 0 = the middle of the domain)'],
@@ -220,7 +222,7 @@ export const DOCS = {
   },
   'settings-set': {
     t: 'Save the settings',
-    d: 'Only the keys you send change, and the answer is the full new settings. A number outside its range is clamped to the allowed limit.',
+    d: 'Only the keys you send change, and the answer is the full new settings. A value outside its range is refused with a 400 (setting_range, tuning_range, tuning_step, bad_uptime_window or cdn_edges_too_many) and nothing from the request is saved.',
     p: [
       ['reconcile_mode', 0, S, 'auto (repair by itself) or alert (only warn)'],
       ['reconcile_interval', 0, N, 'repair check interval in seconds (5 to 3600)'],
@@ -296,12 +298,12 @@ export const DOCS = {
     t: 'Install the agent on many servers',
     d: 'Checks every row first and refuses the whole list if one row is wrong, naming that row. Then installs the agent on each server over SSH, a few at a time in list order, and adds the nodes. Only one such install runs at a time. Read its progress with install-batch.',
     p: [
-      ['rows', 1, L, 'servers, each {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass"}; only name and ssh_host are required'],
+      ['rows', 1, L, 'servers, each {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}; only name and ssh_host are required, and a key a row leaves out comes from the shared field of the same name (a row with its own ssh_pass or ssh_key takes neither shared one)'],
       ['ssh_port', 0, N, 'SSH port for rows that do not give one (default 22)'],
       ['ssh_user', 0, S, 'SSH user for rows that do not give one (default root)'],
       ['ssh_pass', 0, S, 'SSH password for rows without their own — this, ssh_key or a password on every row is required'],
-      ['ssh_key', 0, S, 'the full text of the private key, for rows without their own password'],
-      ['agent_port', 0, N, 'port the agents listen on (default 8099)'],
+      ['ssh_key', 0, S, 'the full text of the private key, for rows without their own password or key'],
+      ['agent_port', 0, N, 'port the agents listen on, for rows that do not give one (default 8099)'],
       ...PROXY_REF,
     ],
   },
@@ -321,12 +323,12 @@ export const DOCS = {
     p: [
       ['batch', 1, S, 'batch id from the node-install-batch answer'],
       ['row', 1, N, 'row number, counted from 0'],
-      ['entry', 1, O, 'the row as it was sent: {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass"}'],
+      ['entry', 1, O, 'the row as it was sent: {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}'],
       ['ssh_port', 0, N, 'SSH port if the row does not give one (default 22)'],
       ['ssh_user', 0, S, 'SSH user if the row does not give one (default root)'],
       ['ssh_pass', 0, S, "SSH password if the row has none — this, ssh_key or the row's own password is required"],
-      ['ssh_key', 0, S, 'the full text of the private key, if the row has no password'],
-      ['agent_port', 0, N, 'port the agent listens on (default 8099)'],
+      ['ssh_key', 0, S, 'the full text of the private key, if the row has no password or key'],
+      ['agent_port', 0, N, 'port the agent listens on, if the row does not give one (default 8099)'],
     ],
   },
   'install-forget-key': {
@@ -524,7 +526,7 @@ export const DOCS = {
 
   'edge-status': {
     t: 'Edge status',
-    d: 'For a core tunnel: the active path, and if it has an edge pool, the health of every edge IP and domain and the recent events. On a private edge label names the edge behind a domain.',
+    d: 'For a core tunnel: the active path and the recent core events, and if it has an edge pool, the health of every edge IP and domain. On a private edge label names the edge behind a domain.',
     p: [['id', 1, S, 'tunnel id']],
   },
   'pool-retest-now': {
@@ -552,19 +554,19 @@ export const DOCS = {
   },
   'peer-retest-now': {
     t: 'Retest an IP',
-    d: 'Tests an IP of the rotation pool again right now.',
+    d: 'Tests an address of the rotation pool again right now.',
     p: [
       ['id', 1, S, 'tunnel id'],
       ['kind', 1, S, 'dst (destination) or src (source)'],
-      ['key', 1, S, 'that IP'],
+      ['key', 1, S, 'that address exactly as peer-status lists it: IP:port for a udp or tcp destination, a bare IP for a raw destination and for every source'],
     ],
   },
   'peer-select': {
     t: 'Pick an IP',
-    d: 'Moves the tunnel to a given IP of the rotation pool.',
+    d: 'Moves the tunnel to a given address of the rotation pool.',
     p: [
       ['id', 1, S, 'tunnel id'],
-      ['key', 1, S, 'that IP'],
+      ['key', 1, S, 'that address exactly as peer-status lists it: IP:port for a udp or tcp destination, a bare IP for a raw destination and for every source'],
       ['side', 0, S, 'dst (default) or src'],
     ],
   },
@@ -734,7 +736,7 @@ export const DOCS = {
   },
   'cdn-make': {
     t: 'Make CDN subdomains',
-    d: 'Makes the subdomains now, before any tunnel: a proxied A record to ip for each label (ArvanCloud: port 80 until a tunnel sets its own) and, on Cloudflare in the host SSL mode, the hosts in the tnl_ssl Configuration Rule. Any failure undoes everything this call made. A name the zone already has records for is refused (cdn_record_exists) unless replace is true, which deletes those records first and works for one label only. Answers hosts and steps (what was done); on failure ok is false with code and error, and the error names what was undone.',
+    d: 'Makes the subdomains now, before any tunnel: a proxied A record to ip for each label (ArvanCloud: port 80 until a tunnel sets its own) and, on Cloudflare in the host SSL mode, the hosts in the tnl_ssl Configuration Rule. Any failure undoes everything this call made. A name the zone already has records for is refused (cdn_record_exists) unless replace is true, which deletes those records first and works for one label only. Answers hosts and steps (what was done); a failure is a 400 whose message names what was undone.',
     p: [
       CDN_PROVIDER,
       ['zone', 1, S, 'domain'],
@@ -831,7 +833,7 @@ export const DOCS = {
   },
   'push-pause': {
     t: 'Pause or resume an update',
-    d: 'Holds the queued nodes or starts them again; a node that has started runs to the end.',
+    d: 'Holds the update or starts it again. Queued nodes do not start, and a node that has started finishes the step it is on (check, deliver or install) and waits before its next step, so a core update paused after deliver leaves the new core sent but not installed until it resumes.',
     p: [
       ['job', 0, S, 'job id; empty = all'],
       ['paused', 0, B, 'true (default) = pause, false = resume'],
@@ -864,9 +866,9 @@ export const DOCS = {
   },
   'link-tag': {
     t: 'Tag colour',
-    d: "Gives a tunnel's or a node's card a tag colour.",
+    d: "Gives a tunnel's card a tag colour.",
     p: [
-      ['id', 1, S, 'tunnel or node id'],
+      ['id', 1, S, 'tunnel id'],
       ['tag', 0, N, '0 to 6; 0 = no colour'],
     ],
   },

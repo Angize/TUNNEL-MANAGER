@@ -1,6 +1,7 @@
 import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
-import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
+import { edgePort, providerName } from '../../../lib/cdn.js'
+import { POOL_MAX, RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
 import { cdnShapeApplies, cdnShapeOn, rawUpPorted, sprotLive } from './gates.js'
 
 function blank(text) {
@@ -89,9 +90,9 @@ export function bandErr(form, limits) {
 
 export function portTriesRangeErr(form, limits) {
   const range = limits.port_tries
-  return inRange(intOf(form.portTries), range)
-    ? ''
-    : TF('cf_range_bad', { f: T('porttries_lbl'), lo: 1, hi: range[1] })
+  return outside(form.portTries, range)
+    ? TF('cf_range_bad', { f: T('porttries_lbl'), lo: range[0], hi: range[1] })
+    : ''
 }
 
 export function cdnShapeValue(form, name, enums) {
@@ -114,7 +115,7 @@ export function cdnShapeErr(form, enums) {
 }
 
 const IP4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
-const DOMAIN = /^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$/
+export const DOMAIN = /^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+([A-Za-z]{2,}|xn--[A-Za-z0-9-]*[A-Za-z0-9])$/
 
 export function poolValid(kind, value, enums) {
   if (kind !== 'ip') return DOMAIN.test(value)
@@ -127,4 +128,33 @@ export function poolValid(kind, value, enums) {
     if (!(/^\d+$/.test(port) && allowed.includes(+port))) return false
   }
   return IP4.test(host)
+}
+
+export function poolOwners(pool, owners) {
+  const owned = pool.sni.map((h) => (owners || {})[h]).filter(Boolean)
+  const provs = [...new Set(owned.map((r) => r.provider))]
+  const mixed = provs.length > 1
+  const groupOf = (ip) => (mixed ? pool.ipCdn[ip] || owned[0].provider : '')
+  return { owned, provs, mixed, groupOf }
+}
+
+export function poolCaps(form, owners) {
+  const pool = form.pool
+  const { provs, mixed, groupOf } = poolOwners(pool, owners)
+  const caps = []
+  if (mixed) {
+    for (const p of provs) {
+      if (pool.ip.some((ip) => groupOf(ip) === p)) continue
+      caps.push({ text: TF('pool_group_no_ip', { p: providerName(p) }) })
+    }
+    const manual = pool.sni.find((h) => !(owners || {})[h])
+    if (manual) caps.push({ text: TF('pool_mixed_manual', { h: manual }) })
+  }
+  const off443 = pool.ip.some((v) => (!mixed || groupOf(v) === 'cf') && edgePort(v) !== 443)
+  if (provs.includes('cf') && off443) caps.push({ text: T('cdn_pool_443'), tone: 'gold' })
+  if (form.Ech && provs.includes('ar')) caps.push({ text: T('cdn_pool_ech_ar') })
+  if (pool.ip.length > POOL_MAX || pool.sni.length > POOL_MAX) {
+    caps.push({ text: TF('pool_too_big', { n: POOL_MAX }) })
+  }
+  return caps
 }

@@ -627,8 +627,8 @@ body.reord-on .reordbtn {
 }
 
 .ctag.vxlan {
-  color: var(--acc-tx);
-  background: color-mix(in srgb, var(--acc) 13%, transparent);
+  color: var(--h-sky);
+  background: color-mix(in srgb, var(--h-sky) 14%, transparent);
 }
 
 .ctag.gre {
@@ -637,8 +637,8 @@ body.reord-on .reordbtn {
 }
 
 .ctag.sit {
-  color: var(--gold-tx);
-  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  color: var(--h-grape);
+  background: color-mix(in srgb, var(--h-grape) 14%, transparent);
 }
 
 .ctag.ipip {

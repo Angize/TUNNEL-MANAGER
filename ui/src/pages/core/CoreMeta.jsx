@@ -27,7 +27,7 @@ function capabilities(link) {
   if (edgePool(link)) tags.push('pool')
   if (link.transport === 'ws' && link.ws_tls) tags.push('wss')
   if (link.sni_split) tags.push('SNI' + (link.sni_mode || 'split'))
-  if (link.transport === 'ws' && link.ech) tags.push('ECH')
+  if (link.transport === 'ws' && (link.ech || link.self_ech || (link.edge_at || []).length)) tags.push('ECH')
   if (link.obfs) tags.push('obfs')
   if (link.cover) tags.push('TLS')
   if (link.gso) tags.push('GSO')
@@ -132,7 +132,7 @@ function rawCells(link, ported) {
   if (dports > 1) cells.push(cell(T('rot_dst'), <b>{T('n_ports').replace('{n}', String(dports))}</b>))
   if (!rawRotating(link)) return cells
 
-  const every = num(link.raw_sport_rotate)
+  const every = num(live.every) || num(link.raw_sport_rotate)
   const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
   const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
   const drawn = num(live.drawn)

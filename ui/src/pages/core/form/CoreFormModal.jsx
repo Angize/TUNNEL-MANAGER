@@ -133,6 +133,8 @@ export default function CoreFormModal({ link, onClose, onDone }) {
         form.pool.pool,
         form.cdnOwner,
         form.poolCdn,
+        form.EdgeOn,
+        form.SelfEch,
         aKey,
         bKey,
       ].join('|')
@@ -169,7 +171,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
   const srvIps = srvSide === 'b' ? bIps : aIps
   const srvStored = link ? link[srvSide + '_ip'] || '' : ''
   const serverIp = form
-    ? pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvStored || srvIps[0] || ''
+    ? pickedIp(form, srvIps, form.rot[srvSide + 'Sel'], form[srvSide + 'Ip'], srvStored) || srvIps[0] || srvStored || ''
     : ''
   const portRules = useCdnPorts(
     form ? { zones: cfHosts(form, cdnOwners), node: form[srvSide + 'Node'], ip: serverIp, id: link ? link.id : '' } : null
@@ -196,11 +198,13 @@ export default function CoreFormModal({ link, onClose, onDone }) {
     b: { name: nodeLabel(items, form.bNode), cpus: nodeCpus(nodes, form.bNode) },
   }
   const cliSide = srvSide === 'a' ? 'b' : 'a'
+  const cliIps = cliSide === 'a' ? aIps : bIps
+  const cliStored = link ? link[cliSide + '_ip'] || '' : ''
   const ends = {
     server: { name: sides[srvSide].name, ip: serverIp },
     client: {
       name: sides[cliSide].name,
-      ip: form[cliSide + 'Ip'] || (link && link[cliSide + '_ip']) || (cliSide === 'a' ? aIps : bIps)[0] || '',
+      ip: pickedIp(form, cliIps, form.rot[cliSide + 'Sel'], form[cliSide + 'Ip'], cliStored) || cliIps[0] || cliStored || '',
     },
   }
 
@@ -257,7 +261,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
     if (link) setMessage(T('saving_rebuild_both'))
 
-    const carrierError = collectCarrier(form, cfg, body)
+    const carrierError = collectCarrier(form, cfg, cdnOwners, body)
     if (carrierError) {
       await stop(carrierError, 'set')
       return

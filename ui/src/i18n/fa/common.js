@@ -17,8 +17,6 @@ export default {
   logout_yes: 'تأیید و خروج',
   theme_to_light: 'تمِ روشن',
   theme_to_dark: 'تمِ تیره',
-  tun_title: 'تونل‌های سیستمی',
-  core_title: 'هستهٔ اختصاصی',
 
   ov_sub: 'وضعیتِ لحظه‌ایِ نودها، تونل‌ها و ترافیکِ فلیت',
   nodes_sub: 'افزودن و وضعیتِ زندهٔ نودها',

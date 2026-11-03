@@ -494,7 +494,7 @@
   padding: 9px;
   padding-inline-start: 13px;
   border-radius: 22px;
-  background: var(--side);
+  background: var(--bar);
   box-shadow: var(--dsh);
   transform: translateX(-50%);
   animation-name: dockup;
