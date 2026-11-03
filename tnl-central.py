@@ -1962,7 +1962,7 @@ def _unsigned_reply():
 
 
 def _stale_ctr(node, res):
-    if not isinstance(res, dict) or "stale counter" not in str(res.get("error") or ""):
+    if not isinstance(res, dict) or res.get("code") != "stale_counter":
         return False
     try:
         _bump_ctr(_node_key(node), int(res["ctr"]) + 1)
@@ -5867,8 +5867,7 @@ def _push_staged_on_add(node):
 
 def _node_tunnel(node, body):
     r = node_call(node, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
-    err = str(r.get("error") or "")
-    if not r.get("ok") and "core not installed" in err:
+    if not r.get("ok") and r.get("code") == "no_core":
         pr = _push_staged(node)
         if not pr.get("ok"):
             r["error"] = tx("هسته روی نودِ «{0}» نصب نیست و رساندنِ آن هم نشد: {1}",
