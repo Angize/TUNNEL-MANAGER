@@ -49,6 +49,9 @@
 .sg {
   padding: 0;
   overflow: hidden;
+  border-radius: 13px;
+  background: var(--field);
+  border: 1px solid var(--bord);
 }
 
 .sghd {
@@ -103,7 +106,7 @@
 }
 
 .sgb {
-  padding: 2px 14px 12px;
+  padding: 0 6px 6px;
 }
 
 .sr {
