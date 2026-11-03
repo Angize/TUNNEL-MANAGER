@@ -32,7 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -70,7 +70,6 @@ SPLIT_TTL_MAX = DESYNC_INJECT_TTL_MAX
 FAKE_COUNT_MAX = 64
 SPLIT_POS_MAX = 1400
 CORE_MAX_WORKERS = 8
-QUEUEING_TRANSPORTS = ("raw", "udp")
 _reg_lock = threading.Lock()
 _pending_lock = threading.Lock()
 _agent_lock = threading.Lock()
@@ -98,11 +97,11 @@ def central_host():
         return _CENTRAL_HOST["ip"]
 
 
-def _central_headers(node, proxied):
+def _central_headers(node):
     if not _CENTRAL_PORT:
         return {}
     h = {"X-Central-Port": str(_CENTRAL_PORT), "X-Central-TLS": "1" if _CENTRAL_TLS else "0"}
-    ip = _panel_host_for(node, proxied)
+    ip = _panel_host_for(node)
     if is_ipv4(ip):
         h["X-Central-Host"] = ip
     return h
@@ -137,9 +136,6 @@ class Tx(str):
         s = str.__new__(cls, fa)
         s.en = en
         return s
-
-    def __reduce__(self):
-        return Tx, (str(self), self.en)
 
 
 def _fa_arg(v):
@@ -309,7 +305,7 @@ class RegistryError(Exception):
     code = "store_error"
 
 
-def read_json(path, kind):
+def read_json(path):
     name = os.path.basename(path)
     try:
         with open(path) as f:
@@ -320,13 +316,13 @@ def read_json(path, kind):
         raise RegistryError(tx("فایلِ «{0}» خوانده نشد — تا درست نشود پنل رویِ آن چیزی نمی‌نویسد: {1}",
                                "file '{0}' could not be read — the panel will not write over it until it is fixed: {1}",
                                name, str(e)[:120]))
-    if not isinstance(data, kind):
+    if not isinstance(data, dict):
         raise RegistryError(tx("فایلِ «{0}» شکلِ درستی ندارد", "file '{0}' has the wrong shape", name))
     return data
 
 
 def load_conf():
-    return read_json(WEB_CONF, dict)
+    return read_json(WEB_CONF)
 
 
 def save_bytes(path, data, mode=0o644):
@@ -904,7 +900,6 @@ _TUNING_DEFAULTS = {
 }
 REVIVE_STEP_MIN, REVIVE_STEP_MAX = 10, 3600
 BACKOFF_STEP_MIN, BACKOFF_STEP_MAX = 1, 86400
-_TUNING_LIST_KEYS = ("suspect_backoff", "ladder_revive")
 _TUNING_LIST_RANGES = {"suspect_backoff": (BACKOFF_STEP_MIN, BACKOFF_STEP_MAX),
                        "ladder_revive": (REVIVE_STEP_MIN, REVIVE_STEP_MAX)}
 _PROBE_SAMPLES = 20
@@ -945,29 +940,28 @@ def _check_raw_proto(proto):
                   int(proto), owner)
 
 
-def _validate_tuning(raw, base=None):
+def _validate_tuning(raw, base):
     out = dict(_TUNING_DEFAULTS)
-    if isinstance(base, dict):
-        out.update({k: base[k] for k in _TUNING_DEFAULTS if k in base})
+    out.update({k: base[k] for k in _TUNING_DEFAULTS if k in base})
     if not isinstance(raw, dict):
         return out
     for k, (lo, hi) in _TUNING_RANGES.items():
         if k in raw and raw[k] in (None, ""):
             raise Bad("tuning_empty", "«{0}» را خالی نگذار — عددی بینِ {1} تا {2} بگذار",
-                      "'{0}' must not be empty — enter a number from {1} to {2}", _TUNING_NUM_LABELS.get(k, k), lo, hi)
-        if k in raw and raw[k] not in (None, ""):
+                      "'{0}' must not be empty — enter a number from {1} to {2}", _TUNING_NUM_LABELS[k], lo, hi)
+        if k in raw:
             try:
                 v = int(raw[k])
             except (TypeError, ValueError):
                 raise Bad("tuning_not_int", "«{0}» باید عددِ صحیح باشد", "'{0}' must be a whole number",
-                          _TUNING_NUM_LABELS.get(k, k))
+                          _TUNING_NUM_LABELS[k])
             step, label = _TUNING_STEPS.get(k, (0, ""))
             if step and v % step:
                 raise Bad("tuning_step", "«{0}» باید مضربی از {1} باشد — {2} پذیرفته نیست",
                           "'{0}' must be a multiple of {1} — {2} is not accepted", label, step, v)
             if not lo <= v <= hi:
                 raise Bad("tuning_range", "«{0}» باید بینِ {1} تا {2} باشد — {3} پذیرفته نیست",
-                          "'{0}' must be from {1} to {2} — {3} is not accepted", _TUNING_NUM_LABELS.get(k, k), lo, hi, v)
+                          "'{0}' must be from {1} to {2} — {3} is not accepted", _TUNING_NUM_LABELS[k], lo, hi, v)
             out[k] = v
     for k, (lo, hi) in _TUNING_LIST_RANGES.items():
         if k not in raw:
@@ -988,27 +982,8 @@ def _validate_tuning(raw, base=None):
 
 
 def _settings_tuning():
-    s = get_settings().get("tuning")
-    if not isinstance(s, dict):
-        s = {}
-    out = {}
-    for k, dv in _TUNING_DEFAULTS.items():
-        v = s.get(k, dv)
-        if k in _TUNING_LIST_KEYS:
-            try:
-                lv = [int(x) for x in v]
-            except (TypeError, ValueError):
-                continue
-            if lv != dv:
-                out[k] = lv
-        else:
-            try:
-                iv = int(v)
-            except (TypeError, ValueError):
-                continue
-            if iv != dv:
-                out[k] = iv
-    return out
+    tn = get_settings()["tuning"]
+    return {k: tn[k] for k, dv in _TUNING_DEFAULTS.items() if tn[k] != dv}
 
 
 _SETTINGS_RESET = {
@@ -1161,7 +1136,7 @@ def _cdn_edges(raw):
 _moved_lock = threading.Lock()
 
 
-def _moved_note(nid, name, old, new, new_port):
+def _moved_note(nid, new, new_port):
     with _moved_lock:
         prev = _M.moved.get(nid)
         fresh = not prev or (prev.get("to"), prev.get("to_port")) != (new, new_port)
@@ -1332,6 +1307,10 @@ def is_ipv4(s):
         return isinstance(ipaddress.ip_address(s), ipaddress.IPv4Address)
     except Exception:
         return False
+
+
+def _global_v4(s):
+    return is_ipv4(s) and ipaddress.ip_address(s).is_global
 
 
 def is_ip(s):
@@ -1652,21 +1631,15 @@ def wire(endpoint):
 
 
 def proxy_parts(proxy):
-    pu = urllib.parse.urlparse(proxy if "://" in proxy else "socks5://" + proxy)
+    pu = urllib.parse.urlparse(proxy)
     uq = lambda v: urllib.parse.unquote(v) if v else v
-    return ((pu.scheme or "socks5").lower(), pu.hostname, pu.port,
-            uq(pu.username) or "", uq(pu.password) or "")
+    return pu.scheme, pu.hostname, pu.port, uq(pu.username) or "", uq(pu.password) or ""
 
 
 def _proxy_socket(proxy, dh, dp, timeout):
     scheme, host, port, user, pw = proxy_parts(proxy)
-    if not host or not port:
-        raise OSError(tx("نشانیِ پروکسی نامعتبر است", "the proxy address is invalid"))
-    if scheme.startswith("socks"):
-        return _socks5_socket(host, port, user, pw, dh, dp, timeout)
-    if scheme in ("http", "https", "connect"):
-        return _http_connect_socket(host, port, user, pw, dh, dp, timeout)
-    raise OSError(tx("نوعِ پروکسیِ «{0}» پشتیبانی نمی‌شود", "proxy type '{0}' is not supported", scheme))
+    fn = _socks5_socket if scheme == "socks5" else _http_connect_socket
+    return fn(host, port, user, pw, dh, dp, timeout)
 
 
 def _net_why(e):
@@ -1855,7 +1828,7 @@ def api_sign_key_rotate(d):
     with _sign_lock:
         _rotate_sign_key()
     nodes = load_nodes()
-    got = [(n.get("name") or n["id"], r or {}) for n, r in zip(nodes, parallel_map(_ensure_update_key, nodes, workers=16))]
+    got = [(n.get("name") or n["id"], r) for n, r in zip(nodes, parallel_map(_ensure_update_key, nodes, workers=16))]
     no_key = [nm for nm, r in got if r.get("code") == "no_update_key"]
     other_key = [nm for nm, r in got if r.get("code") == "key_mismatch"]
     pending = [nm for nm, r in got if not r.get("ok") and r.get("code") not in ("no_update_key", "key_mismatch")]
@@ -1931,7 +1904,7 @@ def _auth_headers(node, method, path, data):
     tok = node.get("token", "")
     ctr = _take_ctr(_node_key(node))
     bs = hashlib.sha256(data).hexdigest() if data else ""
-    hdrs = _central_headers(node, bool(node_proxy(node)))
+    hdrs = _central_headers(node)
     central = "|".join(hdrs.get(h, "") for h in ("X-Central-Host", "X-Central-Port", "X-Central-TLS"))
     mac = hmac.new(tok.encode("utf-8"), _sig_msg(method, path, ctr, bs, central).encode("utf-8"),
                    hashlib.sha256).digest()
@@ -2031,7 +2004,7 @@ def node_push(node, endpoint, body, on_progress=None, timeout=NODE_UPLOAD_TIMEOU
             sent += n
             if on_progress:
                 on_progress(sent, total)
-        raw, head_blob, rest, clen = pre, b"", b"", None
+        raw, clen = pre, None
         sock.settimeout(min(0.25, timeout))
         while True:
             head_blob, sep, rest = raw.partition(b"\r\n\r\n")
@@ -2312,7 +2285,7 @@ def poller_loop():
         except Exception:
             pass
         try:
-            gap = max(0.3, float(get_settings().get("poll_interval", POLL_GAP) or POLL_GAP))
+            gap = get_settings()["poll_interval"]
         except Exception:
             gap = POLL_GAP
         time.sleep(gap)
@@ -2385,14 +2358,14 @@ def _px_key(p):
     return (p["scheme"], p["host"], int(p["port"]), p.get("user") or "", p.get("pass") or "")
 
 
-def _px_cached(store, p, gap, probe, fresh=False):
+def _px_cached(p, fresh=False):
     key = _px_key(p)
     with _px_lock:
-        prev = store.get(p["id"])
-    if fresh or not prev or prev[0] != key or time.time() - prev[1]["ts"] >= gap:
-        res = probe(p)
+        prev = _px_reach.get(p["id"])
+    if fresh or not prev or prev[0] != key or time.time() - prev[1]["ts"] >= PX_REACH_GAP:
+        res = _proxy_reach(p)
         with _px_lock:
-            store[p["id"]] = (key, res)
+            _px_reach[p["id"]] = (key, res)
         return res
     return prev[1]
 
@@ -2400,7 +2373,7 @@ def _px_cached(store, p, gap, probe, fresh=False):
 def _px_deep(p, st, fresh=False):
     if not st.get("ok"):
         return st
-    reach = _px_cached(_px_reach, p, PX_REACH_GAP, _proxy_reach, fresh)
+    reach = _px_cached(p, fresh)
     if not reach.get("ok"):
         return {**st, "ok": False, "code": reach["code"], "error": reach["error"]}
     return {**st, "reach": reach["ms"]}
@@ -2512,7 +2485,7 @@ def _tf_ingest(nid, net, up, now):
             if key not in net:
                 s["rx_bps"] = 0.0
                 s["tx_bps"] = 0.0
-                s["miss"] = s.get("miss", 0) + 1
+                s["miss"] += 1
                 if s["miss"] > TF_IF_PRUNE_MISSES:
                     stale.append(key)
         for key in stale:
@@ -2562,7 +2535,7 @@ def _tf_read(nid, keys=None):
             live = {k: live[k] for k in keys if k in live}
         out = {k: {"prx": 0, "ptx": 0, "rx_bps": 0.0, "tx_bps": 0.0,
                    "crx": int(v[0]), "ctx": int(v[1]), "miss": 0}
-               for k, v in seed.items() if isinstance(v, list) and len(v) == 2}
+               for k, v in seed.items()}
         out.update({k: dict(v) for k, v in live.items()})
         return out
 
@@ -2692,8 +2665,8 @@ def _tf_snapshot():
     out = {}
     with _tf_lock:
         for nid, e in _tf.items():
-            d = {k: [int(x[0]), int(x[1])] for k, x in e.get("seed", {}).items()}
-            for k, s in e.get("if", {}).items():
+            d = {k: [int(x[0]), int(x[1])] for k, x in e["seed"].items()}
+            for k, s in e["if"].items():
                 d[k] = [s["crx"], s["ctx"]]
             if d:
                 out[nid] = d
@@ -2741,7 +2714,7 @@ def _stats_read(r):
         p.lrange(k, 0, -1)
     for k, ring in zip(ukeys, p.execute()):
         try:
-            up[k[len(K_UPTIME):]] = [None if float(x) < 0 else min(1.0, float(x)) for x in ring][-UPTIME_KEEP:]
+            up[k[len(K_UPTIME):]] = [None if float(x) < 0 else float(x) for x in ring]
         except ValueError:
             log_warn("stats", "bad uptime list %s in redis skipped" % k)
     for k, v in r.hgetall(K_UPTIME_AT).items():
@@ -2786,7 +2759,7 @@ def _stats_boot():
             _tf_flushed[nid] = _enc(tf_raw[nid])
     with _uh_lock:
         for nid in valid & set(rings):
-            at = ats.get(nid, now // UPTIME_BUCKET * UPTIME_BUCKET)
+            at = ats[nid]
             gap = min(max(0, int((now - at) // UPTIME_BUCKET)), UPTIME_KEEP)
             ring = (rings[nid] + [None] * gap)[-UPTIME_KEEP:]
             _uh[nid] = {"ring": ring, "bts": at + int((now - at) // UPTIME_BUCKET) * UPTIME_BUCKET,
@@ -2952,6 +2925,7 @@ def subnet_default(ttype, tid, base=None):
 
 PORT_BAND_LO = 20000
 PORT_BAND_HI = 29999
+VXLAN_PORT = 4789
 
 
 def rand_port(taken=()):
@@ -2962,7 +2936,7 @@ def rand_port(taken=()):
     return free[secrets.randbelow(len(free))]
 
 
-def free_tunnel_port(A, B, exclude_id=None):
+def free_tunnel_port(exclude_id=None):
     used = set()
     for L in load_links():
         if exclude_id is not None and L.get("id") == exclude_id:
@@ -2984,8 +2958,8 @@ def _subnet_fits(ttype, sub):
     return net.prefixlen <= (126 if net.version == 6 else 30)
 
 
-def carry_subnet(ttype, tid, stored, base=None):
-    return stored if stored and _subnet_fits(ttype, stored) else subnet_default(ttype, tid, base)
+def carry_subnet(ttype, tid, stored):
+    return stored if stored and _subnet_fits(ttype, stored) else subnet_default(ttype, tid)
 
 
 def norm_subnet(ttype, tid, provided, base=None):
@@ -3083,25 +3057,21 @@ def _core_rotation_bodies(src, a_body, b_body, a_ips=None, b_ips=None):
 def _self_ech_bodies(src, a_body, b_body):
     if not src.get("self_ech"):
         return
-    mat = src.get("self_ech_mat") or {}
+    mat = src["self_ech_mat"]
     for body in (a_body, b_body):
         if body.get("role") == "server":
-            if mat.get("srv_cert") and mat.get("srv_key"):
-                body["srv_cert"] = mat["srv_cert"]
-                body["srv_key"] = mat["srv_key"]
-                if mat.get("srv_ech_key") and mat.get("srv_ech_conf"):
-                    body["srv_ech_key"] = mat["srv_ech_key"]
-                    body["srv_ech_conf"] = mat["srv_ech_conf"]
+            body["srv_cert"] = mat["srv_cert"]
+            body["srv_key"] = mat["srv_key"]
+            body["srv_ech_key"] = mat["srv_ech_key"]
+            body["srv_ech_conf"] = mat["srv_ech_conf"]
         elif body.get("role") == "client":
-            if mat.get("ws_ech"):
-                body["ws_ech"] = mat["ws_ech"]
-            if mat.get("ws_ca"):
-                body["ws_ca"] = mat["ws_ca"]
+            body["ws_ech"] = mat["ws_ech"]
+            body["ws_ca"] = mat["ws_ca"]
 
 
 def _edge_choices(N):
     ips = [N["host"]] + _flat_ips(_cached_ping(N["id"]))
-    return [ip for ip in dict.fromkeys(ips) if is_ipv4(ip) and ipaddress.ip_address(ip).is_global]
+    return [ip for ip in dict.fromkeys(ips) if _global_v4(ip)]
 
 
 def _edge_hosts(N, ips):
@@ -3172,7 +3142,7 @@ def _edge_bodies(src, a_body, b_body):
 
 def _core_end_bodies(src, a_body, b_body):
     for body, key in ((a_body, "a_workers"), (b_body, "b_workers")):
-        n = _link_workers(src, key)
+        n = int(src.get(key) or 1)
         if n > 1:
             body["workers"] = n
         if src.get("ws_port_roll") and body.get("role") == "client":
@@ -3180,7 +3150,6 @@ def _core_end_bodies(src, a_body, b_body):
 
 
 def _buf_bytes(mb):
-    mb = max(0, min(64, int(mb)))
     return -1 if mb == 0 else mb * (1 << 20)
 
 
@@ -3202,10 +3171,8 @@ def _apply_probe_tuning(*bodies):
     tn = _settings_tuning()
     if "probe_min_pct" not in tn:
         return
-    lo, hi = _TUNING_RANGES["probe_min_pct"]
-    v = max(lo, min(hi, int(tn["probe_min_pct"])))
     for b in bodies:
-        b["probe_min_pct"] = v
+        b["probe_min_pct"] = tn["probe_min_pct"]
 
 
 HTTP_SHAPE = {"http_up_workers": (1, 16, 8), "http_up_batch_kb": (8, 512, 512),
@@ -3295,13 +3262,14 @@ def _tunnel_extra(src):
         e["conntrack_bypass"] = True
     if src.get("fec"):
         e["fec"] = True
-        e["fec_data"] = src.get("fec_data") or 16
-        e["fec_parity"] = src.get("fec_parity") or 4
+        e["fec_data"] = src["fec_data"]
+        e["fec_parity"] = src["fec_parity"]
     if src.get("fake_desync"):
         e["fake_desync"] = True
-        e["fake_ttl"] = src.get("fake_ttl") or 4
-        e["fake_count"] = src.get("fake_count") or 2
-        e["fake_mode"] = src.get("fake_mode") or "ttl"
+        if "fake_ttl" in src:
+            e["fake_ttl"] = src["fake_ttl"]
+        e["fake_count"] = src["fake_count"]
+        e["fake_mode"] = src["fake_mode"]
     if src.get("ws_host"):
         e["ws_host"] = src["ws_host"]
     if src.get("ws_path"):
@@ -3311,11 +3279,11 @@ def _tunnel_extra(src):
     if src.get("sni_split"):
         e["sni_split"] = True
         if src.get("split_pos"):
-            e["split_pos"] = int(src["split_pos"])
+            e["split_pos"] = src["split_pos"]
         if src.get("sni_mode") in ("disorder", "fake"):
             e["sni_mode"] = src["sni_mode"]
             if src.get("split_ttl"):
-                e["split_ttl"] = int(src["split_ttl"])
+                e["split_ttl"] = src["split_ttl"]
     if src.get("cdn_carrier"):
         _cdn = _cdn_carrier(src, None)
         e["cdn_carrier"] = _cdn
@@ -3324,36 +3292,28 @@ def _tunnel_extra(src):
         host = src.get("ws_host")
         if host:
             e["ws_ech"] = _ech_or_stored(host, _fetch_ech(host, _ech_px(src)), src.get("ws_ech"))
-        elif src.get("ws_ech"):
-            e["ws_ech"] = src["ws_ech"]
     if src.get("edge_ip"):
         e["edge_ip"] = src["edge_ip"]
-    if src.get("ws_pool") and src.get("ws_edge_ips") and src.get("ws_edge_snis"):
-        e["ws_tls"] = True
+    if src.get("ws_pool"):
         e["ws_edge_ips"] = src["ws_edge_ips"]
         pool_ech = bool(src.get("ech"))
-        hosts = [s.get("host") for s in src["ws_edge_snis"] if isinstance(s, dict) and s.get("host")]
+        hosts = [s["host"] for s in src["ws_edge_snis"]]
         ech_map = _fetch_ech_map(hosts, _ech_px(src)) if pool_ech else {}
         psnis = []
         for s in src["ws_edge_snis"]:
-            if not (isinstance(s, dict) and s.get("host")):
-                continue
-            h = s.get("host")
+            h = s["host"]
             ec = _ech_or_stored(h, ech_map.get(h, ""), s.get("ech")) if pool_ech else ""
             psnis.append({"host": h, "ech": ec, **({"group": s["group"]} if s.get("group") else {})})
         e["ws_edge_snis"] = psnis
         if src.get("ws_edge_ip_groups"):
             e["ws_edge_ip_groups"] = src["ws_edge_ip_groups"]
-        _rs = src.get("ws_rotate_secs")
-        e["ws_rotate_secs"] = int(_rs) if _rs is not None else 600
+        e["ws_rotate_secs"] = src["ws_rotate_secs"]
     if src.get("gso"):
         e["gso"] = True
     return _node_extra(_carried(e, _shape_of({}, src)))
 
 
 def _core_role(L, node_id):
-    if L.get("type") != "core":
-        return None
     return "server" if node_id == _node_id_of(L, "srv") else "client"
 
 
@@ -3378,18 +3338,17 @@ def _proxy_names():
     return {p["id"]: p["name"] for p in load_proxies()}
 
 
-def _node_view(n, pend=None, pxn=None):
-    _uw = get_settings().get("uptime_window", 1)
+def _node_view(n, pend, pxn, uw):
     _pon = bool(n.get("proxy_on"))
     _pid = str(n.get("proxy_id") or "")
     base = {"id": n["id"], "name": n["name"], "host": n["host"], "port": n["port"],
             "proxy_on": _pon, "proxy_id": _pid,
-            "proxy_name": (pxn if pxn is not None else _proxy_names()).get(_pid, "") if _pon else "",
+            "proxy_name": pxn.get(_pid, "") if _pon else "",
             "disabled": bool(n.get("disabled")),
-            "pending_del": (pend if pend is not None else _pending_counts()).get(n["id"], 0),
+            "pending_del": pend.get(n["id"], 0),
             "moved_to": moved_addr(n["id"]),
             "central_want": _panel_origin_for(n),
-            **_uh_view(n["id"], _uw),
+            **_uh_view(n["id"], uw),
             "traffic": _tf_node_view(n["id"])}
     c = _cache_get(n["id"])
     if not c or c.get("ping") is None:
@@ -3400,15 +3359,16 @@ def _node_view(n, pend=None, pxn=None):
 
 
 def api_nodes(d):
-    q = _list_query(d or {})
+    q = _list_query(d)
     nodes = load_nodes()
     if q:
         nodes = [n for n in nodes if _q_match(q, (n["name"].lower(), n["host"].lower()))]
     _ensure_cached(nodes)
     _pend = _pending_counts()
     _pxn = _proxy_names()
-    return {"nodes": [_node_view(n, _pend, _pxn) for n in nodes], "total": len(nodes),
-            "uptime_window": get_settings().get("uptime_window", 1)}
+    _uw = get_settings()["uptime_window"]
+    return {"nodes": [_node_view(n, _pend, _pxn, _uw) for n in nodes], "total": len(nodes),
+            "uptime_window": _uw}
 
 
 def api_node_names(d):
@@ -3485,17 +3445,11 @@ def subnet_free_counts(links):
 
 
 def api_next_port(d):
-    used = set()
-    for L in load_links():
-        try:
-            used.add(int(L.get("port") or 0))
-        except (TypeError, ValueError):
-            pass
-    return {"ok": True, "port": rand_port(used), "lo": PORT_BAND_LO, "hi": PORT_BAND_HI}
+    return {"ok": True, "port": free_tunnel_port(), "lo": PORT_BAND_LO, "hi": PORT_BAND_HI}
 
 
 def api_summary(d):
-    _ev_total, _ev_newest, _ev_unread = _ev_badge((d or {}).get("seen"))
+    _ev_total, _ev_newest, _ev_unread = _ev_badge(d.get("seen"))
     nodes = load_nodes()
     links = load_links()
     try:
@@ -3566,8 +3520,8 @@ def api_summary(d):
             off_n += 1
             tgroups["off"].append(row)
             continue
-        ah, _a = _link_side_health(L, "a_node")
-        bh, _b = _link_side_health(L, "b_node")
+        ah = _link_side_health(L, "a_node")[0]
+        bh = _link_side_health(L, "b_node")[0]
         state = _link_mark(L)[0]
         if state is None:
             tgroups["wait"].append(row)
@@ -3612,8 +3566,8 @@ def api_summary(d):
             "ایجنتِ {0} نود با ایجنتِ پنل یکی نیست", "the agent on {0} nodes differs from the panel's agent", outdated)})
 
     _sset = get_settings()
-    _tun = _sset.get("tuning") if isinstance(_sset.get("tuning"), dict) else {}
-    win = _sset.get("uptime_window", 1)
+    _tun = _sset["tuning"]
+    win = _sset["uptime_window"]
     ups, downcnt = [], 0
     for n in nodes:
         v = _uh_view(n["id"], win)
@@ -3651,9 +3605,9 @@ def api_summary(d):
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
             "ev_seq": _ev_newest, "log_count": _ev_total, "log_unread": _ev_unread, "boot": _BOOT_ID,
-            "ui_interval": _sset.get("ui_interval", 2), "poll_interval": _sset.get("poll_interval", 2),
-            "suspect_backoff": _tun.get("suspect_backoff", _TUNING_DEFAULTS["suspect_backoff"]),
-            "dead_retest_secs": _tun.get("dead_retest_secs", _TUNING_DEFAULTS["dead_retest_secs"])}
+            "ui_interval": _sset["ui_interval"], "poll_interval": _sset["poll_interval"],
+            "suspect_backoff": _tun["suspect_backoff"],
+            "dead_retest_secs": _tun["dead_retest_secs"]}
 
 
 def _name_taken(nodes, name, exclude_id=None):
@@ -4721,13 +4675,12 @@ def _staged_agent():
     with _agent_lock:
         with open(AGENT_FILE, "rb") as f:
             raw = f.read()
-        meta = read_json(AGENT_META, dict)
+        meta = read_json(AGENT_META)
     return raw, meta
 
 
 def _delivery_mode(kind):
-    m = str(get_settings().get(kind + "_delivery") or "push")
-    return m if m in DELIVERY_MODES else "push"
+    return get_settings()[kind + "_delivery"]
 
 
 _route_src_cache = {}
@@ -4741,7 +4694,8 @@ def _route_src(host):
         return hit[1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        ip = s.getsockname()[0] if s.connect((host, 9)) is None else ""
+        s.connect((host, 9))
+        ip = s.getsockname()[0]
     except OSError:
         ip = ""
     finally:
@@ -4750,14 +4704,14 @@ def _route_src(host):
     return ip
 
 
-def _panel_host_for(node, proxied):
-    return central_host() if proxied else _route_src(str(node.get("host") or ""))
+def _panel_host_for(node):
+    return central_host() if node_proxy(node) else _route_src(str(node.get("host") or ""))
 
 
 def _panel_origin_for(node):
     if not _CENTRAL_PORT:
         return ""
-    ip = _panel_host_for(node, bool(node_proxy(node)))
+    ip = _panel_host_for(node)
     return f"{'https' if _CENTRAL_TLS else 'http'}://{ip}:{_CENTRAL_PORT}" if is_ipv4(ip) else ""
 
 
@@ -4949,7 +4903,6 @@ _push_lock = threading.Lock()
 _push_jobs = {}
 _push_batch = set()
 _push_final = None
-PUSH_STATES = ("wait", "run", "ok", "same", "err", "skip")
 PUSH_CAP = 256
 PUSH_KEEP = 3600
 PUSH_TRACK_MIN = 256 * 1024
@@ -4992,10 +4945,8 @@ def _push_job_new(kind, nodes):
 
 
 def _push_start(kind, nodes, plan):
-    if not nodes:
-        return None
     jid = _push_job_new(kind, nodes)
-    threading.Thread(target=_push_worker, args=(jid, kind, nodes, plan), daemon=True).start()
+    threading.Thread(target=_push_worker, args=(jid, nodes, plan), daemon=True).start()
     return jid
 
 
@@ -5043,8 +4994,6 @@ def _push_merged():
 
 
 def _push_set(jid, nid, **kw):
-    if "state" in kw and kw["state"] not in PUSH_STATES:
-        raise Bad("bad_push_state", "وضعیتِ ناشناختهٔ آپلود: {0!r}", "unknown upload state: {0!r}", kw["state"])
     with _push_lock:
         j = _push_jobs.get(jid)
         if j and nid in j["nodes"]:
@@ -5117,9 +5066,6 @@ def _push_one(jid, nid, plan):
                 _push_set(jid, nid, state="err", err=e.code if isinstance(e, Bad) else "unbuildable", detail=_why(e))
                 return
             _push_set(jid, nid, step=code, pct=at(i, 0))
-            if body is None:
-                _push_set(jid, nid, state="skip", step=code)
-                return
 
             def moved(sent, total, _nid=nid, _i=i):
                 if sent >= total:
@@ -5185,7 +5131,7 @@ def _push_next(jid, first):
     return None
 
 
-def _push_worker(jid, kind, nodes, payload):
+def _push_worker(jid, nodes, payload):
     def loop():
         while True:
             nid = _push_next(jid, (payload[0][0], len(payload)))
@@ -5213,7 +5159,7 @@ def _push_worker(jid, kind, nodes, payload):
 
 
 def api_push_status(d):
-    jid = str((d or {}).get("job") or "")
+    jid = str(d.get("job") or "")
     if not jid or jid == PUSH_ALL:
         return _push_merged() or {"ok": True, "job": "", "idle": True, "done": True}
     with _push_lock:
@@ -5226,7 +5172,7 @@ def api_push_status(d):
 
 
 def api_push_cancel(d):
-    jid = str((d or {}).get("job") or "") or PUSH_ALL
+    jid = str(d.get("job") or "") or PUSH_ALL
     with _push_lock:
         targets = _push_live() if jid == PUSH_ALL else [jid]
         js = [_push_jobs[k] for k in targets if k in _push_jobs]
@@ -5242,8 +5188,8 @@ def api_push_cancel(d):
 
 
 def api_push_pause(d):
-    jid = str((d or {}).get("job") or "") or PUSH_ALL
-    want = bool((d or {}).get("paused", True))
+    jid = str(d.get("job") or "") or PUSH_ALL
+    want = bool(d.get("paused", True))
     with _push_lock:
         targets = _push_live() if jid == PUSH_ALL else [jid]
         js = [_push_jobs[k] for k in targets if k in _push_jobs]
@@ -5273,8 +5219,7 @@ def _core_current(ping, sha):
 
 
 def _update_start(kind, nodes, plan):
-    jid = _push_start(kind, nodes, plan)
-    return {"ok": True, "job": jid} if jid else {"ok": True, "none": True}
+    return {"ok": True, "job": _push_start(kind, nodes, plan)}
 
 
 def _deliverable_agent(mode):
@@ -5306,7 +5251,7 @@ def api_update_agent(d):
 
 def api_update_core(d):
     nodes = _update_targets(d)
-    version = str((d or {}).get("version") or "").strip()
+    version = str(d.get("version") or "").strip()
     if version == "custom":
         blob = _core_blob_bytes()
         if not blob:
@@ -5408,7 +5353,7 @@ def api_update_core(d):
 
 
 _CORE_RELEASES_API = "https://api.github.com/repos/Angize/TUNNEL-MANAGER-CORE/releases"
-_core_versions_cache = {"ts": 0.0, "data": None}
+_core_versions_cache = {"data": None}
 _core_versions_lock = threading.Lock()
 
 
@@ -5420,6 +5365,13 @@ def _fetch_core_versions():
         if not tag or rel.get("draft") or not _CORE_TAG_RE.match(tag):
             continue
         vers.append({"id": tag, "label": rel.get("name") or tag, "prerelease": bool(rel.get("prerelease"))})
+    return vers
+
+
+def _refresh_core_versions():
+    vers = _fetch_core_versions()
+    with _core_versions_lock:
+        _core_versions_cache["data"] = vers
     return vers
 
 
@@ -5457,13 +5409,10 @@ def api_core_check(d):
     before = list(_core_versions_cache["data"] or [])
     prev_top = (before[0].get("id") if before else "")
     try:
-        vers = _fetch_core_versions()
+        vers = _refresh_core_versions()
     except Exception as e:
         return {"ok": False, "code": "github_failed",
                 "error": tx("دریافت از گیت‌هاب ناموفق: {0}", "download from GitHub failed: {0}", _gh_why(e))}
-    with _core_versions_lock:
-        _core_versions_cache["data"] = vers
-        _core_versions_cache["ts"] = time.time()
     top = (vers[0].get("id") if vers else "")
     return {"ok": True, "count": len(vers), "latest": top, "newer": bool(top and top != prev_top),
             "first_check": not before, "staged": (_staged_info() or {}).get("version", "")}
@@ -5538,21 +5487,13 @@ def _resolve_core_version(version):
             raise Bad("bad_core_version", "نسخهٔ هسته نامعتبر است — تا 40 کاراکتر، فقط حروف/عدد و «._-» و بدونِ «..»",
                       "invalid core version — up to 40 characters, only letters, digits and ._- and no '..'")
         return version
-    for v in (api_core_versions({}).get("versions") or []):
-        if v.get("id") and v["id"] != "custom":
-            return v["id"]
-    try:
-        fetched = _fetch_core_versions()
-    except Exception:
-        fetched = []
-    if fetched:
-        with _core_versions_lock:
-            _core_versions_cache["data"] = fetched
-            _core_versions_cache["ts"] = time.time()
-        for v in fetched:
-            if v.get("id"):
-                return v["id"]
-    return "latest"
+    vers = _core_versions_cache["data"]
+    if not vers:
+        try:
+            vers = _refresh_core_versions()
+        except Exception:
+            vers = []
+    return vers[0]["id"] if vers else "latest"
 
 
 class _Cancelled(Exception):
@@ -5647,24 +5588,19 @@ def _gh_get(url, timeout, headers=None, on_progress=None, should_abort=None):
         return _read_body(r, r.headers.get("Content-Length"), on_progress, should_abort)
 
 
-def _dl(url, timeout, on_progress=None, should_abort=None):
-    return _gh_get(url, timeout, on_progress=on_progress, should_abort=should_abort)
-
-
 def _check_arch(arch):
     if arch not in CORE_ARCHES:
         raise Bad("bad_arch", "معماریِ نامعتبر — فقط amd64 یا arm64 مجاز است", "invalid architecture — only amd64 or arm64")
 
 
 def _release_asset_url(version, arch):
-    _check_arch(arch)
     asset = f"tnl-core-linux-{arch}"
-    return (f"{_CORE_REL_DL}/latest/download/{asset}" if version in ("latest", "")
+    return (f"{_CORE_REL_DL}/latest/download/{asset}" if version == "latest"
             else f"{_CORE_REL_DL}/download/{version}/{asset}")
 
 
 def _sha_file(url, should_abort=None):
-    sha = (_dl(url, 30, should_abort=should_abort).decode("ascii", "replace").split() or [""])[0].lower()
+    sha = (_gh_get(url, 30, should_abort=should_abort).decode("ascii", "replace").split() or [""])[0].lower()
     if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
         raise RuntimeError(tx("چک‌سامِ فایل در انتشارِ گیت‌هاب نیست", "the GitHub release has no checksum for the file"))
     return sha
@@ -5673,7 +5609,7 @@ def _sha_file(url, should_abort=None):
 def _fetch_release(version, arch, on_progress=None, should_abort=None):
     base = _release_asset_url(version, arch)
     sha = _sha_file(base + ".sha256", should_abort)
-    raw = _dl(base, 180, on_progress=on_progress, should_abort=should_abort)
+    raw = _gh_get(base, 180, on_progress=on_progress, should_abort=should_abort)
     if hashlib.sha256(raw).hexdigest() != sha:
         raise RuntimeError(tx("چک‌سامِ فایلِ دریافت‌شده با انتشارِ گیت‌هاب نمی‌خواند",
                               "the checksum of the downloaded file does not match the GitHub release"))
@@ -5694,7 +5630,7 @@ def _staged_holds(version, need_bytes):
         return False
     if str(info.get("version") or "") != want:
         return False
-    arches = [a for a in (info.get("arches") or []) if a in CORE_ARCHES]
+    arches = info.get("arches") or []
     if not arches:
         return False
     if not need_bytes:
@@ -5814,7 +5750,7 @@ def _node_arch(node):
     a = str(_cached_ping(node.get("id") or "").get("arch") or "").strip()
     if a in CORE_ARCHES:
         return a
-    a = str((node_call(node, "ping", "GET", timeout=10) or {}).get("arch") or "").strip()
+    a = str(node_call(node, "ping", "GET", timeout=10).get("arch") or "").strip()
     return a if a in CORE_ARCHES else ""
 
 
@@ -5918,7 +5854,7 @@ def _stage_run(version):
 
 
 def api_core_stage(d):
-    version = str((d or {}).get("version") or "latest").strip() or "latest"
+    version = str(d.get("version") or "latest").strip() or "latest"
     if version == "custom":
         raise Bad("custom_not_stageable", "باینریِ آپلودشده از گیت‌هاب گرفته یا انتخاب نمی‌شود — همان را با «نصب روی همه» در ردیفِ هسته، یا دکمهٔ «هسته» در ردیفِ هر نود نصب کن",
                   "the uploaded binary is not fetched or picked from GitHub — install it with update-core (version custom)")
@@ -5982,7 +5918,7 @@ def _link_haystack(L, nodes):
 def api_fleet(d):
     q = _list_query(d)
     nodes = {n["id"]: n for n in load_nodes()}
-    kind = (d or {}).get("kind")
+    kind = d.get("kind")
     links = []
     for L in load_links():
         if kind == "core" and L.get("type") != "core":
@@ -5993,12 +5929,10 @@ def api_fleet(d):
                       "b_name": nodes.get(L.get("b_node"), {}).get("name", L.get("b_name", ""))})
     if q:
         links = [L for L in links if _q_match(q, _link_haystack(L, nodes))]
-    total = len(links)
-    page = links
-    need = {L[k] for L in page for k in ("a_node", "b_node")}
+    need = {L[k] for L in links for k in ("a_node", "b_node")}
     _ensure_cached([nodes[i] for i in need if i in nodes])
     tfn, tfl = {}, {}
-    for L in page:
+    for L in links:
         side = _view_side(L)
         nid = L["b_node"] if side == "b" else L["a_node"]
         if nid not in tfn:
@@ -6007,7 +5941,7 @@ def api_fleet(d):
         if s:
             tfl[L["id"]] = _tf_fields(s)
     out = []
-    for L in page:
+    for L in links:
         la, lb = _cached_list(L["a_node"]), _cached_list(L["b_node"])
         ah = (la.get("health") or {}).get(L["name"]) if la.get("configs") is not None else None
         bh = (lb.get("health") or {}).get(L["name"]) if lb.get("configs") is not None else None
@@ -6063,7 +5997,7 @@ def api_fleet(d):
             if b_act:
                 rec["b_ip_active"] = b_act
         out.append(rec)
-    return {"links": out, "total": total}
+    return {"links": out, "total": len(links)}
 
 
 def _view_side(L):
@@ -6086,7 +6020,7 @@ def api_link_view(d):
 def api_traffic_reset(d):
     d = d or {}
     if d.get("id"):
-        L = next((x for x in load_links() if x["id"] == d["id"]), None)
+        L = get_link(d["id"])
         if not L:
             raise _no_tunnel()
         _tf_reset(L["a_node"], [L["name"]])
@@ -6102,18 +6036,12 @@ def api_traffic_reset(d):
 
 
 def _link_nodes(d):
-    L = next((x for x in load_links() if x.get("id") == (d or {}).get("id")), None)
+    L = get_link(d.get("id"))
     return (L["a_node"], L["b_node"]) if L else (None, None)
 
 
-def _default_tunnel_port(ttype, tid):
-    if ttype == "vxlan":
-        return 4789
-    return None
-
-
-def _port_bindings(ttype, port, transport, server_side, tid, A, B, a_ip=None, b_ip=None, a_pool=None, b_pool=None):
-    p = int(port or _default_tunnel_port(ttype, tid) or 0)
+def _port_bindings(ttype, port, transport, server_side, A, B, a_ip=None, b_ip=None, a_pool=None, b_pool=None):
+    p = int(port or 0)
     if not p:
         return []
     if ttype == "core":
@@ -6141,7 +6069,7 @@ def _shared_ports(ttype, exclude_id=None):
     for L in load_links():
         if L.get("type") != "vxlan" or L.get("id") == exclude_id or L.get("enabled") is False:
             continue
-        p = int(L.get("port") or 4789)
+        p = int(L["port"])
         held.update({(L.get("a_node"), "", p, "udp"), (L.get("b_node"), "", p, "udp")})
     return frozenset(held)
 
@@ -6169,12 +6097,12 @@ def _core_bind_keys(bindings):
 
 def _own_ports(L, A, B):
     return frozenset(_core_bind_keys(_port_bindings(
-        L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), int(L["tunnel_id"]), A, B,
+        L.get("type"), L.get("port"), L.get("transport"), L.get("server_side"), A, B,
         L.get("a_ip"), L.get("b_ip"), L.get("a_ip_pool"), L.get("b_ip_pool"))))
 
 
-def _guard_server_ports(ttype, src, server_side, tid, A, B, a_ip, b_ip, L=None, own=frozenset()):
-    binds = _port_bindings(ttype, src.get("port"), src.get("transport"), server_side, tid, A, B, a_ip, b_ip,
+def _guard_server_ports(ttype, src, server_side, A, B, a_ip, b_ip, L=None, own=frozenset()):
+    binds = _port_bindings(ttype, src.get("port"), src.get("transport"), server_side, A, B, a_ip, b_ip,
                            src.get("a_ip_pool"), src.get("b_ip_pool"))
     lid = L.get("id") if L else None
     for n, _ip, p, proto in binds:
@@ -6200,7 +6128,7 @@ def _core_link_binds(L):
     if not LA or not LB:
         return set()
     return _core_bind_keys(_port_bindings("core", L.get("port"), L.get("transport"), L.get("server_side"),
-                                          L.get("tunnel_id"), LA, LB, L.get("a_ip"), L.get("b_ip"),
+                                          LA, LB, L.get("a_ip"), L.get("b_ip"),
                                           L.get("a_ip_pool"), L.get("b_ip_pool")))
 
 
@@ -6226,8 +6154,7 @@ def _ports_held_on(node_id, ip, exclude_id):
 
 
 
-def _workers_field(d, fec_on, cur=None):
-    cur = cur or {}
+def _workers_field(d, fec_on, cur):
     out, asked_any = {}, False
     for key in ("a_workers", "b_workers"):
         asked = key in d
@@ -6254,15 +6181,10 @@ def _workers_field(d, fec_on, cur=None):
     return out
 
 
-def _link_workers(L, key):
-    return max(1, min(CORE_MAX_WORKERS, int(L.get(key) or 1)))
-
-
-def _fec_fields(d, transport, cur=None):
+def _fec_fields(d, transport, cur):
     out = {}
     if transport not in DATAGRAM_TRANSPORTS:
         return out
-    cur = cur or {}
     fec = bool(d.get("fec")) if ("fec" in d) else bool(cur.get("fec"))
     if not fec:
         return out
@@ -6282,14 +6204,13 @@ def _fec_fields(d, transport, cur=None):
     return out
 
 
-def _desync_fields(d, shape, cur=None, is_http=False):
+def _desync_fields(d, shape, cur, is_http):
     out = {}
     transport = shape[0]
     if transport not in DESYNC_TRANSPORTS:
         return out
     if transport == "ws" and is_http:
         return out
-    cur = cur or {}
     on = bool(d.get("fake_desync")) if ("fake_desync" in d) else bool(cur.get("fake_desync"))
     if not on:
         return out
@@ -6354,8 +6275,7 @@ def _ech_from_doh_answers(data):
     return ""
 
 
-def _fetch_ech(host, proxy=""):
-    import urllib.request, concurrent.futures, time
+def _fetch_ech(host, proxy):
     host = str(host or "").strip()
     if not host or not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         return ""
@@ -6382,15 +6302,7 @@ def _fetch_ech(host, proxy=""):
     def via_doh_proxy(dhost, dpath):
         sock = None
         try:
-            scheme, phost, pport, puser, ppass = proxy_parts(proxy)
-            if not phost or not pport:
-                return False, ""
-            if scheme.startswith("socks"):
-                sock = _socks5_socket(phost, pport, puser, ppass, dhost, 443, 7)
-            elif scheme in ("http", "https", "connect"):
-                sock = _http_connect_socket(phost, pport, puser, ppass, dhost, 443, 7)
-            else:
-                return False, ""
+            sock = _proxy_socket(proxy, dhost, 443, 7)
             tls = ssl.create_default_context().wrap_socket(sock, server_hostname=dhost)
             sock = None
             conn = http.client.HTTPConnection(dhost, 443, timeout=7)
@@ -6418,11 +6330,11 @@ def _fetch_ech(host, proxy=""):
         tasks = [via_dig] + [(lambda b=b: via_doh(b)) for b in doh]
     answered = False
     for attempt in range(3):
-        ex = concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks))
+        ex = ThreadPoolExecutor(max_workers=len(tasks))
         futs = [ex.submit(t) for t in tasks]
         found = ""
         try:
-            for f in concurrent.futures.as_completed(futs, timeout=8):
+            for f in as_completed(futs, timeout=8):
                 try:
                     ok, v = f.result()
                 except Exception:
@@ -6441,15 +6353,14 @@ def _fetch_ech(host, proxy=""):
     return "" if answered else None
 
 
-def _fetch_ech_map(hosts, proxy=""):
-    import concurrent.futures
+def _fetch_ech_map(hosts, proxy):
     uniq = list(dict.fromkeys(h for h in hosts if h))
     if not uniq:
         return {}
     out = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
+    with ThreadPoolExecutor(max_workers=min(16, len(uniq))) as ex:
         futs = {ex.submit(_fetch_ech, h, proxy): h for h in uniq}
-        for f in concurrent.futures.as_completed(futs):
+        for f in as_completed(futs):
             try:
                 out[futs[f]] = f.result()
             except Exception:
@@ -6488,7 +6399,7 @@ def _cdn_carrier(d, cur):
     return v
 
 
-def _sni_split_fields(d, cur, ech=False):
+def _sni_split_fields(d, cur, ech):
     on = d.get("sni_split") if ("sni_split" in d) else cur.get("sni_split")
     if not on:
         return {}
@@ -6636,8 +6547,7 @@ def _self_ech_fields(d, cur, out):
                   "ClientHello رمز می‌شود و از چشمِ DPI پنهان می‌ماند؛ یک دامنهٔ معتبر بگذار",
                   "self-hosted ECH needs an inner name (ws_host) — the name on your own server cert, encrypted inside the "
                   "ClientHello and hidden from the DPI; set a valid domain")
-    public = str((d["ech_public"] if "ech_public" in d
-                  else (cur.get("ech_public") or (cur.get("self_ech_mat") or {}).get("public"))) or "").strip().lower()
+    public = str((d["ech_public"] if "ech_public" in d else cur.get("ech_public")) or "").strip().lower()
     if not public:
         raise Bad("self_ech_needs_public",
                   "ECHِ خودمیزبان به یک «نامِ بیرونیِ طعمه» نیاز دارد — دامنه‌ای که در روشناییِ روز روی سیم می‌رود "
@@ -6670,10 +6580,7 @@ def _self_ech_fields(d, cur, out):
     out["ws_host"] = host
     _own_tls_into(out, d, cur, cdn)
     mat = cur.get("self_ech_mat") or {}
-    fresh = (mat.get("public") == public and mat.get("inner") == host and mat.get("srv_cert")
-             and mat.get("srv_key") and mat.get("srv_ech_key") and mat.get("srv_ech_conf")
-             and mat.get("ws_ech") and mat.get("ws_ca"))
-    if not fresh:
+    if mat.get("public") != public or mat.get("inner") != host:
         mat = _gen_self_ech(public, host)
     out["self_ech"] = True
     out["ech_public"] = public
@@ -6768,7 +6675,7 @@ def _edge_target(e, transport, srv_ip, cli_ip, port):
     ends = {"server": _cdn_public_ip(srv_ip), "client": cli_ip}
     if transport == "ws":
         ends["backend"] = "%s:%d" % (ends["server"], int(port))
-    elif not is_ipv4(cli_ip) or not ipaddress.ip_address(cli_ip).is_global:
+    elif not _global_v4(cli_ip):
         raise Bad("edge_client_private",
                   "آی‌پیِ کلاینت ({0}) عمومی نیست و لبه نمی‌داند جواب را به کجا بفرستد — یک آی‌پیِ عمومی برای کلاینت انتخاب کن",
                   "the client IP ({0}) is not public, so the edge cannot tell where to send replies — pick a public client IP",
@@ -6851,14 +6758,9 @@ def _edge_saving(N):
                "the settings of edge '{0}' are being saved right now — try again in a few seconds", N["name"])
 
 
-def _hold_edge(nid, holder, transport):
+def _hold_edge(nid, holder):
     with _reg_lock:
         N = _edge_live(nid)
-        if transport != "ws" and _node_answered(nid) and not _cached_ping(nid).get("nft"):
-            raise Bad("edge_no_nft",
-                      "نودِ «{0}» هنوز nftables ندارد — ایجنت خودش نصبش می‌کند؛ چند دقیقه بعد دوباره بزن یا نود را چک کن",
-                      "node '{0}' has no nftables yet — the agent installs it by itself; try again in a few minutes or check the node",
-                      N["name"])
         if ("save", nid) in _edge_holds.get(nid, ()):
             raise _edge_saving(N)
         _edge_holds.setdefault(nid, set()).add(holder)
@@ -6866,7 +6768,7 @@ def _hold_edge(nid, holder, transport):
 
 def _hold_edges(extra, holder):
     for e in extra.get("edges") or []:
-        _hold_edge(e["node"], holder, extra["transport"])
+        _hold_edge(e["node"], holder)
 
 
 def _release_edges(holder):
@@ -6885,13 +6787,10 @@ def _edge_not_end(extra, A, B):
                   "the private-CDN edge must be a third node, not one of this tunnel's two ends")
 
 
-def _ws_fields(d, transport, cur=None, ech_later=False):
+def _ws_fields(d, cur, ech_later):
     out = {}
-    if transport != "ws":
-        return out
-    cur = cur or {}
     out["ws_port_roll"] = bool(d["ws_port_roll"] if "ws_port_roll" in d else cur.get("ws_port_roll"))
-    _edge_fields(d, cur, out, transport)
+    _edge_fields(d, cur, out, "ws")
     if out.get("edges"):
         return out
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
@@ -6943,8 +6842,7 @@ def _ws_fields(d, transport, cur=None, ech_later=False):
                           host, _ech_why(cfg))
             out["ws_ech"] = _ech_or_stored(host, cfg, known.get(host.lower()))
     cdn = _cdn_carrier(d, cur)
-    xh = cdn != "ws"
-    if bool(xh):
+    if cdn != "ws":
         if cdn == "grpc" and not out.get("ws_tls"):
             raise Bad("grpc_needs_wss", "حاملِ grpc به wss نیاز دارد (برای HTTP/2 به لبه) — اول wss را روشن کن",
                       "the grpc carrier needs wss (for HTTP/2 to the edge) — turn wss on first")
@@ -6970,9 +6868,7 @@ def _rotate_default(d, cur, key):
     return 600 if v is None else v
 
 
-def _ws_pool_fields(d, cur=None):
-    cur = cur or {}
-
+def _ws_pool_fields(d, cur):
     def _list(key):
         return (d[key] if key in d else cur.get(key)) or []
 
@@ -7156,7 +7052,7 @@ _SHAPE_DATAGRAM = ("fec", "fec_data", "fec_parity")
 _SHAPE_DESYNC = ("fake_desync", "fake_count", "fake_mode")
 
 
-def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl", down=""):
+def _shape_consumes(key, transport, profile, srand, moving, dsmode, down):
     pair = (profile, down)
     ported = transport == "raw" and any(p in PORTED_RAW_PROFILES for p in pair)
     if key == "fake_ttl":
@@ -7178,9 +7074,9 @@ def _shape_consumes(key, transport, profile, srand, moving=True, dsmode="ttl", d
     if key in _SHAPE_WS_ONLY:
         return transport == "ws"
     if key in _SHAPE_DATAGRAM:
-        return transport in QUEUEING_TRANSPORTS
+        return transport in DATAGRAM_TRANSPORTS
     if key in _SHAPE_DESYNC:
-        return transport != "udp"
+        return transport in DESYNC_TRANSPORTS
     if key in ("sport_lo", "sport_hi"):
         return (ported and moving) if transport == "raw" else transport in PORT_RUNG_TRANSPORTS
     if key == "port_tries":
@@ -7237,6 +7133,7 @@ def _gre_ptype_fields(d, cur, profile, down):
 
 def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
     shape = _shape_of(d, cur)
+    transport, profile, _, _, _, down = shape
     cur = _carried(cur, shape)
     ce = {}
     cipher = str(d.get("cipher") or cur.get("cipher") or "auto").strip().lower()
@@ -7245,7 +7142,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
     ce["cipher"] = cipher
     if cipher != "none":
         ce["psk"] = cur.get("psk") or secrets.token_hex(32)
-    transport = str(d.get("transport") or cur.get("transport") or "udp").strip().lower()
     if transport not in CORE_TRANSPORTS:
         raise Bad("bad_transport", "حاملِ اتصال نامعتبر است", "invalid carrier")
     ce["transport"] = transport
@@ -7253,7 +7149,6 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
         if cipher == "none":
             raise Bad("raw_needs_cipher", "حاملِ raw به رمزنگاری نیاز دارد (رمز را «بدونِ رمز» نگذار)",
                       "the raw carrier needs encryption (do not set the cipher to none)")
-        profile, down = _raw_pair_of(d, cur)
         if profile not in CORE_RAW_PROFILES or down not in CORE_RAW_PROFILES:
             raise Bad("bad_raw_profile", "پروفایلِ raw نامعتبر است", "invalid raw profile")
         ce["raw_profile"] = profile
@@ -7304,7 +7199,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                     raise Bad("bad_raw_sport", "پورتِ مبدأ باید بینِ 1 تا 65535 باشد", "the source port must be from 1 to 65535")
                 ce["raw_sport"] = _rsport
         else:
-            if _rsport and "raw_sport" in d:
+            if _rsport and _rsport_req:
                 raise Bad("raw_sport_not_allowed", "«پورتِ مبدأ» فقط برای پروفایلِ udp و tcp و sctp است؛ «{0}» هیچ پورتی جعل نمی‌کند",
                           "raw_sport is only for the udp, tcp and sctp profiles; '{0}' fakes no port", pair_name)
         try:
@@ -7333,7 +7228,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                         raise Bad("bad_raw_dports", "«چند پورتِ مقصد» باید بینِ 1 تا {0} باشد",
                                   "raw_dports must be from 1 to {0}", RAW_DPORTS_MAX)
                     ce["raw_dports"] = _rdp
-            elif _sint(d.get("raw_dports")) and "raw_dports" in d:
+            elif _sint(d.get("raw_dports")):
                 raise Bad("dports_need_rotate", "«چند پورتِ مقصد» بدونِ «چرخشِ پورتِ مبدأ» بی‌اثر است — با مبدأِ ثابت هر پکت باز هم در همان سطلِ میدل‌باکس می‌افتد. اول چرخش را روشن کن",
                           "raw_dports has no effect without raw_sport_rotate — with a fixed source every packet still lands "
                           "in the same middlebox bucket. Turn rotation on first")
@@ -7353,7 +7248,7 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                           pair_name)
             ce["conntrack_bypass"] = True
     if transport == "ws":
-        ce.update(_ws_fields(d, transport, cur, ech_later))
+        ce.update(_ws_fields(d, cur, ech_later))
     else:
         _edge_fields(d, cur, ce, transport)
     ce.update(_fec_fields(d, transport, cur))
@@ -7523,10 +7418,10 @@ def _create_tunnel_impl(d, h):
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     extra = {}
     if _needs_tunnel_port(ttype, d, {}):
-        port = _int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or free_tunnel_port(A, B)
+        port = _int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or free_tunnel_port()
         extra["port"] = port
     if ttype == "vxlan":
-        port = _int_in(d.get("port") or 4789, 1, 65535, _bad_tunnel_port())
+        port = _int_in(d.get("port") or VXLAN_PORT, 1, 65535, _bad_tunnel_port())
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = secrets.token_hex(32)
@@ -7544,7 +7439,7 @@ def _create_tunnel_impl(d, h):
         if server_side == "a":
             with _act_lock:
                 h["target"] = "%s ↔ %s" % (B["name"], A["name"])
-    _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip)
+    _guard_server_ports(ttype, extra, server_side, A, B, a_ip, b_ip)
     srv_ip = a_ip if server_side == "a" else b_ip
     _edge_backend(extra, srv_ip, b_ip if server_side == "a" else a_ip)
     _guard_edge_wires(dict(extra, a_ip=a_ip, b_ip=b_ip, server_side=server_side, name=name, type=ttype), rid, h["key"])
@@ -7556,7 +7451,7 @@ def _create_tunnel_impl(d, h):
     jr = _CdnJournal(h)
     with _cdn_hold(wants, rid, jr, early):
         if early:
-            cdn = _cdn_first(h, name, cdn, extra, jr, 1, steps, {})
+            cdn = _cdn_first(h, name, cdn, extra, jr, steps, {})
         node_extra = _node_extra(extra)
         a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
                   "host": overlay_host(ttype, server_side, True), **node_extra}
@@ -7643,11 +7538,11 @@ DELETE_STEPS = 3
 def _delete_link_impl(d, h):
     act_step(h, tx("بررسیِ دو سر", "checking both ends"), 0, DELETE_STEPS)
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     with _PairLock(L["a_node"], L["b_node"]):
-        L = next((x for x in load_links() if x["id"] == d["id"]), None)
+        L = get_link(d["id"])
         if not L:
             return {"ok": True}
         _name_hold(h["key"], (L["a_node"], L["b_node"]), L["name"])
@@ -7781,7 +7676,7 @@ def api_reorder(d):
 RESTORE_RETRY_GAP = 3
 
 
-def _stored_bodies(A, B, L, extra=None):
+def _stored_bodies(A, B, L, extra=None, a_ips=None, b_ips=None):
     tid = int(L["tunnel_id"])
     if extra is None:
         extra = _tunnel_extra(L)
@@ -7795,10 +7690,11 @@ def _stored_bodies(A, B, L, extra=None):
     if ttype == "core":
         a_body["role"] = _core_role(L, A["id"]) if A else ""
         b_body["role"] = _core_role(L, B["id"]) if B else ""
-        _core_rotation_bodies(
-            L, a_body, b_body,
-            _flat_ips(_cached_ping(A["id"])) if A else None,
-            _flat_ips(_cached_ping(B["id"])) if B else None)
+        if a_ips is None:
+            a_ips = _flat_ips(_cached_ping(A["id"])) if A else None
+        if b_ips is None:
+            b_ips = _flat_ips(_cached_ping(B["id"])) if B else None
+        _core_rotation_bodies(L, a_body, b_body, a_ips, b_ips)
         _self_ech_bodies(L, a_body, b_body)
         _edge_bodies(L, a_body, b_body)
         _core_end_bodies(L, a_body, b_body)
@@ -7809,17 +7705,13 @@ def _stored_bodies(A, B, L, extra=None):
 
 def _put_back(N, body):
     for attempt in (0, 1):
-        try:
-            r = node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
-        except Exception:
-            r = {"offline": True}
+        r = node_call(N, "tunnel", "POST", body, timeout=NODE_OP_TIMEOUT)
         if r.get("ok"):
             return True
         if attempt == 0 and r.get("offline"):
             time.sleep(RESTORE_RETRY_GAP)
         else:
             return False
-    return False
 
 
 def _restore_link(A, B, L, extra=None):
@@ -7861,12 +7753,18 @@ def _pooled(L):
 def api_edge_status(d):
     d = d or {}
     _require(d, ["id"])
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     if L.get("type") != "core":
         return {"ok": True, "pool": False, "active": "", "health": [], "events": []}
     return _edge_status_of(L, _client_node(L), _EV_END_MISSING["cli"])
+
+
+def _health_row(h):
+    return {"key": str(h.get("key") or ""), "state": str(h.get("state") or "healthy"),
+            "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0),
+            "retest_secs": int(h.get("retest_secs") or 0)}
 
 
 def _edge_status_of(L, node, missing):
@@ -7881,15 +7779,8 @@ def _edge_status_of(L, node, missing):
     for h in (r.get("health") or []):
         if not isinstance(h, dict):
             continue
-        health.append({
-            "key": str(h.get("key") or ""),
-            "label": names.get(str(h.get("key") or ""), ""),
-            "kind": "sni" if str(h.get("kind")) == "sni" else "ip",
-            "state": str(h.get("state") or "healthy"),
-            "fails": int(h.get("fails") or 0),
-            "next_retest_unix": int(h.get("next_retest_unix") or 0),
-            "retest_secs": int(h.get("retest_secs") or 0),
-        })
+        row = _health_row(h)
+        health.append(dict(row, label=names.get(row["key"], ""), kind="sni" if str(h.get("kind")) == "sni" else "ip"))
     node_now = int(r.get("now") or 0)
     pair = r.get("pair") if isinstance(r.get("pair"), dict) else {}
     return {"ok": True, "pool": is_pool, "active": str(r.get("active") or ""),
@@ -7941,7 +7832,7 @@ def api_pool_select(d):
 
 def _pool_client(d, has, missing):
     _require(d, ["id"])
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    L = get_link(d["id"])
     if not L or L.get("type") != "core" or not has(L):
         raise missing
     node = _client_node(L)
@@ -7971,16 +7862,8 @@ def _peer_addr_ok(s):
 
 def _peer_sec_norm(sec):
     sec = sec if isinstance(sec, dict) else {}
-    health = []
-    for h in (sec.get("health") or []):
-        if not isinstance(h, dict):
-            continue
-        key = str(h.get("key") or "")
-        if not _peer_addr_ok(key):
-            continue
-        health.append({"key": key, "state": str(h.get("state") or "healthy"),
-                       "fails": int(h.get("fails") or 0), "next_retest_unix": int(h.get("next_retest_unix") or 0),
-                       "retest_secs": int(h.get("retest_secs") or 0)})
+    health = [_health_row(h) for h in (sec.get("health") or [])
+              if isinstance(h, dict) and _peer_addr_ok(str(h.get("key") or ""))]
     active = str(sec.get("active") or "")
     return {"active": active if _peer_addr_ok(active) else "",
             "addrs": [x for x in (str(v) for v in (sec.get("addrs") or [])) if _peer_addr_ok(x)][:64],
@@ -7991,7 +7874,7 @@ def api_peer_status(d):
     d = d or {}
     empty = {"active": "", "addrs": [], "health": [], "ts": 0}
     _require(d, ["id"])
-    L = next((x for x in load_links() if x.get("id") == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     if L.get("type") != "core" or not _peer_pooled(L):
@@ -8103,14 +7986,10 @@ def _only_in(frm, to, renamed):
     return [N for N in _node_set(*frm) if renamed or N["id"] not in keep]
 
 
-def _undo_apply(was_a, was_b, A, B, name, renamed):
-    return _drop_tunnel_from(_only_in((A, B), (was_a, was_b), renamed), name)
-
-
 def _edit_link_impl(d, h):
     act_step(h, _STEP_READ, 0, EDIT_STEPS)
     _require(d, ["id", "type"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     ttype = _tunnel_type(d)
@@ -8139,17 +8018,16 @@ def _edit_link_impl(d, h):
     name_changed = new_name != old_name
     type_changed = ttype != L["type"]
     extra = {}
+    _asked = "port" in d and not str(d.get("port") or "").strip()
     if _needs_tunnel_port(ttype, d, L):
-        _asked = "port" in d and not str(d.get("port") or "").strip()
         _moved_carrier = ttype == "core" and _shape_of(d, L)[0] != L.get("transport")
         _stale = _asked or _moved_carrier or L.get("type") not in ("l2tpv3", "fou", "core")
         port = (_int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port()) or (0 if _stale else L.get("port"))
-                or free_tunnel_port(A, B, exclude_id=L["id"]))
+                or free_tunnel_port(exclude_id=L["id"]))
         extra["port"] = port
     if ttype == "vxlan":
-        _asked = "port" in d and not str(d.get("port") or "").strip()
         port = (_int_in(d.get("port") or 0, 0, 65535, _bad_tunnel_port())
-                or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or 4789)
+                or (0 if _asked else (L.get("port") if L.get("type") == "vxlan" else 0)) or VXLAN_PORT)
         extra["port"] = port
     if ttype == "ipsec":
         extra["psk"] = L.get("psk") if (L.get("type") == "ipsec" and L.get("psk")) else secrets.token_hex(32)
@@ -8166,7 +8044,7 @@ def _edit_link_impl(d, h):
     port_same = ("port" not in extra) or (extra["port"] == L.get("port"))
     if not moved and ttype != "core" and ttype == L["type"] and subnet == L["subnet"] and a_ip == L["a_ip"] and b_ip == L["b_ip"] and port_same:
         return {"ok": True, "name": old_name, "msg": tx("چیزی برای تغییر نبود", "nothing to change")}
-    _guard_server_ports(ttype, extra, server_side, tid, A, B, a_ip, b_ip, L, _own_ports(L, was_a or A, was_b or B))
+    _guard_server_ports(ttype, extra, server_side, A, B, a_ip, b_ip, L, _own_ports(L, was_a or A, was_b or B))
     if moved:
         _guard_arrival_free(was_a, was_b, A, B, tid, {old_name, new_name})
     srv_ip = a_ip if server_side == "a" else b_ip
@@ -8181,7 +8059,7 @@ def _edit_link_impl(d, h):
     with _CdnLinkLock(L["id"]):
         with _cdn_hold(wants, L["id"], jr, early):
             old = (get_link(L["id"]) or L).get("cdn")
-            cdn = (_cdn_first(h, new_name, _cdn_state(want, srv_ip, extra["port"], extra, old), extra, jr, 1, n, _ech_known(L))
+            cdn = (_cdn_first(h, new_name, _cdn_state(want, srv_ip, extra["port"], extra, old), extra, jr, n, _ech_known(L))
                    if early else _cdn_new_state(wants, extra, srv_ip, old))
             node_extra = _node_extra(extra)
             a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": new_name,
@@ -8200,7 +8078,7 @@ def _edit_link_impl(d, h):
             _name_hold(h["key"], (A["id"], B["id"]), new_name)
             touched = False
             try:
-                if name_changed or type_changed or moved or ttype == "core":
+                if type_changed or moved or ttype == "core":
                     act_step(h, tx("برچیدنِ پیکربندیِ قبلی", "removing the old setup"), 1 + at, n)
                     touched = True
                     gone = _drop_tunnel_from(_node_set(was_a, was_b, A, B), old_name)
@@ -8220,7 +8098,7 @@ def _edit_link_impl(d, h):
                     raise _node_failed(B, rb)
             except Exception as e:
                 if touched:
-                    undone = _undo_apply(was_a, was_b, A, B, new_name, name_changed)
+                    undone = _drop_tunnel_from(_only_in((A, B), (was_a, was_b), name_changed), new_name)
                     stuck = _restore_link(was_a, was_b, L)
                     if isinstance(e, ValueError):
                         raise Bad(_code(e), tx("{0}{1}{2}", "{0}{1}{2}", _why(e), undone, _restore_tail(stuck))) from None
@@ -8272,14 +8150,13 @@ SPEED_STREAMS = 8
 
 def api_link_speed(d):
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     if L.get("enabled") is False:
         raise Bad("tunnel_off", "این تونل خاموش است — اول روشنش کن", "this tunnel is off — turn it on first")
-    srv_is_a = L.get("server_side") != "b"
-    srv = get_node(L["a_node"] if srv_is_a else L["b_node"])
-    cli = get_node(L["b_node"] if srv_is_a else L["a_node"])
+    srv = get_node(_node_id_of(L, "srv"))
+    cli = _client_node(L)
     if not srv or not cli:
         raise _no_node()
     secs, streams = SPEED_SECS, SPEED_STREAMS
@@ -8301,7 +8178,7 @@ def api_link_speed(d):
 
 def api_check_link(d):
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
 
@@ -8333,7 +8210,7 @@ def api_restart_link(d):
 
 def _restart_link_impl(d, h):
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     if L["type"] != "core":
@@ -8341,14 +8218,12 @@ def _restart_link_impl(d, h):
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise _ends_gone()
-    ends, errs = [], []
-    for i, (side, N) in enumerate((("a", A), ("b", B))):
+    errs = []
+    for i, N in enumerate((A, B)):
         act_step(h, tx("ری‌استارتِ هسته روی نودِ «{0}»", "restarting the core on node '{0}'", N["name"]), i, 2,
                  stop=(i == 0), more=False)
         r = node_call(N, "core-restart", "POST", {"name": L["name"]}, timeout=30)
-        ok = bool(r.get("ok"))
-        ends.append({"side": side, "node": N["name"], "ok": ok})
-        if not ok:
+        if not r.get("ok"):
             errs.append(tx("{0}: {1}", "{0}: {1}", N["name"], r.get("error") or "?"))
     if errs:
         raise Bad("restart_failed", tx_join("؛ ", errs, "; "))
@@ -8377,14 +8252,14 @@ REBUILD_STEPS = 4
 def _rebuild_link_impl(d, h):
     act_step(h, _STEP_READ, 0, REBUILD_STEPS)
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
     A, B = get_node(L["a_node"]), get_node(L["b_node"])
     if not A or not B:
         raise _ends_gone()
     pa, pb = _ping_both(A, B)
-    tid, ttype, subnet, name = int(L["tunnel_id"]), L["type"], L["subnet"], L["name"]
+    ttype, subnet, name = L["type"], L["subnet"], L["name"]
     a_ips = _flat_ips(pa)
     b_ips = _flat_ips(pb)
     want_a, want_b = _want_ip(d, "a_ip", A, a_ips), _want_ip(d, "b_ip", B, b_ips)
@@ -8394,7 +8269,7 @@ def _rebuild_link_impl(d, h):
     if ttype == "core" and L.get("ip_rotate"):
         src = dict(L, a_ip_pool=_pool_with(a_ip, L.get("a_ip_pool"), a_ips),
                    b_ip_pool=_pool_with(b_ip, L.get("b_ip_pool"), b_ips))
-    _guard_server_ports(ttype, src, L.get("server_side"), tid, A, B, a_ip, b_ip, L, _own_ports(L, A, B))
+    _guard_server_ports(ttype, src, L.get("server_side"), A, B, a_ip, b_ip, L, _own_ports(L, A, B))
     _guard_addr_on_another_iface(pa, pb, A, B, subnet, {name})
     _hold_edges(L, h["key"])
     srv_ip, cli_ip = (a_ip, b_ip) if _srv_is_a(L) else (b_ip, a_ip)
@@ -8402,18 +8277,7 @@ def _rebuild_link_impl(d, h):
     _guard_edge_wires(dict(src, a_ip=a_ip, b_ip=b_ip, edges=[dict(e, **edge_want[e["node"]]) for e in L.get("edges") or []]),
                       L["id"], h["key"])
     extra = _tunnel_extra(L)
-    a_body = {"type": ttype, "self_ip": a_ip, "peer_ip": b_ip, "subnet": subnet, "id": tid, "name": name,
-              "host": overlay_host(ttype, L.get("server_side"), True), "enabled": L.get("enabled", True), **extra}
-    b_body = {"type": ttype, "self_ip": b_ip, "peer_ip": a_ip, "subnet": subnet, "id": tid, "name": name,
-              "host": overlay_host(ttype, L.get("server_side"), False), "enabled": L.get("enabled", True), **extra}
-    if ttype == "core":
-        a_body["role"], b_body["role"] = _core_role(L, A["id"]), _core_role(L, B["id"])
-        _core_rotation_bodies(src, a_body, b_body, a_ips, b_ips)
-        _self_ech_bodies(L, a_body, b_body)
-        _edge_bodies(L, a_body, b_body)
-        _core_end_bodies(L, a_body, b_body)
-        _apply_core_tuning(a_body, b_body)
-    _apply_probe_tuning(a_body, b_body)
+    a_body, b_body = _stored_bodies(A, B, dict(src, a_ip=a_ip, b_ip=b_ip), extra, a_ips, b_ips)
     act_step(h, tx("برچیدنِ هر دو سر", "removing both ends"), 1, REBUILD_STEPS)
     try:
         node_call(A, "delete", "POST", {"name": name})
@@ -8439,7 +8303,7 @@ def _rebuild_link_impl(d, h):
         moved = False
     _set_drift(L["id"], moved)
     _refresh_cache([L["a_node"], L["b_node"]])
-    note = _cdn_follow_build(L["id"], a_ip if _srv_is_a(L) else b_ip, h, REBUILD_STEPS, REBUILD_STEPS + 1)
+    note = _cdn_follow_build(L["id"], srv_ip, h, REBUILD_STEPS, REBUILD_STEPS + 1)
     if L.get("edges"):
         _edge_follow(L, edge_want)
         act_step(h, _EDGE_STEP, REBUILD_STEPS, REBUILD_STEPS + 1, stop=False)
@@ -8466,8 +8330,12 @@ def api_link_tag(d):
     return {"ok": True, "tag": tag}
 
 
-def _link_enable(N, L, enabled):
-    return node_call(N, "link-enable", "POST", {"name": L["name"], "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
+def _link_enable(N, name, enabled):
+    return node_call(N, "link-enable", "POST", {"name": name, "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
+
+
+def _node_why(r):
+    return tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or _FAILED)
 
 
 def api_link_toggle(d):
@@ -8477,7 +8345,7 @@ def api_link_toggle(d):
     if not a or not b:
         raise _no_tunnel()
     with _PairLock(a, b):
-        L = next((x for x in load_links() if x["id"] == d["id"]), None)
+        L = get_link(d["id"])
         if not L:
             raise _no_tunnel()
         ends = [get_node(L["a_node"]), get_node(L["b_node"])]
@@ -8491,12 +8359,11 @@ def api_link_toggle(d):
         done = []
         try:
             for N in ends:
-                r = _link_enable(N, L, enabled)
+                r = _link_enable(N, L["name"], enabled)
                 if not r.get("ok"):
-                    why = tx("جواب نداد", "did not answer") if r.get("offline") else (
-                        r.get("error") or _FAILED)
+                    why = _node_why(r)
                     back = [M["name"] for M in done]
-                    stuck = [M["name"] for M in done if not _link_enable(M, L, was).get("ok")]
+                    stuck = [M["name"] for M in done if not _link_enable(M, L["name"], was).get("ok")]
                     if stuck:
                         tail = tx("؛ برگرداندنِ «{0}» هم نشد — آن سر روی حالتِ جدید مانده است",
                                   "; turning '{0}' back failed too — that end stays in the new state",
@@ -8517,7 +8384,6 @@ def api_link_toggle(d):
             **({"msg": tx_join("", [tx("تونل عوض شد", "the tunnel was switched"), tail])} if tail else {})}
 
 
-RECONCILE_GAP = 15
 RECONCILE_RETRY = 60
 _reconcile_last = {}
 
@@ -8597,7 +8463,7 @@ def api_stray_del(d):
 
 
 def _reconcile_once():
-    mode = get_settings().get("reconcile_mode", "alert")
+    mode = get_settings()["reconcile_mode"]
     now = time.time()
     links = load_links()
     _stray_scan(load_nodes(), links)
@@ -8643,10 +8509,7 @@ def reconcile_loop():
     last = time.monotonic()
     while True:
         time.sleep(1.0)
-        try:
-            gap = max(5, int(get_settings().get("reconcile_interval", RECONCILE_GAP) or RECONCILE_GAP))
-        except Exception:
-            gap = RECONCILE_GAP
+        gap = get_settings()["reconcile_interval"]
         if time.monotonic() - last < gap:
             continue
         last = time.monotonic()
@@ -8660,7 +8523,6 @@ def reconcile_loop():
 
 _ECH_EMPTY_CYCLES = 3
 _ech_empty = {}
-_ech_empty_lock = threading.Lock()
 _ech_down_rebuilt = set()
 _ech_healed_seq = {}
 
@@ -8679,17 +8541,14 @@ def _ech_link_hosts(L):
 def _ech_live_push(lid, chmap):
     if not chmap:
         return (False, "")
-    L = next((x for x in load_links() if x.get("id") == lid), None)
+    L = get_link(lid)
     if not L or L.get("type") != "core" or not (L.get("ws_pool") or L.get("ws_host")):
         return (False, "")
     node = _client_node(L)
     if not node:
         return (False, "")
-    try:
-        r = node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
-    except Exception:
-        return (True, "")
-    if not isinstance(r, dict) or not r.get("ok"):
+    r = node_call(node, "ech-update", "POST", {"name": L.get("name"), "snis": chmap}, timeout=8)
+    if not r.get("ok"):
         return (True, "")
     nm = str(node.get("name") or "").strip()
     host = str(node.get("host") or "").strip()
@@ -8701,7 +8560,7 @@ def _ech_pool_down(lid):
         st = api_edge_status({"id": lid})
     except Exception:
         return False
-    return bool(st.get("ok")) and not st.get("error") and not st.get("ready")
+    return not st.get("error") and not st.get("ready")
 
 
 def _ech_write(lid, kind, updates, degrade):
@@ -8762,15 +8621,11 @@ def _ech_safe_rebuild(lid):
 
 
 def _ech_refresh_once():
-    try:
-        mins_label = "%g" % float(get_settings().get("ech_refresh_mins", 15) or 15)
-    except Exception:
-        mins_label = "15"
+    mins_label = "%g" % (get_settings()["ech_refresh_mins"] or 15)
     links = load_links()
     live_ids = {L.get("id") for L in links}
-    with _ech_empty_lock:
-        for k in [k for k in _ech_empty if k[0] not in live_ids]:
-            _ech_empty.pop(k, None)
+    for k in [k for k in _ech_empty if k[0] not in live_ids]:
+        _ech_empty.pop(k, None)
     _ech_down_rebuilt.intersection_update(live_ids)
     for L in links:
         hk = _ech_link_hosts(L)
@@ -8783,14 +8638,12 @@ def _ech_refresh_once():
 
 
 ECH_NOTE_GAP = 3600
-_ech_note_lock = threading.Lock()
 _ech_unknown_warned = {}
 
 
 def _ech_unknown_note(lid, nm, hosts):
-    with _ech_note_lock:
-        if not _gate(_ech_unknown_warned, str(lid), ECH_NOTE_GAP, WARN_MAX_KEYS):
-            return
+    if not _gate(_ech_unknown_warned, str(lid), ECH_NOTE_GAP, WARN_MAX_KEYS):
+        return
     log_event("warn", "ech-stale", tx("تونلِ «{0}»: کلیدِ ECH بررسی نشد", "tunnel '{0}': the ECH key was not checked", nm),
               tx_join(chr(10), [tx("دامنه‌ها: {0}", "domains: {0}", hosts), _ech_why(None),
                                 tx("تا وقتی معلوم نشود، پنل نه کلید را دور می‌ریزد نه تونل را بازمی‌سازد",
@@ -8821,16 +8674,14 @@ def _ech_refresh_link(L, kind, hosts, mins_label):
         nk = ech_map.get(h, "")
         key = (lid, h)
         if nk:
-            with _ech_empty_lock:
-                _ech_empty.pop(key, None)
+            _ech_empty.pop(key, None)
             updates[h] = nk
         elif nk is None:
             unknown.append(h)
         else:
-            with _ech_empty_lock:
-                _ech_empty[key] = _ech_empty.get(key, 0) + 1
-                if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
-                    gone.append(h)
+            _ech_empty[key] = _ech_empty.get(key, 0) + 1
+            if _ech_empty[key] >= _ECH_EMPTY_CYCLES:
+                gone.append(h)
     if unknown:
         _ech_unknown_note(lid, nm, unknown)
     notes = []
@@ -8951,7 +8802,7 @@ def _ech_ingest_link(L, kind, hosts):
         st = api_edge_status({"id": lid})
     except Exception:
         return
-    if not st.get("ok") or st.get("error"):
+    if st.get("error"):
         return
     hostset = set(hosts)
     clean = _core_event_marks(st.get("events"))
@@ -8983,10 +8834,7 @@ def ech_refresh_loop():
     last_full = 0.0
     while True:
         time.sleep(60.0)
-        try:
-            mins = float(get_settings().get("ech_refresh_mins", 15) or 0)
-        except Exception:
-            mins = 15.0
+        mins = get_settings()["ech_refresh_mins"]
         try:
             _ech_heal_once()
         except Exception:
@@ -9108,7 +8956,6 @@ _EV_ROT_AXIS = {
 }
 _EV_ROT_CODE = {
     "rehandshake": ("warn", tx("دست‌دادنِ دوباره، پیش از سوزاندنِ هر آدرسی", "rehandshake before burning any address")),
-    "port-roll": ("ok", tx("با چرخشِ پورتِ مبدأ برگشت", "recovered by a source-port roll")),
     "ladder-revive": ("warn", tx("ازسرگیریِ نردبان پس از بن‌بست", "ladder revived after a dead end")),
 }
 
@@ -9256,12 +9103,10 @@ def _ev_core_text(kind, code, detail, nm):
 
 def _edge_named(L, events, nmap):
     names = {e["inner"]: nmap.get(e["node"], "") for e in L.get("edges") or [] if e.get("inner")}
-    if not names or not isinstance(events, list):
+    if not names:
         return events
     out = []
     for e in events:
-        if not isinstance(e, dict):
-            continue
         d = str(e.get("detail") or "")
         if d.startswith("sni:") and len(names) < 2:
             continue
@@ -9272,9 +9117,7 @@ def _edge_named(L, events, nmap):
 
 
 def _core_event_marks(events):
-    return sorted((((_sint(e.get("ts")), _sint(e.get("seq"))), e)
-                   for e in (events if isinstance(events, list) else []) if isinstance(e, dict)),
-                  key=lambda x: x[0])
+    return sorted((((_sint(e.get("ts")), _sint(e.get("seq"))), e) for e in events), key=lambda x: x[0])
 
 
 def _ingest_core_events(lid, end, nm, events):
@@ -9292,15 +9135,15 @@ def _ingest_core_events(lid, end, nm, events):
         ekind, ecode, edet = str(e.get("kind") or ""), str(e.get("code") or ""), str(e.get("detail") or "")
         if ekind == "down":
             _ev_state["core_down"][lid] = time.time()
-        rot = _ev_rot(ekind, ecode)
-        if rot and end == "cli" and ecode == "port-roll":
+        if ekind == "down" and ecode == "port-roll":
             kv = dict(w.split(":", 1) for w in edet.split() if ":" in w)
             tries, sport = kv.get("tries"), kv.get("sport")
-            log_event(rot[0], rot[3], tx("تونلِ «{0}»: با چرخشِ پورتِ مبدأ{1}{2} برگشت",
-                                         "tunnel '{0}': recovered by a source-port roll{1}{2}", nm,
-                                         tx(" پس از {0} تلاش", " after {0} tries", tries) if tries else "",
-                                         tx("، با پورتِ {0}", ", on port {0}", sport) if sport else ""), ts=ts)
+            log_event("ok", "port-roll", tx("تونلِ «{0}»: با چرخشِ پورتِ مبدأ{1}{2} برگشت",
+                                            "tunnel '{0}': recovered by a source-port roll{1}{2}", nm,
+                                            tx(" پس از {0} تلاش", " after {0} tries", tries) if tries else "",
+                                            tx("، با پورتِ {0}", ", on port {0}", sport) if sport else ""), ts=ts)
             continue
+        rot = _ev_rot(ekind, ecode)
         if rot:
             detail = ""
             if end == "cli" and rot[2]:
@@ -9448,12 +9291,11 @@ def _ev_badge(seen):
 
 
 def _ev_cat(t):
-    return EV_TYPE_GROUP.get(t, "sys")
+    return EV_TYPE_GROUP[t]
 
 
 def _ev_hidden():
-    h = get_settings().get("log_hidden")
-    return {str(t) for t in h if str(t) in EV_TYPE_GROUP} if isinstance(h, list) else set()
+    return set(get_settings()["log_hidden"])
 
 
 def _ev_shown(evs, hidden):
@@ -9468,12 +9310,10 @@ def _ev_prune(evs, now=None):
 def ev_sweep():
     global _ev_list
     with _events_lock:
-        before = len(_ev_all())
-        _ev_list = _ev_prune(_ev_list)
+        _ev_list = _ev_prune(_ev_all())
         if not _ev_out or _ev_out[-1][0] != "trim":
             _ev_out.append(("trim",))
     _ev_wake.set()
-    return before - len(_ev_list)
 
 
 def log_event(level, kind, text, detail="", ts=None):
@@ -9673,7 +9513,7 @@ def _events_once():
         if at is None:
             continue
         nm = L.get("name", "")
-        precise_core = L.get("type") == "core" and str(L.get("transport") or "").lower() in CORE_TRANSPORTS
+        precise_core = L.get("type") == "core"
         if up:
             _ev_state["coarse_hold"].pop(lid, None)
             if not precise_core or lid in _ev_state["links_coarse_down"]:
@@ -9690,8 +9530,7 @@ def _events_once():
         _ev_state["links_coarse_down"].discard(lid)
 
     seen = set()
-    todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)
-            and str(L.get("transport") or "").lower() in CORE_TRANSPORTS]
+    todo = [L for L in links if L.get("type") == "core" and L.get("enabled", True)]
 
     srcneed = [L for L in links if L.get("type") == "core" and L.get("enabled", True) and L.get("ip_rotate")
                and not _ev_state["rotip"].get(L["id"] + ":src")]
@@ -9717,11 +9556,7 @@ def _events_once():
             return None
     ends = [(L, e) for L in todo for e in ("cli", "srv")]
     pre = dict(zip(((L["id"], e) for L, e in ends), parallel_map(_es, ends)))
-    for L in links:
-        if L.get("type") != "core" or not L.get("enabled", True):
-            continue
-        if str(L.get("transport") or "").lower() not in CORE_TRANSPORTS:
-            continue
+    for L in todo:
         lid = L["id"]
         seen.add(lid)
         nm = L.get("name", "")
@@ -9827,12 +9662,26 @@ def _pf_name(v):
     return s
 
 
-def _pf_push(n, endpoint, body, timeout=NODE_OP_TIMEOUT, ret="name"):
-    r = node_call(n, endpoint, "POST", body, timeout=timeout)
+def _pf_push(n, endpoint, body, ret="name"):
+    r = node_call(n, endpoint, "POST", body, timeout=NODE_OP_TIMEOUT)
     if not r.get("ok"):
         raise Bad("node_failed", r.get("error") or tx("نود کار را انجام نداد", "the node did not do it"))
     _refresh_cache([n["id"]])
     return {"ok": True, ret: r.get(ret)}
+
+
+def _pf_body(d, listen_port, dst_port, dst_ips, rotate, interval_min):
+    body = {"listen_port": _pf_field("listen_port", listen_port),
+            "dst_port": _pf_field("dst_port", dst_port),
+            "dst_ips": _pf_field("dst_ips", dst_ips),
+            "rotate": rotate}
+    if rotate:
+        body["interval_min"] = _pf_field("interval_min", interval_min)
+    if d.get("iface"):
+        body["iface"] = _pf_field("iface", d["iface"])
+    if d.get("listen_ip"):
+        body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
+    return body
 
 
 def api_portfw(d):
@@ -9840,16 +9689,7 @@ def api_portfw(d):
     n = get_node(d["node"])
     if not n:
         raise _no_node()
-    body = {"listen_port": _pf_field("listen_port", d["listen_port"]),
-            "dst_port": _pf_field("dst_port", d["dst_port"]),
-            "dst_ips": _pf_field("dst_ips", d["dst_ips"]),
-            "rotate": bool(d.get("rotate"))}
-    if body["rotate"]:
-        body["interval_min"] = _pf_field("interval_min", d.get("interval_min"))
-    if d.get("iface"):
-        body["iface"] = _pf_field("iface", d["iface"])
-    if d.get("listen_ip"):
-        body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
+    body = _pf_body(d, d["listen_port"], d["dst_port"], d["dst_ips"], bool(d.get("rotate")), d.get("interval_min"))
     return _pf_push(n, "portfw", body)
 
 
@@ -9983,17 +9823,9 @@ def _pf_own(n, name):
 def _pf_move(n, to, name, d):
     old = _pf_own(n, name)
     rotate = bool(d["rotate"]) if "rotate" in d else _sint(old.get("switch_interval")) > 0
-    body = {"listen_port": _pf_field("listen_port", d.get("listen_port") or old.get("listen_port")),
-            "dst_port": _pf_field("dst_port", d.get("dst_port") or old.get("dst_port")),
-            "dst_ips": _pf_field("dst_ips", d.get("dst_ips") or old.get("dst_ips")),
-            "rotate": rotate}
-    if rotate:
-        body["interval_min"] = _pf_field("interval_min", d.get("interval_min")
-                                         or _sint(old.get("switch_interval")) // 60 or 5)
-    if d.get("iface"):
-        body["iface"] = _pf_field("iface", d["iface"])
-    if d.get("listen_ip"):
-        body["listen_ip"] = _pf_field("listen_ip", d["listen_ip"])
+    body = _pf_body(d, d.get("listen_port") or old.get("listen_port"), d.get("dst_port") or old.get("dst_port"),
+                    d.get("dst_ips") or old.get("dst_ips"), rotate,
+                    d.get("interval_min") or _sint(old.get("switch_interval")) // 60 or 5)
     if old.get("enabled") is False:
         body["enabled"] = False
     made = _pf_push(to, "portfw", body)["name"]
@@ -10027,11 +9859,10 @@ def api_portfw_toggle(d):
     name = _pf_name(d["name"])
     _pf_own(n, name)
     enabled = bool(d.get("enabled"))
-    r = node_call(n, "link-enable", "POST", {"name": name, "enabled": enabled}, timeout=NODE_OP_TIMEOUT)
+    r = _link_enable(n, name, enabled)
     _refresh_cache([n["id"]])
     if not r.get("ok"):
-        why = tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or _FAILED)
-        raise Bad("toggle_failed", "{0}: {1}{2}", "{0}: {1}{2}", n["name"], why,
+        raise Bad("toggle_failed", "{0}: {1}{2}", "{0}: {1}{2}", n["name"], _node_why(r),
                   tx(" — پورت‌فوروارد عوض نشد", " — the port forward did not change"))
     return {"ok": True, "enabled": enabled}
 
@@ -10041,7 +9872,7 @@ def api_portfw_next(d):
     n = get_node(d["node"])
     if not n:
         raise _no_node()
-    return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, timeout=NODE_OP_TIMEOUT, ret="active")
+    return _pf_push(n, "portfw-next", {"name": _pf_name(d["name"])}, ret="active")
 
 
 def api_portfw_del(d):
@@ -10184,7 +10015,7 @@ def api_node_ips(d):
 
 def api_link_rebuild_info(d):
     _require(d, ["id"])
-    L = next((x for x in load_links() if x["id"] == d["id"]), None)
+    L = get_link(d["id"])
     if not L:
         raise _no_tunnel()
 
@@ -10192,7 +10023,7 @@ def api_link_rebuild_info(d):
         nid = L.get(node_key)
         p = _cached_ping(nid)
         live = _flat_ips(p)
-        return {"node_id": nid, "node": L.get(name_key) or (get_node(nid) or {}).get("name", ""),
+        return {"node_id": nid, "node": L[name_key],
                 "online": bool(p.get("ok")),
                 "drifted": bool(p.get("ok")) and L.get(ip_key) not in live,
                 "multi": len(live) > 1, "ips": _node_ip_tags(nid)}
@@ -10201,11 +10032,15 @@ def api_link_rebuild_info(d):
             "a": side("a_node", "a_ip", "a_name"), "b": side("b_node", "b_ip", "b_name")}
 
 
+def _proxy_no_use():
+    return {"nodes": [], "tunnels": [], "panel": False, "cdn": []}
+
+
 def _proxy_uses():
     out = {}
 
     def use(pid):
-        return out.setdefault(str(pid or ""), {"nodes": [], "tunnels": [], "panel": False, "cdn": []})
+        return out.setdefault(str(pid or ""), _proxy_no_use())
 
     for n in load_nodes():
         if n.get("proxy_on"):
@@ -10251,7 +10086,7 @@ def _release_proxies(holder):
 
 def _proxy_row(p, uses=None):
     st = _px_get(p)
-    u = (uses if uses is not None else _proxy_uses()).get(p["id"]) or {"nodes": [], "tunnels": [], "panel": False, "cdn": []}
+    u = (uses if uses is not None else _proxy_uses()).get(p["id"]) or _proxy_no_use()
     return {"id": p["id"], "name": p["name"], "scheme": p["scheme"], "host": p["host"],
             "port": int(p["port"]), "user": p.get("user") or "", "has_pass": bool(p.get("pass")),
             "addr": "%s://%s:%d" % (p["scheme"], p["host"], int(p["port"])),
@@ -10761,14 +10596,11 @@ def _cdn_pool_wants(extra):
 
 
 def _cdn_public_ip(v):
-    try:
-        ip = ipaddress.ip_address(str(v or ""))
-    except ValueError:
-        ip = None
-    if not ip or ip.version != 4 or not ip.is_global:
+    v = str(v or "")
+    if not _global_v4(v):
         raise Bad("cdn_private_ip", "آی‌پیِ سرور ({0}) عمومی نیست و CDN به آن نمی‌رسد — یک آی‌پیِ عمومیِ IPv4 انتخاب کن",
                   "the server IP ({0}) is not public and the CDN cannot reach it — pick a public IPv4", v or "?")
-    return str(ip)
+    return str(ipaddress.ip_address(v))
 
 
 def _cdn_taken(host, name):
@@ -10779,7 +10611,7 @@ def _cdn_taken(host, name):
 def _cdn_link_hosts(L):
     c = L.get("cdn") or {}
     hosts = {str(L.get("ws_host") or "").lower(), str(c.get("host") or ""), str((c.get("applied") or {}).get("host") or "")}
-    return hosts | {str(s.get("host") or "").lower() for s in L.get("ws_edge_snis") or [] if isinstance(s, dict)}
+    return hosts | {s["host"] for s in L.get("ws_edge_snis") or []}
 
 
 def _cdn_host_user(host, skip=""):
@@ -10798,11 +10630,14 @@ def _cdn_link_name(lid):
 _CDN_SAME_KEYS = ("provider", "zone", "host", "ip", "port", "tls", "carrier")
 
 
+def _cdn_wire(ip, port, extra):
+    return {"ip": ip, "port": int(port), "tls": bool(extra.get("ws_tls")), "carrier": extra.get("cdn_carrier") or "ws"}
+
+
 def _cdn_state(want, ip, port, extra, cur=None):
     if (cur or {}).get("pool"):
         cur = next((s for s in cur["hosts"] if s["host"] == want["host"]), None)
-    st = {"provider": want["provider"], "zone": want["zone"], "host": want["host"], "ip": ip, "port": int(port),
-          "tls": bool(extra.get("ws_tls")), "carrier": extra.get("cdn_carrier") or "ws",
+    st = {"provider": want["provider"], "zone": want["zone"], "host": want["host"], **_cdn_wire(ip, port, extra),
           "ok": False, "code": "", "error": "", "error_en": "", "applied": (cur or {}).get("applied")}
     if _cdn_uptodate(dict(st, ok=bool((cur or {}).get("ok")))):
         st["ok"] = True
@@ -10824,7 +10659,7 @@ def _cdn_pool_top(base, hosts):
 
 
 def _cdn_bad(c):
-    return next((s for s in _cdn_states(c) if not s.get("ok")), None) or _cdn_states(c)[0]
+    return next(s for s in _cdn_states(c) if not s.get("ok"))
 
 
 def _cdn_new_state(wants, extra, srv_ip, old):
@@ -10833,8 +10668,7 @@ def _cdn_new_state(wants, extra, srv_ip, old):
     if not extra.get("ws_pool"):
         return _cdn_state(wants[0], srv_ip, extra["port"], extra, old)
     olds = {s["host"]: s for s in _cdn_states(old)}
-    return _cdn_pool_top({"pool": True, "ip": srv_ip, "port": int(extra["port"]), "tls": bool(extra.get("ws_tls")),
-                          "carrier": extra.get("cdn_carrier") or "ws"},
+    return _cdn_pool_top({"pool": True, **_cdn_wire(srv_ip, extra["port"], extra)},
                          [_cdn_state(w, srv_ip, extra["port"], extra, olds.get(w["host"])) for w in wants])
 
 
@@ -10948,6 +10782,17 @@ def _cdn_no_others(prov, host, recs, rid):
         raise Bad("cdn_record_extra", "کنارِ رکوردِ پنل برای «{0}» رکوردِ دیگری هم هست ({1}) — پاکش کن تا ترافیک بینِ دو سرور پخش نشود",
                   "besides the panel's record '{0}' has another record ({1}) — delete it so the traffic is not split between two servers",
                   host, tx_join("، ", [_rec_show(prov, r) for r in others], ", "))
+
+
+def _cdn_mine(prov, items, got):
+    mine = {}
+    for w, cur in items:
+        host, recs = w["host"], got["recs"][w["host"]]
+        rid = cur.get("record_id", "") if _cdn_same(cur, w) else ""
+        m = next((r for r in recs if rid and r.get("id") == rid), None)
+        _cdn_no_others(prov, host, recs, rid if m else "")
+        mine[host] = (rid if m else "", m)
+    return mine
 
 
 def _cf_setting(cred, zid, key, soft=False):
@@ -11139,13 +10984,7 @@ def _cf_apply(cred, zone, items, ctx, jr):
     srule = _cf_rule(cfg, _CF_SSL_REF)
     if host_ssl:
         _cf_config_room(z, cfg, srule)
-    mine = {}
-    for w, cur in items:
-        host, recs = w["host"], got["recs"][w["host"]]
-        rid = cur.get("record_id", "") if _cdn_same(cur, w) else ""
-        m = next((r for r in recs if rid and r.get("id") == rid), None)
-        _cdn_no_others("cf", host, recs, rid if m else "")
-        mine[host] = (rid if m else "", m)
+    mine = _cdn_mine("cf", items, got)
     rids = {}
     for host in hosts:
         rid, m = mine[host]
@@ -11210,13 +11049,7 @@ def _ar_apply(cred, zone, items, ctx, jr):
     hosts = [w["host"] for w, _cur in items]
     got = _cdn_read(cred, z, hosts, _ar_zone_jobs(cred, z, ctx["tls"], ctx["carrier"]))
     _cdn_unblocked("ar", z["name"], got, ctx["tls"])
-    mine = {}
-    for w, cur in items:
-        host, recs = w["host"], got["recs"][w["host"]]
-        rid = cur.get("record_id", "") if _cdn_same(cur, w) else ""
-        m = next((r for r in recs if rid and r.get("id") == rid), None)
-        _cdn_no_others("ar", host, recs, rid if m else "")
-        mine[host] = (rid if m else "", m)
+    mine = _cdn_mine("ar", items, got)
     rids = {}
     for host in hosts:
         rid, m = mine[host]
@@ -11344,13 +11177,13 @@ def _cdn_ech_key(cred, want, proxy, tick, known):
                       "neither the domain's name servers nor DoH answered — the panel's DNS or ECH proxy is down"))
 
 
-def _cdn_first(h, name, st, extra, jr, i, n, known):
+def _cdn_first(h, name, st, extra, jr, n, known):
     want, ctx = _cdn_args(name, st)
-    _cdn_step(h, CDN_NAMES[st["provider"]], i, n)
+    _cdn_step(h, CDN_NAMES[st["provider"]], 1, n)
     new = st["applied"] if _cdn_uptodate(st) else _cdn_apply(st["provider"], st["zone"], [(want, _cdn_base(st, want))], ctx, jr)[0]
 
     def tick():
-        act_step(h, tx("منتظرِ کلیدِ ECH", "waiting for the ECH key"), i + 1, n)
+        act_step(h, tx("منتظرِ کلیدِ ECH", "waiting for the ECH key"), 2, n)
     extra["ws_ech"] = _cdn_ech_key(_cdn_cred(st["provider"]), want, _ech_px(extra), tick, known)
     return dict(st, ok=True, code="", error="", error_en="", applied=new)
 
@@ -11462,13 +11295,12 @@ def _cdn_full(st):
 def _cdn_strip(st, jr):
     prov = st.get("provider")
     cred = _cdn_cred(prov)
-    with _cdn_lock(prov, st.get("zone")):
-        if st.get("record_id"):
-            _cdn_strip_record(cred, st, jr)
-        if prov == "cf":
-            _cdn_unport(cred, st, jr)
-        if st.get("ssl_ref"):
-            _cdn_strip_ssl(cred, st, jr)
+    if st.get("record_id"):
+        _cdn_strip_record(cred, st, jr)
+    if prov == "cf":
+        _cdn_unport(cred, st, jr)
+    if st.get("ssl_ref"):
+        _cdn_strip_ssl(cred, st, jr)
 
 
 def _cdn_detach(st, jr):
@@ -11560,13 +11392,13 @@ def _cdn_host_base(host):
     if not e:
         return None
     return {"provider": e["provider"], "zone": e["zone"], "zone_id": e.get("zone_id", ""), "host": host,
-            "record_id": e.get("record_id", ""), "ip": e.get("ip", "")}
+            "record_id": e.get("record_id", "")}
 
 
 def _cdn_host_after(new, lid):
     e = dict(_M.cdn_hosts.get(new["host"]) or {"host": new["host"], "made": int(time.time()), "ssl": False})
     e.update(provider=new["provider"], zone=new["zone"], zone_id=new.get("zone_id", ""), record_id=new["record_id"],
-             ip=new["ip"], ssl=bool(e.get("ssl") or new.get("ssl_ref")), link=lid)
+             ssl=bool(e.get("ssl") or new.get("ssl_ref")), link=lid)
     return e
 
 
@@ -11677,7 +11509,7 @@ def _cdn_unclaim(host, lid):
 
 def _cdn_args(name, st):
     return ({"provider": st["provider"], "zone": st["zone"], "host": st["host"]},
-            {"name": name, "ip": st["ip"], "port": int(st["port"]), "tls": bool(st.get("tls")), "carrier": st.get("carrier") or "ws"})
+            {"name": name, "ip": st["ip"], "port": st["port"], "tls": st["tls"], "carrier": st["carrier"]})
 
 
 def _cdn_base(st, want):
@@ -11823,11 +11655,10 @@ def api_cdn(d):
 
 
 def api_cdn_key(d):
-    return {"ok": True, "key": _cdn_saved(_cdn_prov((d or {}).get("provider")))["key"]}
+    return {"ok": True, "key": _cdn_saved(_cdn_prov(d.get("provider")))["key"]}
 
 
 def api_cdn_set(d):
-    d = d or {}
     prov = _cdn_prov(d.get("provider"))
     with _reg_lock:
         cur = dict(_cdn_keys().get(prov) or {})
@@ -11874,7 +11705,6 @@ def api_cdn_set(d):
 
 EDGE_DECOY_DEFAULT = "www.google.com"
 _EDGE_PORT_DEFAULT = 443
-_EDGE_BUF_DEFAULT = 16
 
 
 def _edge_of(node):
@@ -11887,7 +11717,7 @@ def _edge_port(e):
 
 
 def _edge_buf(e):
-    return int(e.get("buf_mb", _EDGE_BUF_DEFAULT))
+    return int(e.get("buf_mb", _TUNING_DEFAULTS["tcp_buf_mb"]))
 
 
 def _edge_table(nid):
@@ -12017,7 +11847,7 @@ def _front_push(N, e=None):
         r = {"error": _why(ex)}
     if r.get("ok"):
         return ""
-    return tx("جواب نداد", "did not answer") if r.get("offline") else (r.get("error") or _FAILED)
+    return _node_why(r)
 
 
 def _front_named(N, why):
@@ -12080,12 +11910,11 @@ def _edge_list():
                     "relays": sum(r["transport"] != "ws" and r["enabled"] for r in rows), "users": len(rows),
                     "tunnels": rows, "online": _node_answered(n["id"]), "front": bool(ping.get("front")),
                     "relay_live": int(relay.get("rules") or 0),
-                    "nft": bool(ping.get("nft")), "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
+                    "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
     return out
 
 
 def api_cdn_edge(d):
-    d = d or {}
     act = str(d.get("act") or "state").strip().lower()
     if act == "state":
         return {"ok": True, "edges": _edge_list()}
@@ -12173,7 +12002,7 @@ def _edge_save(node, e):
 
 
 def api_cdn_test(d):
-    prov = _cdn_prov((d or {}).get("provider"))
+    prov = _cdn_prov(d.get("provider"))
     cred = _cdn_cred(prov)
     zones = _cdn_zones(cred)
     usable = [z for z in zones if z["ok"]]
@@ -12194,7 +12023,7 @@ def api_cdn_test(d):
 
 
 def api_cdn_zones(d):
-    prov = _cdn_prov((d or {}).get("provider"))
+    prov = _cdn_prov(d.get("provider"))
     zones = sorted(_cdn_zones(_cdn_cred(prov)), key=lambda z: (not z["ok"], z["name"]))
     return {"ok": True, "zones": [{k: z[k] for k in ("name", "plan", "ok", "why")} for z in zones]}
 
@@ -12254,14 +12083,12 @@ def _cdn_notes(cred, z, tls, carrier):
 
 
 def api_cdn_notes(d):
-    d = d or {}
     cred = _cdn_cred(_cdn_prov(d.get("provider")))
     carrier = _cdn_carrier(d, None)
     return {"ok": True, "notes": _cdn_notes(cred, _cdn_zone(cred, _cdn_zone_name(d.get("zone"))), bool(d.get("ws_tls")), carrier)}
 
 
 def api_cdn_ports(d):
-    d = d or {}
     node = get_node(str(d.get("node") or ""))
     if not node:
         raise _no_node()
@@ -12275,7 +12102,6 @@ def api_cdn_ports(d):
 
 
 def api_cdn_check(d):
-    d = d or {}
     prov = _cdn_prov(d.get("provider"))
     if "count" in d:
         n = _sint(d.get("count"))
@@ -12332,7 +12158,7 @@ def _cdn_make(cred, zone, hosts, ip, replace, jr):
             rid = str((call(cred, "POST", base, body).get(key) or {}).get("id") or "")
             jr.did(said, lambda rid=rid: call(cred, "DELETE", "%s/%s" % (base, rid), ok404=True))
             out[host] = {"host": host, "provider": prov, "zone": z["name"], "zone_id": z["id"] if prov == "cf" else "",
-                         "record_id": rid, "ip": ip, "ssl": False, "made": now, "link": ""}
+                         "record_id": rid, "ssl": False, "made": now, "link": ""}
         if prov == "cf" and _cdn_ssl_mode() == "host":
             cfg = _cf_entry(cred, z["id"], _CF_CONFIG)
             srule = _cf_rule(cfg, _CF_SSL_REF)
@@ -12352,7 +12178,6 @@ def _cdn_make(cred, zone, hosts, ip, replace, jr):
 
 
 def api_cdn_make(d):
-    d = d or {}
     prov = _cdn_prov(d.get("provider"))
     labels = d.get("labels")
     if not isinstance(labels, list) or not 1 <= len(labels) <= CDN_MAKE_MAX:
@@ -12405,7 +12230,7 @@ def _cdn_drop(host):
 
 
 def api_cdn_drop(d):
-    hosts = (d or {}).get("hosts")
+    hosts = d.get("hosts")
     if not isinstance(hosts, list) or not 1 <= len(hosts) <= CDN_DROP_MAX:
         raise Bad("bad_cdn_hosts", "بین ۱ تا {0} زیردامنه بده", "give 1 to {0} subdomains", CDN_DROP_MAX)
     dropped, failed = [], []
@@ -12419,7 +12244,7 @@ def api_cdn_drop(d):
 
 
 def api_cdn_sync(d):
-    _require(d or {}, ["id"])
+    _require(d, ["id"])
     L = get_link(str(d["id"]))
     if not L:
         raise _no_tunnel()
@@ -12445,7 +12270,7 @@ def api_settings(d):
 
 def api_settings_set(d):
     with _reg_lock:
-        obj = validate_settings(d or {})
+        obj = validate_settings(d)
         with store_tx() as t:
             t.settings(obj)
     return {"ok": True, "settings": settings_public(obj)}
@@ -12593,8 +12418,7 @@ def _backup_stage(keys):
     except RegistryError as e:
         raise Bad("bad_backup", "دادهٔ داخلِ بکاپ خراب است — {0}", "the data inside the backup is damaged — {0}", _why(e)) from None
     except Exception as e:
-        rx = sys.modules.get("redis.exceptions")
-        if rx is not None and isinstance(e, rx.ResponseError):
+        if isinstance(e, sys.modules["redis.exceptions"].ResponseError):
             raise Bad("bad_backup", "ردیس دادهٔ این بکاپ را نپذیرفت — فایل خراب است یا با ردیسِ جدیدتری ساخته شده",
                       "Redis refused this backup's data — the file is damaged or was made by a newer Redis") from None
         raise StoreError(_store_msg(e)) from None
@@ -12740,44 +12564,35 @@ def _checkin_claimant(d):
 
 
 def api_checkin_impl(source_ip, d):
-    n, why = _checkin_claimant(d or {})
+    n, why = _checkin_claimant(d)
     if not n:
-        if why == "stale":
-            return {"ok": False, "stale": True,
-                    "error": "شمارندهٔ این درخواست از درخواستِ قبلیِ همین نود عقب‌تر است "
-                             "— یا تکرارِ یک پیامِ قدیمی است یا ساعتِ نود عقب رفته"}
-        if why == "skew":
-            return {"ok": False, "stale": True,
-                    "error": "زمانِ این درخواست بیش از ۱۰ دقیقه با ساعتِ پنل فاصله دارد "
-                             "— یا پیامِ قدیمی است یا ساعتِ نود درست نیست"}
-        return {"ok": False, "unauthorized": True,
-                "error": "درخواستِ نود امضا ندارد یا نود ناشناخته است"}
+        return {"ok": False, "unauthorized": True} if why == "unauthorized" else {"ok": False}
     tok = str(n.get("token", ""))
     with _reg_lock:
-        n = next((x for x in load_nodes() if x["id"] == n["id"]), None)
+        n = get_node(n["id"])
         if not n:
-            return {"ok": False, "error": "نودِ ناشناخته"}
+            return {"ok": False}
         n_snap, host, port = dict(n), n.get("host"), int(n.get("port") or 0)
-    ips = (d or {}).get("ips")
+    ips = d.get("ips")
     want_host = source_ip if (source_ip and is_ipv4(source_ip) and isinstance(ips, list) and source_ip in ips) else host
     try:
-        want_port = int((d or {}).get("port") or 0)
+        want_port = int(d.get("port") or 0)
     except (TypeError, ValueError):
         want_port = 0
     if not 1 <= want_port <= 65535:
         want_port = port
     if (want_host, want_port) == (host, port):
         _moved_clear(n_snap["id"])
-        return {"ok": True, "host": host, "port": port}
+        return {"ok": True}
     if node_call(n_snap, "ping", "GET", timeout=5).get("ok"):
         _moved_clear(n_snap["id"])
-        return {"ok": True, "host": host, "port": port}
+        return {"ok": True}
     probe = dict(n_snap)
     probe["host"], probe["port"] = want_host, want_port
     if not node_call(probe, "ping", "GET", timeout=5).get("ok"):
-        return {"ok": False, "unconfirmed": True, "host": host, "port": port}
+        return {"ok": False}
     if get_settings().get("reconcile_mode") != "auto":
-        if _moved_note(n_snap["id"], n_snap.get("name") or "", host, want_host, want_port):
+        if _moved_note(n_snap["id"], want_host, want_port):
             log_event("warn", "node-moved", tx("نودِ «{0}»: جابه‌جاییِ نشانی", "node '{0}': address moved", n_snap.get("name")),
                       tx("از {0}:{1} به {2}:{3} رفته و از نشانیِ تازه جواب می‌دهد — روی"
                          " کارتِ نود نشانِ هشدار را بزن و «تنظیمِ نشانی»، بعد تونل‌هایش را بازسازی کن."
@@ -12785,21 +12600,20 @@ def api_checkin_impl(source_ip, d):
                          "it moved from {0}:{1} to {2}:{3} and answers from the new address — adopt the new address "
                          "(node-adopt-ip), then rebuild its tunnels. (To do it by itself, set the repair mode to auto.)",
                          host, port, want_host, want_port))
-        return {"ok": True, "host": host, "port": port, "moved_to": want_host}
+        return {"ok": True}
     _moved_clear(n_snap["id"])
     with _reg_lock:
         nodes = load_nodes()
         n = next((x for x in nodes if secret_eq(x.get("token", ""), tok)), None)
         if not n:
-            return {"ok": False, "error": "نودِ ناشناخته"}
+            return {"ok": False}
         if _host_taken(nodes, want_host, exclude_id=n["id"]):
-            return {"ok": False, "clash": True, "host": host, "port": port,
-                    "error": "نودِ دیگری از قبل روی این نشانی ثبت است؛ نشانی عوض نشد"}
-        host, port, nid = want_host, want_port, n["id"]
+            return {"ok": False}
+        nid = n["id"]
         store_edit(_NODES, nid, lambda x: x.update(host=want_host, port=want_port))
         _addr_bump(nid)
     _refresh_cache([nid])
-    return {"ok": True, "host": host, "port": port}
+    return {"ok": True}
 
 
 ACT_KEEP = 20
@@ -12870,8 +12684,8 @@ def act_start(key, fn, target="", page="", ttype="", more=None):
 
 
 def _link_act_key(d):
-    lid = (d or {}).get("id")
-    L = next((x for x in load_links() if x["id"] == lid), None)
+    lid = d.get("id")
+    L = get_link(str(lid or ""))
     if not L:
         raise _no_tunnel()
     return "link:" + str(lid), L.get("name") or ""
@@ -12897,7 +12711,7 @@ def api_acts(_d):
 
 
 def api_act_cancel(d):
-    key = str((d or {}).get("act") or "")
+    key = str(d.get("act") or "")
     with _act_lock:
         h = _acts.get(key)
         if not h or h["state"] != "run":
@@ -12914,10 +12728,6 @@ UI_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
-    ".svg": "image/svg+xml",
-    ".png": "image/png",
-    ".ico": "image/x-icon",
-    ".webmanifest": "application/manifest+json",
     ".woff2": "font/woff2",
 }
 PUBLIC_ASSET = re.compile(r"/assets/fonts/[A-Za-z0-9_-]+\.woff2")
@@ -12934,7 +12744,7 @@ def ui_asset(rel):
         return fh.read(), UI_TYPES.get(os.path.splitext(full)[1], "application/octet-stream")
 
 
-def ui_config():
+def api_ui_config(d):
     return {
         "tuning_defaults": _TUNING_DEFAULTS,
         "tuning_steps": _TUNING_STEPS,
@@ -12965,14 +12775,6 @@ def ui_config():
             "edge_ports": {"tls": list(_EDGE_TLS_PORTS), "plain": list(_EDGE_PLAIN_PORTS)},
         },
     }
-
-
-def api_ui_config(d):
-    return ui_config()
-
-
-def _dispatch(cmd, d):
-    return API[cmd](d)
 
 
 API = {
@@ -13237,7 +13039,7 @@ class Handler(BaseHTTPRequestHandler):
             if page is None:
                 self._send(500, {"error": "رابط کاربری نصب نشده — پوشهٔ ui کنارِ دادهٔ پنل نیست"})
                 return
-            self._send(200, page, ctype, cache="no-store")
+            self._send(200, page, ctype)
         elif path.startswith("/assets/"):
             if not PUBLIC_ASSET.fullmatch(path) and not self._user():
                 self._send(404, {"error": "پیدا نشد"})
@@ -13476,7 +13278,7 @@ class Handler(BaseHTTPRequestHandler):
             self._refuse("token_cdn", cmd, method, en)
             return
         try:
-            res = _dispatch(cmd, d)
+            res = API[cmd](d)
             status, body = _en_reply(res) if via_token else (200, res)
             self._send(status, body)
             if status != 200:
@@ -13975,7 +13777,7 @@ def menu():
             line = "  %s %s" % (cyan(key + ")"), title)
             print(line + ("  " + dim(note) if note else ""))
         try:
-            c = input(nl_prompt()).strip()
+            c = input("\n" + bold("choice: ")).strip()
         except (KeyboardInterrupt, EOFError):
             print()
             return
@@ -14004,9 +13806,6 @@ def menu():
         except Exception as e:
             print("%s %s" % (BAD, e))
 
-
-def nl_prompt():
-    return "\n" + bold("choice: ")
 
 _BUSY_BODY = json.dumps({"code": 503, "error": "busy", "message": "the panel is busy — try again in a moment"}).encode()
 _BUSY_RESP = (b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
