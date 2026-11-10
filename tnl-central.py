@@ -3623,9 +3623,9 @@ def _host_taken(nodes, host, exclude_id=None):
 def _node_first_contact(node):
     p = node_call(node, "ping", "GET")
     _refresh_cache([node["id"]])
-    if not p.get("ok"):
-        return
-    _push_staged_on_add(get_node(node["id"]) or {**node, "arch": p.get("arch")})
+    N = get_node(node["id"])
+    if p.get("ok") and N:
+        _push_staged_on_add(N)
 
 
 def _refresh_bg(nids):
@@ -4025,8 +4025,9 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             time.sleep(2)
         with _install_lock:
             _install_jobs[jid]["node_id"] = node["id"]
-        if online:
-            _push_staged_on_add(get_node(node["id"]) or node)
+        N = get_node(node["id"])
+        if online and N:
+            _push_staged_on_add(N)
         _install_step(jid, "register", "ok" if online else "warn",
                       tx("نود وصل شد و آنلاین است", "the node is connected and online") if online else
                       tx("ثبت شد ولی هنوز پاسخ نمی‌دهد (پورتِ ایجنت را به سرورِ مرکزی باز کن)",
@@ -5744,9 +5745,6 @@ def _staged_bytes(arch):
 
 
 def _node_arch(node):
-    a = str(node.get("arch") or "").strip()
-    if a in CORE_ARCHES:
-        return a
     a = str(_cached_ping(node.get("id") or "").get("arch") or "").strip()
     if a in CORE_ARCHES:
         return a
