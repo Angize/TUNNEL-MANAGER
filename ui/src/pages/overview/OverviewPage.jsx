@@ -15,6 +15,7 @@ import { scoreColor, uptimeColor } from '../../lib/health.js'
 import { fmtBytes, fmtGb, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 
 function Section({ icon, titleKey, children }) {
   return (
@@ -54,6 +55,7 @@ export default function OverviewPage({ onNavigate }) {
   }, [])
 
   const [summary, , progress] = usePolledData(load)
+  const shell = useSummary()
   const body = useRef(null)
   useRiseIn(body, !!summary)
 
@@ -63,7 +65,7 @@ export default function OverviewPage({ onNavigate }) {
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
         <LoadBar on value={progress} />
         <SkelZone>
-          <SkelKpis />
+          <SkelKpis note={shell.tunNote} />
           <SkelOverview />
         </SkelZone>
       </>

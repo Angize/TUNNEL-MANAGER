@@ -24,7 +24,7 @@ import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { BulkInstallProvider } from './state/BulkInstallContext.jsx'
 import { BulkFabHost } from './pages/nodes/NodeBulk.jsx'
-import { HUB_IDS, hasPage, hubFirst, hubOf, hubSize, pageComponent } from './pages/index.jsx'
+import { HUB_IDS, hasPage, hubFirst, hubOf, hubSize, kindCount, pageComponent } from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
@@ -163,6 +163,7 @@ function Shell() {
         },
         evSeq: seq,
         subnetFree: s.subnet_free || null,
+        tunNote: !num(s.link_total) || num(s.link_off) > 0,
         loaded: true,
       })
       setUiInterval(Math.round(num(s.ui_interval) * 1000))
@@ -297,7 +298,13 @@ function Shell() {
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (
-              <PageSkeleton page={page} kind={kinds[page]} tabs={hubSize(page)} summary={summary} />
+              <PageSkeleton
+                page={page}
+                kind={kinds[page]}
+                tabs={hubSize(page)}
+                count={kindCount(kinds[page])}
+                summary={summary}
+              />
             )}
           </div>
         </main>

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
+import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
@@ -71,7 +71,7 @@ export default function ApiTab({ active }) {
         <FormGate />
       ) : (
         <SkelZone>
-          <SkelBlock rows={1} />
+          <SkelBlocks rows={SKEL_ROWS.apiForm} />
         </SkelZone>
       )}
 
@@ -79,7 +79,7 @@ export default function ApiTab({ active }) {
         <Suspense
           fallback={
             <SkelZone>
-              <SkelBlock rows={6} />
+              <SkelBlocks rows={SKEL_ROWS.apiDocs} />
             </SkelZone>
           }
         >

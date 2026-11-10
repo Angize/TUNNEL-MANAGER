@@ -4,7 +4,7 @@ import Field from '../../components/Field.jsx'
 import Select from '../../components/Select.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
+import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { Seg2, SegOpt, WarnCap } from '../core/form/controls.jsx'
@@ -322,8 +322,7 @@ export default function CdnTab() {
     <div className="stpage" ref={box}>
       {!cdn && !err ? (
         <SkelZone>
-          <SkelBlock rows={3} />
-          <SkelBlock rows={3} />
+          <SkelBlocks rows={SKEL_ROWS.cdnCloud} />
         </SkelZone>
       ) : null}
       {!cdn && err ? (

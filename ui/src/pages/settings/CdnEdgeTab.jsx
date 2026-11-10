@@ -4,7 +4,7 @@ import Field from '../../components/Field.jsx'
 import Select from '../../components/Select.jsx'
 import SwitchRow from '../../components/SwitchRow.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
+import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Stepper from '../../components/Stepper.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
@@ -221,7 +221,7 @@ export default function CdnEdgeTab() {
     <div className="stpage cdnedge">
       {edges === null && !err ? (
         <SkelZone>
-          <SkelBlock rows={3} />
+          <SkelBlocks rows={SKEL_ROWS.cdnEdge} />
         </SkelZone>
       ) : null}
       {edges === null && err ? (

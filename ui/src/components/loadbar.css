@@ -45,3 +45,11 @@
   width: 32%;
   animation: ldslide 1.3s cubic-bezier(.45, 0, .25, 1) infinite;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .ldbar.wait > i {
+    width: 100%;
+    opacity: .35;
+    animation: none;
+  }
+}

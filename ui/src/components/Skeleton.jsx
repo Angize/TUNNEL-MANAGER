@@ -1,26 +1,41 @@
 import { useEffect, useState } from 'react'
 import { T } from '../i18n/fa.js'
+import { CDN_PAGE_KEY, getLS } from '../lib/storage.js'
 import './skeleton.css'
 
 const MAX_CARDS = 6
+const TUNNEL_KPI = 2
 const LOG_ROWS = 5
 const CHIPS = [84, 124, 83]
 const SHOW_DELAY = 180
+const FADE_MS = 300
 const CARRY_MS = 100
 const SHOWN = { animation: 'none' }
 
-let live = 0
-let since = 0
-let left = -Infinity
+export const SKEL_ROWS = {
+  values: [5, 3],
+  apiForm: [1],
+  apiDocs: [6],
+  cdnCloud: [3, 3],
+  cdnEdge: [3],
+  upkeep: [4, 3],
+}
+
+let bootLive = 0
+let bootSince = 0
+let bootLeft = -Infinity
 
 const range = (n) => Array.from({ length: n }, (_, i) => i)
 
-function entrance() {
+function entrance(boot) {
   const now = performance.now()
-  if (!live && now - left > CARRY_MS) since = now
-  const shown = now - since
-  if (shown >= SHOW_DELAY) return SHOWN
-  return shown > 0 ? { animationDelay: SHOW_DELAY - shown + 'ms' } : undefined
+  if (!bootLive && now - bootLeft > CARRY_MS) {
+    if (boot) bootSince = now
+    return undefined
+  }
+  const shown = now - bootSince
+  if (shown >= SHOW_DELAY + FADE_MS) return SHOWN
+  return { animationDelay: SHOW_DELAY - shown + 'ms' }
 }
 
 export function skelCount(summary, key) {
@@ -28,30 +43,34 @@ export function skelCount(summary, key) {
   return Math.min(Math.max(summary.counts[key] || 0, 1), MAX_CARDS)
 }
 
-export function Bone({ w, h, r, cls }) {
+function Bone({ w, h, r, cls }) {
   return <i className={'skb' + (cls ? ' ' + cls : '')} style={{ inlineSize: w, blockSize: h, borderRadius: r }} />
 }
 
-export function SkelZone({ className, children }) {
-  const [style] = useState(entrance)
+export function SkelZone({ boot, className, children }) {
+  const [style] = useState(() => entrance(boot))
+  const [said, setSaid] = useState(false)
 
   useEffect(() => {
-    live += 1
+    if (boot) bootLive += 1
+    const t = setTimeout(() => setSaid(true), SHOW_DELAY)
     return () => {
-      live -= 1
-      left = performance.now()
+      clearTimeout(t)
+      if (!boot) return
+      bootLive -= 1
+      bootLeft = performance.now()
     }
-  }, [])
+  }, [boot])
 
   return (
     <div className={'skz' + (className ? ' ' + className : '')} style={style} role="status">
-      <span className="skhide">{T('loading')}</span>
+      <span className="skhide">{said ? T('loading') : ''}</span>
       <div aria-hidden="true">{children}</div>
     </div>
   )
 }
 
-export function SkelTitle({ sub }) {
+function SkelTitle({ sub }) {
   return (
     <>
       <div className="skh1">
@@ -67,7 +86,7 @@ export function SkelTitle({ sub }) {
   )
 }
 
-export function SkelHub({ tabs }) {
+function SkelHub({ tabs }) {
   return (
     <>
       <SkelTitle />
@@ -90,7 +109,7 @@ export function SkelHub({ tabs }) {
   )
 }
 
-export function SkelTools({ buttons, lead, search = true }) {
+function SkelTools({ buttons, lead, search = true }) {
   return (
     <>
       <div className={'tbtnrow' + (lead ? ' skbtns' : '')}>
@@ -170,13 +189,14 @@ export function SkelLogs() {
   )
 }
 
-export function SkelKpis() {
+export function SkelKpis({ note }) {
   return (
     <div className="okpis">
       {range(4).map((i) => (
         <div key={i} className="card okpi skc skkpi">
           <Bone w="48%" h={10} />
           <Bone w="34%" h={26} r={8} />
+          {note && i === TUNNEL_KPI ? <Bone w="58%" h={9} cls="sknote" /> : null}
         </div>
       ))}
     </div>
@@ -221,7 +241,11 @@ export function SkelOverview() {
   )
 }
 
-export function SkelBlock({ rows }) {
+export function SkelBlocks({ rows }) {
+  return rows.map((n, i) => <SkelBlock key={i} rows={n} />)
+}
+
+function SkelBlock({ rows }) {
   return (
     <div className="card skc skblock">
       <div className="skrow">
@@ -273,21 +297,38 @@ export function SkelForm() {
   )
 }
 
-const KIND_COUNT = { nodes: 'nodes_total', proxies: 'proxies', tunnels: 'links', core: 'core', portfw: 'portfw' }
+function SettingsBody({ kind }) {
+  if (kind === 'set-values') return <SkelBlocks rows={SKEL_ROWS.values} />
+  if (kind === 'set-api') return <SkelBlocks rows={[...SKEL_ROWS.apiForm, ...SKEL_ROWS.apiDocs]} />
+  if (kind !== 'set-cdn') return <SkelBlocks rows={SKEL_ROWS.upkeep} />
+  const edge = getLS(CDN_PAGE_KEY) === 'cdn-edge'
+  return (
+    <>
+      <div className="lseg nested skseg">
+        {range(2).map((i) => (
+          <span key={i}>
+            <Bone w="44%" h={10} />
+          </span>
+        ))}
+      </div>
+      <SkelBlocks rows={edge ? SKEL_ROWS.cdnEdge : SKEL_ROWS.cdnCloud} />
+    </>
+  )
+}
 
-export function PageSkeleton({ page, kind, tabs, summary }) {
+export function PageSkeleton({ page, kind, tabs, count, summary }) {
   if (page === 'overview') {
     return (
-      <SkelZone>
+      <SkelZone boot>
         <SkelTitle sub />
-        <SkelKpis />
+        <SkelKpis note={summary.tunNote} />
         <SkelOverview />
       </SkelZone>
     )
   }
   if (page === 'logs') {
     return (
-      <SkelZone>
+      <SkelZone boot>
         <SkelTitle />
         <SkelTools buttons={2} />
         <SkelLogs />
@@ -296,22 +337,17 @@ export function PageSkeleton({ page, kind, tabs, summary }) {
   }
   if (page === 'settings') {
     return (
-      <SkelZone>
+      <SkelZone boot>
         <SkelHub tabs={tabs} />
-        <SkelBlock rows={4} />
-        <SkelBlock rows={3} />
+        <SettingsBody kind={kind} />
       </SkelZone>
     )
   }
   return (
-    <SkelZone>
+    <SkelZone boot>
       <SkelHub tabs={tabs} />
       <SkelTools lead buttons={page === 'links' && kind !== 'portfw' ? 2 : 1} search={kind !== 'proxies'} />
-      {kind === 'nodes' ? (
-        <SkelNodes n={skelCount(summary, KIND_COUNT[kind])} />
-      ) : (
-        <SkelHeads n={skelCount(summary, KIND_COUNT[kind])} />
-      )}
+      {kind === 'nodes' ? <SkelNodes n={skelCount(summary, count)} /> : <SkelHeads n={skelCount(summary, count)} />}
     </SkelZone>
   )
 }

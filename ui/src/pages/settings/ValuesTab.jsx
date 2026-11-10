@@ -10,7 +10,7 @@ import SettingsGroup from './SettingsGroup.jsx'
 import ModePicker, { modeLabel } from './ModePicker.jsx'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
-import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
+import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import { useSettingsForm } from './SettingsForm.jsx'
 import { FIELDS, fieldRange, fieldStep } from './tuning.js'
@@ -98,8 +98,7 @@ export default function ValuesTab({ active }) {
       <div className="stpage">
         {f.loadError ? null : (
           <SkelZone>
-            <SkelBlock rows={5} />
-            <SkelBlock rows={3} />
+            <SkelBlocks rows={SKEL_ROWS.values} />
           </SkelZone>
         )}
         <FormGate />

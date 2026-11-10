@@ -19,7 +19,13 @@ const HUBS = {
   settings: { kinds: SETTINGS_KINDS.map((k) => k.id), first: 'set-values' },
 }
 
+const COUNTS = Object.fromEntries([...FLEET_KINDS, ...LINK_KINDS].map((k) => [k.id, k.count]))
+
 export const HUB_IDS = Object.keys(HUBS)
+
+export function kindCount(kind) {
+  return COUNTS[kind] || ''
+}
 
 export function hubOf(id) {
   return HUB_IDS.find((hub) => HUBS[hub].kinds.includes(id)) || null
