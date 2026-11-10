@@ -52,6 +52,10 @@ export function desyncOk(form) {
   return form.Tr === 'raw' || form.Tr === 'tcp' || (form.Tr === 'ws' && form.Cdn === 'ws')
 }
 
+export function dsSumOk(form, enums) {
+  return form.Tr !== 'raw' || enums.raw_sum.includes(form.RawProfile)
+}
+
 export function dsTtlUsed(form) {
   return !(form.Tr === 'raw' && form.DesyncMode === 'badsum')
 }

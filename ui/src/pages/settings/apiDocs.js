@@ -162,7 +162,7 @@ const TUNNEL_FIELDS = [
   ['fake_desync', 0, B, 'send decoy packets before the handshake — raw, tcp and ws; ignored with cdn_carrier http or grpc'],
   ['fake_ttl', 0, N, 'decoy TTL (1 to 8, default 4)'],
   ['fake_count', 0, N, 'number of decoys (1 to 64, default 2)'],
-  ['fake_mode', 0, S, 'ttl, badsum or both'],
+  ['fake_mode', 0, S, 'ttl, badsum or both. On raw, badsum and both need an upload profile with a checksum (udp, tcp, sctp, icmp); on the others they get fake_mode_no_sum'],
   ['ip_rotate', 0, B, 'rotate between several node IPs — udp, tcp and raw'],
   ['a_ip_pool', 0, L, 'IPs of end a to rotate over'],
   ['b_ip_pool', 0, L, 'IPs of end b to rotate over'],

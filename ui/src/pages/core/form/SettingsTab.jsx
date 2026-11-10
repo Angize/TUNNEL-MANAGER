@@ -152,7 +152,7 @@ export default function SettingsTab({
       />
 
       <FecSection form={form} patch={patch} />
-      <DesyncSection form={form} limits={cfg.limits} patch={patch} />
+      <DesyncSection form={form} limits={cfg.limits} enums={cfg.enums} patch={patch} />
 
       <Reveal show={form.Tr !== 'raw'}>
         <Field

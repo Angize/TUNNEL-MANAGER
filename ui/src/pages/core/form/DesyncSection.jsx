@@ -3,13 +3,14 @@ import Reveal from '../../../components/Reveal.jsx'
 import SwitchRow from '../../../components/SwitchRow.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { desyncOk, dsTtlUsed } from './gates.js'
+import { desyncOk, dsSumOk, dsTtlUsed } from './gates.js'
 import { desyncModes } from './presets.js'
 import { limitErr } from './validate.js'
-import { T } from '../../../i18n/fa.js'
+import { T, TF } from '../../../i18n/fa.js'
 
-function Desync({ form, limits, patch }) {
+function Desync({ form, limits, enums, patch }) {
   const ttlUsed = dsTtlUsed(form)
+  const sumOk = dsSumOk(form, enums)
 
   return (
     <>
@@ -29,10 +30,16 @@ function Desync({ form, limits, patch }) {
                 on={mode.v === form.DesyncMode}
                 title={mode.t}
                 sub={mode.s}
+                disabled={!sumOk && mode.v !== 'ttl'}
                 onClick={() => patch({ DesyncMode: mode.v })}
               />
             ))}
           </Seg2>
+          <WarnCap
+            tone="gold"
+            text={sumOk ? '' : TF('ds_no_sum', { p: form.RawProfile.toUpperCase() })}
+            style={{ marginTop: 8 }}
+          />
           <div className="grid2">
             {ttlUsed ? (
               <Field label={T('ds_ttl_lbl')} className="tswap">

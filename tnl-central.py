@@ -62,6 +62,7 @@ MIN_ROTATE_SECS       = 10
 DIRECT_TRANSPORTS     = ("udp", "tcp", "raw")
 PORT_RUNG_TRANSPORTS  = ("udp", "tcp", "ws")
 PORTED_RAW_PROFILES   = ("udp", "tcp", "sctp")
+RAW_SUM_PROFILES      = ("udp", "tcp", "sctp", "icmp")
 CTB_DEFAULT_PROFILES  = ("sctp",)
 DATAGRAM_TRANSPORTS   = ("udp", "raw")
 DESYNC_TRANSPORTS     = ("raw", "tcp", "ws")
@@ -6228,6 +6229,12 @@ def _desync_fields(d, shape, cur, is_http):
     if mode == "both" and cnt == 1:
         raise Bad("bad_fake_mode", "حالتِ «هر دو» به حداقل 2 طعمه نیاز دارد (یک طعمه نمی‌تواند هم‌زمان TTL‌پایین و چک‌سام‌خراب باشد)",
                   "mode 'both' needs at least 2 decoys (one decoy cannot be low-TTL and bad-checksum at once)")
+    if transport == "raw" and mode in ("badsum", "both") and shape[1] not in RAW_SUM_PROFILES:
+        raise Bad("fake_mode_no_sum",
+                  "پروفایلِ «{0}» چک‌سام ندارد، پس طعمهٔ «چک‌سام‌خراب» یک بستهٔ سالم می‌شود که به سرور می‌رسد — "
+                  "حالتِ طعمه را «TTL» بگذار یا پروفایلی با چک‌سام (udp، tcp، sctp، icmp) انتخاب کن",
+                  "the '{0}' profile has no checksum, so a bad-checksum decoy is a valid packet that reaches the server — "
+                  "use decoy mode ttl or a profile with a checksum (udp, tcp, sctp, icmp)", shape[1].upper())
     out["fake_mode"] = mode
     return out
 
@@ -12768,7 +12775,8 @@ def api_ui_config(d):
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
-            "raw_ported": list(PORTED_RAW_PROFILES), "ctb_default": list(CTB_DEFAULT_PROFILES),
+            "raw_ported": list(PORTED_RAW_PROFILES), "raw_sum": list(RAW_SUM_PROFILES),
+            "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),
             "raw_protos": {k: v for k, v in CORE_RAW_PROFILE_PROTOS.items() if k != "bare"},
