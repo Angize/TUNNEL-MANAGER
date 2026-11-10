@@ -4,7 +4,7 @@ import Field from '../../components/Field.jsx'
 import Select from '../../components/Select.jsx'
 import SwitchRow from '../../components/SwitchRow.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import LoadBar from '../../components/LoadBar.jsx'
+import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Stepper from '../../components/Stepper.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
@@ -219,7 +219,11 @@ export default function CdnEdgeTab() {
 
   return (
     <div className="stpage cdnedge">
-      <LoadBar on={edges === null && !err} />
+      {edges === null && !err ? (
+        <SkelZone>
+          <SkelBlock rows={3} />
+        </SkelZone>
+      ) : null}
       {edges === null && err ? (
         <div className="card loadfail">
           <span>{T('edge_load_failed') + ' ' + err}</span>

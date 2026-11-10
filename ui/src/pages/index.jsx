@@ -29,6 +29,10 @@ export function hubFirst(hub) {
   return HUBS[hub].first
 }
 
+export function hubSize(hub) {
+  return HUBS[hub] ? HUBS[hub].kinds.length : 0
+}
+
 export function hasPage(id) {
   return Object.prototype.hasOwnProperty.call(PAGES, id)
 }

@@ -2,6 +2,8 @@ import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelHeads, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import PortfwCard from './PortfwCard.jsx'
 import PortfwAddModal from './PortfwAddModal.jsx'
 import PortfwEditModal from './PortfwEditModal.jsx'
@@ -29,6 +31,7 @@ export default function PortfwPage({ active }) {
   }, [query])
 
   const [list, reload, progress] = usePolledData(load, query, active)
+  const skel = skelCount(useSummary(), 'portfw')
 
   const loadNodes = useCallback(async () => {
     try {
@@ -82,6 +85,11 @@ export default function PortfwPage({ active }) {
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
       <LoadBar on={list === null} value={progress} />
+      {list === null ? (
+        <SkelZone>
+          <SkelHeads n={skel} />
+        </SkelZone>
+      ) : null}
       <div ref={listBox} className="flist">
         {list === null ? null : ordered.length ? (
           ordered.map((item) => (

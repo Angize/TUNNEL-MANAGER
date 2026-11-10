@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react'
 import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelKpis, SkelOverview, SkelZone } from '../../components/Skeleton.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import AlertList from './AlertList.jsx'
 import NodeGroups from './NodeGroups.jsx'
@@ -61,6 +62,10 @@ export default function OverviewPage({ onNavigate }) {
       <>
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
         <LoadBar on value={progress} />
+        <SkelZone>
+          <SkelKpis />
+          <SkelOverview />
+        </SkelZone>
       </>
     )
   }

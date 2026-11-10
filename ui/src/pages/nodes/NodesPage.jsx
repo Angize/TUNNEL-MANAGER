@@ -3,6 +3,8 @@ import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelNodes, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
 import { useBulk } from '../../state/BulkInstallContext.jsx'
@@ -65,6 +67,7 @@ export default function NodesPage({ active }) {
   }, [query])
 
   const [data, reload, progress] = usePolledData(load, query, active)
+  const skel = skelCount(useSummary(), 'nodes_total')
   const bulk = useBulk()
   const { asked, took, setDialog } = bulk
   const closeAdd = () => {
@@ -125,6 +128,11 @@ export default function NodesPage({ active }) {
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
       <LoadBar on={data === null && !loadErr} value={progress} />
+      {data === null && !loadErr ? (
+        <SkelZone>
+          <SkelNodes n={skel} />
+        </SkelZone>
+      ) : null}
       {data === null && loadErr ? (
         <div className="card loadfail">
           <span>{T('nodes_load_fail') + ' ' + loadErr}</span>

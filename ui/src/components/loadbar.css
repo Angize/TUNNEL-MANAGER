@@ -1,5 +1,10 @@
-@keyframes ldwait {
-  to { opacity: .45 }
+@keyframes ldin {
+  from { opacity: 0 }
+}
+
+@keyframes ldslide {
+  from { transform: translateX(105%) }
+  to { transform: translateX(-315%) }
 }
 
 @keyframes ldout {
@@ -20,14 +25,11 @@
   overflow: hidden;
   border-radius: 3px;
   background: var(--accw);
-}
-
-.ldbar.wait {
-  animation: ldwait 1s ease-in-out infinite alternate;
+  animation: ldin .14s var(--ease-out) .16s both;
 }
 
 .ldbar.done {
-  animation: ldout .18s var(--ease-out) .2s both;
+  animation: ldin .14s var(--ease-out) .16s both, ldout .18s var(--ease-out) .2s both;
 }
 
 .ldbar > i {
@@ -37,4 +39,9 @@
   background: var(--acc);
   transform-origin: 100% 50%;
   transition: transform .2s var(--ease-out);
+}
+
+.ldbar.wait > i {
+  width: 32%;
+  animation: ldslide 1.3s cubic-bezier(.45, 0, .25, 1) infinite;
 }

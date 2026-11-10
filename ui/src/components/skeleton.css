@@ -1,0 +1,224 @@
+@keyframes skshow {
+  from { opacity: 0 }
+}
+
+@keyframes skwave {
+  from { transform: translateX(100%) }
+  to { transform: translateX(-100%) }
+}
+
+.skz {
+  position: relative;
+  animation: skshow .3s var(--ease-out) .18s both;
+}
+
+.skhide {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skb {
+  display: block;
+  flex: none;
+  max-inline-size: 100%;
+  border-radius: 6px;
+  background: var(--skb);
+}
+
+.skgap {
+  flex: 1 1 auto;
+}
+
+.skc {
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.skc::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--skhi), transparent);
+  transform: translateX(100%);
+  animation: skwave 1.7s ease-in-out infinite;
+}
+
+.skrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-inline-size: 0;
+}
+
+.skh1 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  margin: 4px 2px;
+}
+
+.skp {
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
+
+.skseg > span {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+}
+
+.tbtnrow.skbtns {
+  margin-top: 0;
+}
+
+.card.skhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 14px;
+}
+
+.card.sknode {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 13px;
+  height: 105px;
+}
+
+.card.okpi.skkpi {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 86px;
+  padding: 18px 14px 16px;
+}
+
+.sec.sksec {
+  height: 20px;
+}
+
+.skov1 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 70px;
+}
+
+.skov2 {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 300px;
+  padding: 16px 14px;
+}
+
+.skov2 > .skchart {
+  flex: 1 1 auto;
+  opacity: .6;
+}
+
+.sklev {
+  display: flex;
+  gap: 12px;
+  height: 94px;
+  padding: 13px 14px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  box-shadow: var(--dsh);
+}
+
+.sklev > .skstrip {
+  flex: none;
+  inline-size: 3px;
+  border-radius: 2px;
+  background: var(--skb);
+}
+
+.sklev > div {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-inline-size: 0;
+  padding-top: 3px;
+}
+
+.skgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sknx {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  height: 142px;
+  padding: 13px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--bord);
+  box-shadow: var(--dsh);
+}
+
+.card.skblock {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 14px;
+}
+
+.skblock .skline {
+  min-height: 40px;
+}
+
+.skform {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.skform .skfld {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+@media (min-width: 841px) {
+  .sklev {
+    height: 72px;
+  }
+
+  .sklev .l2 {
+    display: none;
+  }
+
+  .skgrid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .sknx {
+    height: 138px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .skov1,
+  .skov2 {
+    height: 406px;
+  }
+}

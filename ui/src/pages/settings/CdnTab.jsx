@@ -4,7 +4,7 @@ import Field from '../../components/Field.jsx'
 import Select from '../../components/Select.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
-import LoadBar from '../../components/LoadBar.jsx'
+import { SkelBlock, SkelZone } from '../../components/Skeleton.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { Seg2, SegOpt, WarnCap } from '../core/form/controls.jsx'
@@ -291,15 +291,13 @@ export default function CdnTab() {
   const [cdn, setCdn] = useState(null)
   const [err, setErr] = useState('')
   const [proxies, setProxies] = useState([])
-  const [progress, setProgress] = useState(0)
   const box = useRef(null)
 
   useRiseIn(box, !!cdn)
 
   const load = () => {
     setErr('')
-    setProgress(0)
-    return apiGet('cdn', setProgress)
+    return apiGet('cdn')
       .then((r) => setCdn(r.cdn))
       .catch((e) => setErr(readError(e)))
   }
@@ -322,7 +320,12 @@ export default function CdnTab() {
 
   return (
     <div className="stpage" ref={box}>
-      <LoadBar on={!cdn && !err} value={progress} />
+      {!cdn && !err ? (
+        <SkelZone>
+          <SkelBlock rows={3} />
+          <SkelBlock rows={3} />
+        </SkelZone>
+      ) : null}
       {!cdn && err ? (
         <div className="card loadfail">
           <span>{T('cdn_load_failed') + ' ' + err}</span>

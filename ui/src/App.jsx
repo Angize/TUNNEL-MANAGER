@@ -18,13 +18,13 @@ import ToastHost from './components/ToastHost.jsx'
 import DialogHost from './components/DialogHost.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Reveal from './components/Reveal.jsx'
+import { PageSkeleton } from './components/Skeleton.jsx'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { BulkInstallProvider } from './state/BulkInstallContext.jsx'
 import { BulkFabHost } from './pages/nodes/NodeBulk.jsx'
-import { T } from './i18n/fa.js'
-import { HUB_IDS, hasPage, hubFirst, hubOf, pageComponent } from './pages/index.jsx'
+import { HUB_IDS, hasPage, hubFirst, hubOf, hubSize, pageComponent } from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
 const HIDDEN_INTERVAL = 4000
@@ -297,10 +297,7 @@ function Shell() {
                 </SummaryProvider>
               </UiConfigProvider>
             ) : (
-              <div className="card mload">
-                <span className="bspin" />
-                <span>{T('loading')}</span>
-              </div>
+              <PageSkeleton page={page} kind={kinds[page]} tabs={hubSize(page)} summary={summary} />
             )}
           </div>
         </main>
