@@ -244,8 +244,7 @@ body.reord-on .flist {
 
 .flderr,
 .warncap,
-.stpage > .loadfail,
-.opc .loadfail {
+.loadfail {
   animation: fadeup .2s var(--ease-out);
 }
 

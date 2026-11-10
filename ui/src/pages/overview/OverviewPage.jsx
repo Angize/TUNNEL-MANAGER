@@ -3,6 +3,7 @@ import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import { SkelKpis, SkelOverview, SkelZone } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import AlertList from './AlertList.jsx'
 import NodeGroups from './NodeGroups.jsx'
@@ -54,7 +55,7 @@ export default function OverviewPage({ onNavigate }) {
     return summary
   }, [])
 
-  const [summary, , progress] = usePolledData(load)
+  const [summary, reload, progress, loadErr] = usePolledData(load)
   const shell = useSummary()
   const body = useRef(null)
   useRiseIn(body, !!summary)
@@ -63,11 +64,15 @@ export default function OverviewPage({ onNavigate }) {
     return (
       <>
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
-        <LoadBar on value={progress} />
-        <SkelZone>
-          <SkelKpis note={shell.tunNote} />
-          <SkelOverview />
-        </SkelZone>
+        <LoadBar on={!loadErr} value={progress} />
+        {loadErr ? (
+          <LoadFail text={T('ov_load_fail') + ' ' + loadErr} onRetry={reload} />
+        ) : (
+          <SkelZone>
+            <SkelKpis note={shell.tunNote} />
+            <SkelOverview />
+          </SkelZone>
+        )}
       </>
     )
   }

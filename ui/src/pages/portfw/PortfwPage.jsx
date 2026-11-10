@@ -3,6 +3,7 @@ import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import { SkelHeads, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import PortfwCard from './PortfwCard.jsx'
 import PortfwAddModal from './PortfwAddModal.jsx'
@@ -30,7 +31,7 @@ export default function PortfwPage({ active }) {
     return r.portfw
   }, [query])
 
-  const [list, reload, progress] = usePolledData(load, query, active)
+  const [list, reload, progress, loadErr] = usePolledData(load, query, active)
   const skel = skelCount(useSummary(), 'portfw')
 
   const loadNodes = useCallback(async () => {
@@ -84,12 +85,14 @@ export default function PortfwPage({ active }) {
 
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={list === null} value={progress} />
-      {list === null ? (
+      <LoadBar on={list === null && !loadErr} value={progress} />
+      {list !== null ? null : loadErr ? (
+        <LoadFail text={T('pf_load_fail') + ' ' + loadErr} onRetry={reload} />
+      ) : (
         <SkelZone>
           <SkelHeads n={skel} />
         </SkelZone>
-      ) : null}
+      )}
       <div ref={listBox} className="flist">
         {list === null ? null : ordered.length ? (
           ordered.map((item) => (
