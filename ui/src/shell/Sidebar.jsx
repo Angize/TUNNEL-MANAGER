@@ -4,11 +4,13 @@ import useIndicator from '../lib/useIndicator.js'
 import { T } from '../i18n/fa.js'
 import { logout } from '../lib/api.js'
 import { pressable } from '../lib/keys.js'
+import { FLEET_KINDS } from '../pages/fleet/FleetPage.jsx'
+import { LINK_KINDS } from '../pages/links/LinksPage.jsx'
 
 export const NAV_ITEMS = [
   { id: 'overview', icon: 'dash' },
-  { id: 'fleet', icon: 'server', count: 'nodes_total' },
-  { id: 'links', icon: 'link', count: ['links', 'core', 'portfw'] },
+  { id: 'fleet', icon: 'server', count: FLEET_KINDS.map((k) => k.count) },
+  { id: 'links', icon: 'link', count: LINK_KINDS.map((k) => k.count) },
   { id: 'logs', icon: 'list', count: 'log_count' },
   { id: 'settings', icon: 'cog' },
 ]
