@@ -910,7 +910,7 @@ _TUNING_NUM_LABELS = {"dead_retest_secs": tx("بازهٔ تستِ IP مرده", 
                       "probe_min_pct": tx("حداقلِ بسته‌های برگشتی", "minimum returned packets"),
                       "sock_buf_mb": tx("بافرِ سوکتِ udp/raw", "udp/raw socket buffer"),
                       "tcp_buf_mb": tx("بافرِ سوکتِ TCP", "TCP socket buffer")}
-_TUNING_STEPS = {"probe_min_pct": (5, _TUNING_NUM_LABELS["probe_min_pct"])}
+_TUNING_STEPS = {"probe_min_pct": 5}
 _TUNING_RANGES = {
     "dead_retest_secs": (5, 86400),
     "probe_min_pct": (5, 100),
@@ -956,10 +956,10 @@ def _validate_tuning(raw, base):
             except (TypeError, ValueError):
                 raise Bad("tuning_not_int", "«{0}» باید عددِ صحیح باشد", "'{0}' must be a whole number",
                           _TUNING_NUM_LABELS[k])
-            step, label = _TUNING_STEPS.get(k, (0, ""))
+            step = _TUNING_STEPS.get(k, 0)
             if step and v % step:
                 raise Bad("tuning_step", "«{0}» باید مضربی از {1} باشد — {2} پذیرفته نیست",
-                          "'{0}' must be a multiple of {1} — {2} is not accepted", label, step, v)
+                          "'{0}' must be a multiple of {1} — {2} is not accepted", _TUNING_NUM_LABELS[k], step, v)
             if not lo <= v <= hi:
                 raise Bad("tuning_range", "«{0}» باید بینِ {1} تا {2} باشد — {3} پذیرفته نیست",
                           "'{0}' must be from {1} to {2} — {3} is not accepted", _TUNING_NUM_LABELS[k], lo, hi, v)
@@ -3567,7 +3567,6 @@ def api_summary(d):
             "ایجنتِ {0} نود با ایجنتِ پنل یکی نیست", "the agent on {0} nodes differs from the panel's agent", outdated)})
 
     _sset = get_settings()
-    _tun = _sset["tuning"]
     win = _sset["uptime_window"]
     ups, downcnt = [], 0
     for n in nodes:
@@ -3606,9 +3605,7 @@ def api_summary(d):
             "fleet_rx_bps": frx_bps, "fleet_tx_bps": ftx_bps,
             "fleet_rx_total": frx, "fleet_tx_total": ftx,
             "ev_seq": _ev_newest, "log_count": _ev_total, "log_unread": _ev_unread, "boot": _BOOT_ID,
-            "ui_interval": _sset["ui_interval"], "poll_interval": _sset["poll_interval"],
-            "suspect_backoff": _tun["suspect_backoff"],
-            "dead_retest_secs": _tun["dead_retest_secs"]}
+            "ui_interval": _sset["ui_interval"]}
 
 
 def _name_taken(nodes, name, exclude_id=None):
@@ -12758,7 +12755,6 @@ def api_ui_config(d):
         "ev_types": [list(x) for x in EV_TYPES],
         "ev_groups": [list(x) for x in EV_GROUPS],
         "settings_defaults": dict(_SETTINGS_RESET),
-        "split_ttl_max": SPLIT_TTL_MAX,
         "limits": {"fake_ttl": [1, DESYNC_INJECT_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
                    "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [1, PORT_TRIES_MAX],
                    "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN,
