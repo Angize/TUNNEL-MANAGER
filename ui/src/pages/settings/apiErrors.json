@@ -1299,6 +1299,11 @@
    ],
    [
     400,
+    "fake_mode_no_sum",
+    "the '…' profile has no checksum, so a bad-checksum decoy is a valid packet that reaches the server — use decoy mode ttl or a profile with a checksum (udp, tcp, sctp, icmp)"
+   ],
+   [
+    400,
     "gre_ptype_needs_gre",
     "… needs the gre profile in its direction"
    ],
@@ -2177,6 +2182,11 @@
     400,
     "edge_wire_taken",
     "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
+   ],
+   [
+    400,
+    "fake_mode_no_sum",
+    "the '…' profile has no checksum, so a bad-checksum decoy is a valid packet that reaches the server — use decoy mode ttl or a profile with a checksum (udp, tcp, sctp, icmp)"
    ],
    [
     400,

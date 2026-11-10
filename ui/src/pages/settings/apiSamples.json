@@ -588,6 +588,11 @@
      "tcp",
      "… 1 more"
     ],
+    "raw_sum": [
+     "udp",
+     "tcp",
+     "… 2 more"
+    ],
     "ctb_default": [
      "sctp"
     ],

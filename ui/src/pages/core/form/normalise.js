@@ -2,6 +2,7 @@ import { RAW_DPORT_DEFAULT, RAW_PROTO_BARE, RAW_SPORT_FIXED } from '../carrier.j
 import {
   coverOk,
   desyncOk,
+  dsSumOk,
   fecDatagram,
   protoVisOn,
   rawPorted,
@@ -34,6 +35,7 @@ export default function normalise(form, cfg, aIps, bIps) {
   }
   if (wkShared(view)) set('WorkersB', at('WorkersA'))
   if (!desyncOk(view)) set('Desync', false)
+  if (!dsSumOk(view, enums)) set('DesyncMode', 'ttl')
   if (!rawPorted(view, enums)) {
     set('Sprot', false)
     set('Ctb', false)
