@@ -652,7 +652,7 @@ export default function AgentPage() {
 
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
-      <LoadBar on={nodes === null && !nodesErr} value={nodesProgress} />
+      {nodesErr ? null : <LoadBar on={nodes === null} value={nodesProgress} />}
       {nodes !== null ? null : nodesErr ? (
         <LoadFail text={T('nodes_load_fail') + ' ' + nodesErr} onRetry={reloadNodes} />
       ) : (

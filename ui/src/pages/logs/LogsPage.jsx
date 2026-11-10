@@ -84,32 +84,36 @@ export default function LogsPage() {
   const { hidden, hiddenCount, known, adoptFromServer, toggleType, toggleGroup } =
     useHiddenTypes({ evTypes, onSaved: refetch })
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     const sig = evSeq + ':' + logCount
-    if (sig === signature.current || flight.current) return
+    if (flight.current) return flight.current.run
+    if (sig === signature.current) return undefined
     const mine = {}
     flight.current = mine
-    let r = null
-    let failed = ''
-    try {
-      r = await apiGet('events', newest.current ? undefined : setProgress)
-    } catch (e) {
-      failed = readError(e)
-    }
-    if (flight.current !== mine) return
-    flight.current = null
-    setLoadErr(failed)
-    if (!r) return
-    signature.current = sig
-    const before = newest.current
-    newest.current = newestId(r.events, before || [0, 0])
-    if (before) {
-      const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
-      if (fresh.length) setBorn(new Set(fresh))
-    }
-    setEvents(r.events)
-    setHiddenOut(r.hidden_out)
-    adoptFromServer(r.hidden)
+    mine.run = (async () => {
+      let r = null
+      let failed = ''
+      try {
+        r = await apiGet('events', newest.current ? undefined : setProgress)
+      } catch (e) {
+        failed = readError(e)
+      }
+      if (flight.current !== mine) return
+      flight.current = null
+      setLoadErr(failed)
+      if (!r) return
+      signature.current = sig
+      const before = newest.current
+      newest.current = newestId(r.events, before || [0, 0])
+      if (before) {
+        const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
+        if (fresh.length) setBorn(new Set(fresh))
+      }
+      setEvents(r.events)
+      setHiddenOut(r.hidden_out)
+      adoptFromServer(r.hidden)
+    })()
+    return mine.run
   }, [evSeq, logCount, adoptFromServer])
 
   loadRef.current = load
@@ -274,7 +278,7 @@ export default function LogsPage() {
         ) : null}
       </Reveal>
 
-      <LoadBar on={events === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={events === null} value={progress} />}
       {events === null ? (
         loadErr ? (
           <LoadFail text={T('logs_load_fail') + ' ' + loadErr} onRetry={load} />

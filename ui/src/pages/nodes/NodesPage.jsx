@@ -118,7 +118,7 @@ export default function NodesPage({ active }) {
 
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={data === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={data === null} value={progress} />}
       {data === null && !loadErr ? (
         <SkelZone>
           <SkelNodes n={skel} />

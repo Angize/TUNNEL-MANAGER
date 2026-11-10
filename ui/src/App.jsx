@@ -105,16 +105,19 @@ function Shell() {
 
   useEffect(() => {
     let alive = true
+    let done = false
     let retry = 0
     const loadConfig = () =>
       apiGet('ui-config')
         .then((cfg) => {
-          if (!alive) return
+          if (!alive || done) return
+          done = true
+          clearTimeout(retry)
           setConfigErr('')
           setUiConfig(cfg)
         })
         .catch((e) => {
-          if (!alive) return
+          if (!alive || done) return
           setConfigErr(readError(e))
           clearTimeout(retry)
           retry = setTimeout(loadConfig, DEFAULT_INTERVAL)

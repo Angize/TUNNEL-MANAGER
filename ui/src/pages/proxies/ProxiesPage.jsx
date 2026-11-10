@@ -44,7 +44,7 @@ export default function ProxiesPage({ active }) {
         </button>
       </div>
 
-      <LoadBar on={list === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={list === null} value={progress} />}
       {list === null && !loadErr ? (
         <SkelZone>
           <SkelHeads n={skel} />

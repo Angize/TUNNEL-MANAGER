@@ -135,7 +135,7 @@ export default function CorePage({ active }) {
 
       <Toolbar value={query} placeholder={T('core_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={list === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={list === null} value={progress} />}
       {list !== null ? null : loadErr ? (
         <LoadFail text={T('core_load_fail') + ' ' + loadErr} onRetry={reload} />
       ) : (

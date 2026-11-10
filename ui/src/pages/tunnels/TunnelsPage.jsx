@@ -116,7 +116,7 @@ export default function TunnelsPage({ active }) {
 
       <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={list === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={list === null} value={progress} />}
       {list !== null ? null : loadErr ? (
         <LoadFail text={T('tun_load_fail') + ' ' + loadErr} onRetry={reload} />
       ) : (

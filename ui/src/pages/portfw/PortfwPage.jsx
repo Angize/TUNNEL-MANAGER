@@ -85,7 +85,7 @@ export default function PortfwPage({ active }) {
 
       <Toolbar value={query} placeholder={T('pf_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={list === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={list === null} value={progress} />}
       {list !== null ? null : loadErr ? (
         <LoadFail text={T('pf_load_fail') + ' ' + loadErr} onRetry={reload} />
       ) : (

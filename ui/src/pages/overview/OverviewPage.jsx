@@ -64,7 +64,7 @@ export default function OverviewPage({ onNavigate }) {
     return (
       <>
         <PageHead icon="dash" titleKey="nav_overview" subKey="ov_sub" />
-        <LoadBar on={!loadErr} value={progress} />
+        {loadErr ? null : <LoadBar on value={progress} />}
         {loadErr ? (
           <LoadFail text={T('ov_load_fail') + ' ' + loadErr} onRetry={reload} />
         ) : (
