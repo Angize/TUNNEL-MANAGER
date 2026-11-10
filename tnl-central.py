@@ -9907,7 +9907,7 @@ def _guard_addr_on_another_iface(pa, pb, A, B, subnet, skip_ifaces):
     except ValueError:
         return
     for node, ping in ((A, pa), (B, pb)):
-        for iface, ips in ((ping.get("ips") or {})).items():
+        for iface, ips in (ping.get("addrs") or {}).items():
             if iface in skip_ifaces:
                 continue
             for ip in ips:
