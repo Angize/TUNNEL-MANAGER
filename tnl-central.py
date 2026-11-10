@@ -6793,11 +6793,11 @@ def _ws_fields(d, cur, ech_later):
     _edge_fields(d, cur, out, "ws")
     if out.get("edges"):
         return out
+    if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
+        return _self_ech_fields(d, cur, out)
     if (d.get("ws_pool") if "ws_pool" in d else cur.get("ws_pool")):
         out.update(_ws_pool_fields(d, cur))
         return out
-    if (d.get("self_ech") if "self_ech" in d else cur.get("self_ech")):
-        return _self_ech_fields(d, cur, out)
     host = str((d["ws_host"] if "ws_host" in d else cur.get("ws_host")) or "").strip()
     if host and not re.match(r"^[A-Za-z0-9.-]{1,253}$", host):
         raise Bad("bad_ws_host", "دامنهٔ WebSocket (ws_host) نامعتبر است", "invalid WebSocket domain (ws_host)")
