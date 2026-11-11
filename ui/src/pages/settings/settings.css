@@ -804,20 +804,28 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
+  gap: 8px;
 }
-.cdnedge .rtlist li {
-  padding: 8px 11px;
+.cdnedge .rtlist > li {
+  padding: 10px 12px 11px;
   border: 1px solid var(--edge);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--card);
   display: grid;
-  gap: 4px;
+  align-content: start;
+  gap: 8px;
   min-width: 0;
 }
-.cdnedge .rtlist li.bad {
+.cdnedge .rtlist > li.bad {
   border-color: color-mix(in srgb, var(--bad) 35%, transparent);
   background: color-mix(in srgb, var(--bad) 5%, var(--card));
+}
+.cdnedge .rtlist > li.off .rtpath {
+  opacity: .72;
+}
+.cdnedge .rtlist > li > .fldhint {
+  margin: 0 2px;
 }
 .cdnedge .rtline {
   display: flex;
@@ -827,19 +835,84 @@
   font-size: 13px;
 }
 .cdnedge .rtline b {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 800;
 }
 .cdnedge .rtline .cdnchip {
+  margin-block: -3px;
   margin-inline-start: auto;
 }
-.cdnedge .rtips {
-  font-family: var(--mono);
-  font-size: 11.5px;
+.cdnedge .rtpath {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.cdnedge .rtpath > li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 8px;
+  padding-inline-start: 17px;
+  line-height: 18px;
+}
+.cdnedge .rtpath > li::before {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+  inset-inline-start: 0;
+  top: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--sub);
+}
+.cdnedge .rtpath > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 4.25px;
+  top: 16px;
+  bottom: -6px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--sub) 45%, transparent);
+}
+.cdnedge .rtpath.far > li.me::after {
+  background: repeating-linear-gradient(to bottom, var(--bad) 0 2px, transparent 2px 4px);
+}
+.cdnedge .rtpath > li.me::before {
+  border-color: var(--acc);
+  background: var(--acc);
+}
+.cdnedge .rtpath > li.far::before {
+  border-color: var(--bad);
+  background: var(--bad);
+}
+.cdnedge .rtpath > li > span:first-child {
+  font-size: 11px;
+  font-weight: 700;
   color: var(--sub);
-  direction: ltr;
-  text-align: left;
+  white-space: nowrap;
+}
+.cdnedge .rtpath > li.me > span:first-child {
+  color: var(--acc-tx);
+}
+.cdnedge .rtips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--tx);
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
+}
+.cdnedge .rtpath > li.far .rtips {
+  color: var(--bad-tx);
 }
 .cdnedge .edgegrid {
   display: grid;

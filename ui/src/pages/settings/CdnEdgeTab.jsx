@@ -81,17 +81,41 @@ function Routes({ edge }) {
         {T('edge_routes')} <small>{'· ' + T('edge_routes_d')}</small>
       </div>
       <ul className="rtlist">
-        {edge.tunnels.map((t) => (
-          <li key={t.id} className={t.reach === false && t.enabled ? 'bad' : ''}>
-            <div className="rtline">
-              <b>{t.name}</b>
-              <span className={'ctag c-' + t.family}>{t.family.toUpperCase()}</span>
-              {t.enabled ? null : <span className="cdnchip off">{T('edge_off_tun')}</span>}
-            </div>
-            <div className="rtips">{t.client + ' → ' + t.front.join(' / ') + ' → ' + t.server}</div>
-            {t.reach === false && t.enabled ? <div className="fldhint">{T('edge_far')}</div> : null}
-          </li>
-        ))}
+        {edge.tunnels.map((t) => {
+          const far = t.reach === false && t.enabled
+          return (
+            <li key={t.id} className={far ? 'bad' : t.enabled ? '' : 'off'}>
+              <div className="rtline">
+                <b>{t.name}</b>
+                <span className={'ctag c-' + t.family}>{t.family.toUpperCase()}</span>
+                {t.enabled ? null : <span className="cdnchip off">{T('edge_off_tun')}</span>}
+              </div>
+              <ol className={far ? 'rtpath far' : 'rtpath'}>
+                <li>
+                  <span>{T('client')}</span>
+                  <span className="rtips">
+                    <bdi>{t.client}</bdi>
+                  </span>
+                </li>
+                <li className="me">
+                  <span>{T('pedge_node')}</span>
+                  <span className="rtips">
+                    {t.front.map((ip) => (
+                      <bdi key={ip}>{ip}</bdi>
+                    ))}
+                  </span>
+                </li>
+                <li className={far ? 'far' : ''}>
+                  <span>{T('server')}</span>
+                  <span className="rtips">
+                    <bdi>{t.server}</bdi>
+                  </span>
+                </li>
+              </ol>
+              {far ? <div className="fldhint">{T('edge_far')}</div> : null}
+            </li>
+          )
+        })}
       </ul>
     </>
   )
