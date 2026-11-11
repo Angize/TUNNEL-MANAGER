@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelHeads, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import ProxyCard from './ProxyCard.jsx'
 import ProxyModal from './ProxyModal.jsx'
 import { T } from '../../i18n/fa.js'
@@ -32,6 +34,7 @@ export default function ProxiesPage({ active }) {
   }, [])
 
   const [list, reload, progress] = usePolledData(load, null, active)
+  const skel = skelCount(useSummary(), 'proxies')
 
   const listBox = useRef(null)
   const cardKey = (proxy) => proxy.id + ':' + (edits[proxy.id] || 0)
@@ -52,6 +55,11 @@ export default function ProxiesPage({ active }) {
       </div>
 
       <LoadBar on={list === null && !loadErr} value={progress} />
+      {list === null && !loadErr ? (
+        <SkelZone>
+          <SkelHeads n={skel} />
+        </SkelZone>
+      ) : null}
       {list === null && loadErr ? (
         <div className="card loadfail">
           <span>{T('px_load_fail') + ' ' + loadErr}</span>

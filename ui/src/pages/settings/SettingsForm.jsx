@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { FIELDS, collectTuning, formErrors, secondsToMinutes } from './tuning.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -37,8 +37,6 @@ export function SettingsFormProvider({ tabs, children }) {
   const [saved, setSaved] = useState(null)
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [loaded, setLoaded] = useState(0)
-  const loadTurn = useRef(0)
   const [touched, setTouched] = useState({})
   const [tried, setTried] = useState(0)
 
@@ -67,13 +65,9 @@ export function SettingsFormProvider({ tabs, children }) {
 
   const load = useCallback(async () => {
     setLoadError('')
-    setLoaded(0)
-    const mine = ++loadTurn.current
     let s
     try {
-      s = await apiGet('settings', (p) => {
-        if (mine === loadTurn.current) setLoaded(p)
-      })
+      s = await apiGet('settings')
     } catch (e) {
       setLoadError(readError(e))
       return
@@ -166,7 +160,7 @@ export function SettingsFormProvider({ tabs, children }) {
   }
 
   const value = {
-    form, mode, setMode, token, busy, loadError, loaded, dirty, agentGen, probeSamples, errors, tried,
+    form, mode, setMode, token, busy, loadError, dirty, agentGen, probeSamples, errors, tried,
     load, set, touch, save, revert, newToken, reset,
   }
 

@@ -3,6 +3,8 @@ import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import PendingCard from '../../components/PendingCard.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelHeads, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import TunnelCard from './TunnelCard.jsx'
 import TunnelCreateModal from './TunnelCreateModal.jsx'
 import TunnelEditModal from './TunnelEditModal.jsx'
@@ -37,6 +39,7 @@ export default function TunnelsPage({ active }) {
   }, [query])
 
   const [list, reload, progress] = usePolledData(load, query, active)
+  const skel = skelCount(useSummary(), 'links')
 
   const buildsSeen = useRef(buildCount)
 
@@ -113,6 +116,11 @@ export default function TunnelsPage({ active }) {
       <Toolbar value={query} placeholder={T('tun_search')} reorder onSearch={setQuery} />
 
       <LoadBar on={list === null} value={progress} />
+      {list === null ? (
+        <SkelZone>
+          <SkelHeads n={skel} />
+        </SkelZone>
+      ) : null}
       <div ref={listBox} className="flist">
         {list === null ? null : builds.shown.length || builds.cards.length ? (
           <>

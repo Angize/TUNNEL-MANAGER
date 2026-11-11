@@ -14,6 +14,14 @@
   gap: 10px;
 }
 
+.opc > .ldslot {
+  margin-top: -10px;
+}
+
+.opc > .ldslot .ldbar {
+  top: 3px;
+}
+
 .opc .ophd {
   display: flex;
   align-items: center;

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import LoadBar from '../../components/LoadBar.jsx'
+import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import SaveDock from './SaveDock.jsx'
 import FormGate from './FormGate.jsx'
@@ -65,11 +65,24 @@ export default function ApiTab({ active }) {
 
   return (
     <div className="stpage" ref={box}>
-      <LoadBar on={!f.form && !f.loadError} value={f.loaded} />
-      {f.form ? <ApiGroup f={f} /> : <FormGate />}
+      {f.form ? (
+        <ApiGroup f={f} />
+      ) : f.loadError ? (
+        <FormGate />
+      ) : (
+        <SkelZone>
+          <SkelBlocks rows={SKEL_ROWS.apiForm} />
+        </SkelZone>
+      )}
 
       {seen ? (
-        <Suspense fallback={<div className="card muted">{T('loading')}</div>}>
+        <Suspense
+          fallback={
+            <SkelZone>
+              <SkelBlocks rows={SKEL_ROWS.apiDocs} />
+            </SkelZone>
+          }
+        >
           <ApiRef />
         </Suspense>
       ) : null}

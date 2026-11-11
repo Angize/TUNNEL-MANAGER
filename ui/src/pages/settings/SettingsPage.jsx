@@ -6,15 +6,13 @@ import ApiTab from './ApiTab.jsx'
 import UpkeepTab from './UpkeepTab.jsx'
 import CdnTab from './CdnTab.jsx'
 import CdnEdgeTab from './CdnEdgeTab.jsx'
-import { getLS, setLS } from '../../lib/storage.js'
+import { CDN_PAGE_KEY, getLS, setLS } from '../../lib/storage.js'
 import './settings.css'
 
 const CDN_PAGES = [
   { id: 'cdn-cloud', labelKey: 'cdn_pg_cloud', Page: CdnTab },
   { id: 'cdn-edge', labelKey: 'cdn_pg_edge', Page: CdnEdgeTab },
 ]
-
-const CDN_PAGE_KEY = 'tnl_kind_cdn'
 
 function CdnPages({ active }) {
   const [page, setPage] = useState(() => {

@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelGrid, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import { useSummary } from '../../state/SummaryContext.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import Icon from '../../components/Icon.jsx'
 import Reveal from '../../components/Reveal.jsx'
@@ -149,6 +151,7 @@ export default function AgentPage() {
   )
 
   const [nodes, reloadNodes, nodesProgress] = usePolledData(loadNodes, query, false)
+  const skel = skelCount(useSummary(), 'nodes_total')
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadAgentInfo(), loadCoreVersions(), reloadNodes()])
@@ -649,6 +652,11 @@ export default function AgentPage() {
       <Toolbar value={query} placeholder={T('ag_search')} onSearch={setQuery} />
 
       <LoadBar on={nodes === null} value={nodesProgress} />
+      {nodes === null ? (
+        <SkelZone>
+          <SkelGrid n={skel} />
+        </SkelZone>
+      ) : null}
       <div id="agList" ref={agList}>
         {nodes === null ? null : nodes.length ? (
           nodes.map((node) => (

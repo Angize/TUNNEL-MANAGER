@@ -3,6 +3,7 @@ import PageHead from '../../components/PageHead.jsx'
 import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import { SkelLogs, SkelZone } from '../../components/Skeleton.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import { onScreen, stepFor } from '../../lib/riseIn.js'
 import Reveal from '../../components/Reveal.jsx'
@@ -270,7 +271,11 @@ export default function LogsPage() {
       </Reveal>
 
       <LoadBar on={events === null} value={progress} />
-      {events === null ? null : !events.length ? (
+      {events === null ? (
+        <SkelZone>
+          <SkelLogs />
+        </SkelZone>
+      ) : !events.length ? (
         <div className={'card muted empty' + (hiddenOut ? ' lgfempty' : '')}>
           {T(hiddenOut ? 'logf_empty' : 'logs_empty')}
           {hiddenOut && !filtersOpen ? (
