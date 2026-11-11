@@ -44,16 +44,6 @@
   border-radius: 10px;
 }
 
-@media (max-width: 840px) {
-  .rdbar {
-    margin-top: 14px;
-  }
-
-  .rv + .rv .rdbar {
-    margin-top: 0;
-  }
-}
-
 @media (max-width: 520px) {
   .rdbar {
     display: grid;

@@ -91,7 +91,11 @@
 }
 
 .lsub {
-  margin-bottom: 4px;
+  margin-bottom: 16px;
+}
+
+.lpane > .tbtnrow {
+  margin-top: 0;
 }
 
 .lpager {
