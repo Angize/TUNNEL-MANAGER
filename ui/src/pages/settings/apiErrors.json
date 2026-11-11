@@ -1049,11 +1049,6 @@
    ],
    [
     400,
-    "bad_ws_path",
-    "invalid path"
-   ],
-   [
-    400,
     "cdn_api",
     "… did not return the new rule in its answer"
    ],
@@ -1932,11 +1927,6 @@
     400,
     "bad_ws_path",
     "invalid WebSocket path (ws_path) — it must start with / and contain no // and no . or .. segment"
-   ],
-   [
-    400,
-    "bad_ws_path",
-    "invalid path"
    ],
    [
     400,

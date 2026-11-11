@@ -6918,9 +6918,8 @@ def _ws_pool_fields(d, cur):
     reg = _cdn_hosts()
     prov_of = {h: (reg.get(h) or {}).get("provider", "") for h in clean_hosts}
     ip_groups = _pool_groups({_ip(str(k).strip()): str(v or "") for k, v in raw_groups.items()}, clean_ips, prov_of)
-    path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip() or "/"
-    if not _WS_PATH_RE.match(path):
-        raise Bad("bad_ws_path", "مسیر (path) نامعتبر است", "invalid path")
+    path = {}
+    _ws_path_into(path, d, cur)
     ech_on = bool(d.get("ech") if "ech" in d else cur.get("ech"))
     if ech_on:
         for prov in prov_of.values():
@@ -6948,7 +6947,7 @@ def _ws_pool_fields(d, cur):
         "ws_edge_snis": snis,
         "ws_rotate_secs": _rotate_secs(_rotate_default(d, cur, "ws_rotate_secs"), 28800, tx("فاصلهٔ چرخشِ لبه", "edge rotation interval")),
         "ws_pool_auto": bool(d["ws_pool_auto"] if "ws_pool_auto" in d else cur.get("ws_pool_auto", True)),
-        "ws_path": path,
+        **path,
     }
     res.update(_cdn_shape_fields(d, cur, res["cdn_carrier"]))
     res.update(_sni_split_fields(d, cur, ech_on))
