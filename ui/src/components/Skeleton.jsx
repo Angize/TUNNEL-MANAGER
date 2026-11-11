@@ -4,7 +4,6 @@ import { CDN_PAGE_KEY, getLS } from '../lib/storage.js'
 import './skeleton.css'
 
 const MAX_CARDS = 6
-const TUNNEL_KPI = 2
 const LOG_ROWS = 5
 const CHIPS = [84, 124, 83]
 const SHOW_DELAY = 180
@@ -189,14 +188,18 @@ export function SkelLogs() {
   )
 }
 
-export function SkelKpis({ note }) {
+export function SkelKpis() {
   return (
     <div className="okpis">
       {range(4).map((i) => (
         <div key={i} className="card okpi skc skkpi">
-          <Bone w="48%" h={10} />
-          <Bone w="34%" h={26} r={8} />
-          {note && i === TUNNEL_KPI ? <Bone w="58%" h={9} cls="sknote" /> : null}
+          <div className="okh">
+            <Bone w="48%" h={10} />
+            <Bone w={28} h={28} r={9} />
+          </div>
+          <Bone w="34%" h={26} r={8} cls="skv" />
+          <Bone w="100%" h={4} r={4} cls="skbar" />
+          <Bone w="58%" h={9} cls="sknote" />
         </div>
       ))}
     </div>
@@ -321,7 +324,7 @@ export function PageSkeleton({ page, kind, tabs, count, summary }) {
     return (
       <SkelZone boot>
         <SkelTitle sub />
-        <SkelKpis note={summary.tunNote} />
+        <SkelKpis />
         <SkelOverview />
       </SkelZone>
     )

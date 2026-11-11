@@ -180,7 +180,6 @@ function Shell() {
         },
         evSeq: seq,
         subnetFree: s.subnet_free || null,
-        tunNote: !num(s.link_total) || num(s.link_off) > 0,
         loaded: true,
       })
       setUiInterval(Math.round(num(s.ui_interval) * 1000))

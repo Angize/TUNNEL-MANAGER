@@ -12,11 +12,10 @@ import TunnelBreakdown from './TunnelBreakdown.jsx'
 import TrafficChart, { pushLive } from './TrafficChart.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
-import { scoreColor, uptimeColor } from '../../lib/health.js'
+import { scoreLevel, shareLevel, uptimeColor } from '../../lib/health.js'
 import { fmtBytes, fmtGb, num } from '../../lib/num.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
-import { useSummary } from '../../state/SummaryContext.jsx'
 
 function Section({ icon, titleKey, children }) {
   return (
@@ -30,19 +29,37 @@ function Section({ icon, titleKey, children }) {
   )
 }
 
-function Kpi({ label, value, total, color, note }) {
+const LEVEL_WORD = { ok: 'st_healthy', warn: 'st_warn', crit: 'st_crit' }
+
+function Kpi({ label, icon, level, value, total, fill, rest, note }) {
   return (
-    <div className="card okpi">
-      <div className="okl">{label}</div>
+    <div className={'card okpi l-' + level}>
+      <div className="okh">
+        <span className="okl">{label}</span>
+        <span className="okic" aria-hidden="true">
+          <Icon name={icon} />
+        </span>
+      </div>
       <div className="okv">
-        <span className="iso" style={{ color }}>
+        <span className="iso">
           {value}
           {total != null ? <span className="okt">/{total}</span> : null}
         </span>
       </div>
-      {note ? <div className="okn">{note}</div> : null}
+      <div className={rest ? 'okbar rest' : 'okbar'} aria-hidden="true">
+        <i style={{ transform: 'scaleX(' + fill + ')' }} />
+      </div>
+      <div className="okn">{note}</div>
     </div>
   )
+}
+
+function share(part, whole) {
+  return whole ? part / whole : 0
+}
+
+function parts(list) {
+  return list.filter(Boolean).join(' · ')
 }
 
 export default function OverviewPage({ onNavigate }) {
@@ -56,7 +73,6 @@ export default function OverviewPage({ onNavigate }) {
   }, [])
 
   const [summary, reload, progress, loadErr] = usePolledData(load)
-  const shell = useSummary()
   const body = useRef(null)
   useRiseIn(body, !!summary)
 
@@ -69,7 +85,7 @@ export default function OverviewPage({ onNavigate }) {
           <LoadFail text={T('ov_load_fail') + ' ' + loadErr} onRetry={reload} />
         ) : (
           <SkelZone>
-            <SkelKpis note={shell.tunNote} />
+            <SkelKpis />
             <SkelOverview />
           </SkelZone>
         )}
@@ -79,17 +95,34 @@ export default function OverviewPage({ onNavigate }) {
 
   const alerts = summary.alerts || []
   const alertCount = num(summary.alert_count)
+  const alertBad = alerts.filter((a) => a.level === 'bad').length
+  const alertWarn = alertCount - alertBad
+  const alertLevel = alertBad ? 'crit' : alertWarn ? 'warn' : 'ok'
   const score = num(summary.health_score)
   const central = summary.central || {}
   const load1 = (central.load || [])[0]
+  const nodesOn = num(summary.nodes_online)
+  const nodesAll = num(summary.nodes_total)
   const linksUp = num(summary.link_up)
   const linksOff = num(summary.link_off)
   const linksOn = num(summary.link_total) - linksOff
+  const scoreLvl = scoreLevel(score)
+  const nodeNote = !nodesAll
+    ? T('ov_no_nodes')
+    : nodesAll - nodesOn
+      ? TF('ov_kpi_nodes_off', { n: nodesAll - nodesOn })
+      : T('ov_kpi_nodes_all')
   const tunNote = !num(summary.link_total)
     ? T('ov_no_tunnel')
-    : linksOff
-      ? TF('ov_kpi_tun_off', { n: linksOff })
-      : null
+    : parts([
+        linksOn - linksUp && TF('ov_kpi_tun_bad', { n: linksOn - linksUp }),
+        linksOff && TF('ov_kpi_tun_off', { n: linksOff }),
+      ]) || T('ov_kpi_tun_all')
+  const alertNote =
+    parts([
+      alertBad && TF('ov_kpi_al_bad', { n: alertBad }),
+      alertWarn && TF('ov_kpi_al_warn', { n: alertWarn }),
+    ]) || T('ov_kpi_al_none')
   const uptimeWindow = summary.uptime_window
 
   return (
@@ -99,24 +132,41 @@ export default function OverviewPage({ onNavigate }) {
 
       <div ref={body}>
         <div className="okpis">
-          <Kpi label={T('ov_health')} value={score} color={scoreColor(score)} />
+          <Kpi
+            label={T('ov_health')}
+            icon="shield"
+            level={scoreLvl}
+            value={score}
+            total={100}
+            fill={score / 100}
+            note={T(LEVEL_WORD[scoreLvl])}
+          />
           <Kpi
             label={T('ov_kpi_nodes')}
-            value={num(summary.nodes_online)}
-            total={num(summary.nodes_total)}
-            color="var(--acc-tx)"
+            icon="server"
+            level={shareLevel(nodesOn, nodesAll)}
+            value={nodesOn}
+            total={nodesAll}
+            fill={share(nodesOn, nodesAll)}
+            note={nodeNote}
           />
           <Kpi
             label={T('ov_kpi_tunnels')}
+            icon="link"
+            level={shareLevel(linksUp, linksOn)}
             value={linksUp}
             total={linksOn}
-            color={linksUp === linksOn ? 'var(--ok-tx)' : linksUp ? 'var(--gold-tx)' : 'var(--bad-tx)'}
+            fill={share(linksUp, linksOn)}
             note={tunNote}
           />
           <Kpi
             label={T('ov_kpi_alerts')}
+            icon={alertCount ? 'warn' : 'okc'}
+            level={alertLevel}
             value={alertCount}
-            color={alertCount ? 'var(--bad-tx)' : 'var(--ok-tx)'}
+            fill={share(alertBad, alertCount)}
+            rest={alertWarn > 0}
+            note={alertNote}
           />
         </div>
 
