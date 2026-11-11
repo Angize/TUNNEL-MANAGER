@@ -529,6 +529,7 @@
     99,
     50
    ],
+   "uptime_cells": 60,
    "bw_ranges": [
     "1h",
     "4h",

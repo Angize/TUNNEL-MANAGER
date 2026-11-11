@@ -12761,6 +12761,7 @@ def api_ui_config(d):
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
         "uptime_windows": list(UPTIME_WINDOWS),
         "uptime_levels": [UPTIME_OK, UPTIME_BAD],
+        "uptime_cells": UPTIME_CELLS,
         "bw_ranges": list(BW_RANGES),
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,

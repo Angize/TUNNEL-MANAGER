@@ -213,7 +213,7 @@ export const DOCS = {
   },
   'ui-config': {
     t: 'User interface configuration',
-    d: 'Fixed values the user interface needs: tuning defaults and ranges, event types, tunnel form options, and the list of these API routes with the method of each.',
+    d: 'Fixed values the user interface needs: tuning and settings defaults and ranges, uptime windows, event types, tunnel form options, and the list of these API routes with the method of each.',
   },
   settings: {
     t: 'Read the settings',
@@ -224,11 +224,11 @@ export const DOCS = {
     d: 'Only the keys you send change, and the answer is the full new settings. A value outside its range is refused with a 400 (setting_range, tuning_range, tuning_step, bad_uptime_window or cdn_edges_too_many) and nothing from the request is saved.',
     p: [
       ['reconcile_mode', 0, S, 'auto (repair by itself) or alert (only warn)'],
-      ['reconcile_interval', 0, N, 'repair check interval in seconds (5 to 3600)'],
-      ['poll_interval', 0, N, 'node poll interval in seconds (0.3 to 60)'],
-      ['ui_interval', 0, N, 'screen refresh interval in seconds (0.3 to 60)'],
-      ['uptime_window', 0, N, 'uptime chart window in hours: 1, 3, 6, 8, 12 or 24'],
-      ['ech_refresh_mins', 0, N, 'ECH key refresh in minutes (0 = off, 1 to 1440)'],
+      ['reconcile_interval', 0, N, 'repair check interval in seconds; the range is in ui-config settings_ranges'],
+      ['poll_interval', 0, N, 'node poll interval in seconds; the range is in ui-config settings_ranges'],
+      ['ui_interval', 0, N, 'screen refresh interval in seconds; the range is in ui-config settings_ranges'],
+      ['uptime_window', 0, N, 'uptime chart window in hours, one of ui-config uptime_windows'],
+      ['ech_refresh_mins', 0, N, 'ECH key refresh in minutes: 0 = off, otherwise within ui-config settings_ranges'],
       ['agent_delivery', 0, S, 'agent delivery: push, github or panel'],
       ['core_delivery', 0, S, 'core delivery: push, github or panel'],
       ['api_external', 0, B, 'turn API access with a token on or off'],
