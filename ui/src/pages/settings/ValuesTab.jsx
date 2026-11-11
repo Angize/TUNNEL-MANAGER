@@ -20,7 +20,7 @@ import { reducedMotion } from '../../lib/motion.js'
 
 const PICK_BEAT_MS = 140
 
-function ValueRow({ name, helpKey, exampleKey, note }) {
+function ValueRow({ name, helpKey, exampleKey, note, vars }) {
   const { form, set, touch, errors } = useSettingsForm()
   const config = useUiConfig()
   const spec = FIELDS[name]
@@ -32,6 +32,7 @@ function ValueRow({ name, helpKey, exampleKey, note }) {
       label={T(spec.labelKey)}
       helpKey={helpKey}
       exampleKey={exampleKey}
+      vars={{ lo: range[0], hi: range[1], ...vars }}
       unit={list || spec.stepper ? '' : T(spec.unitKey)}
       error={errors[name]}
       note={note}
@@ -109,7 +110,16 @@ export default function ValuesTab({ active }) {
   const { form, set, mode, setMode, probeSamples } = f
   const [probeLo, probeHi] = fieldRange('probeMin', config)
   const probePct = Math.max(probeLo, Math.min(probeHi, parseInt(form.probeMin, 10) || 0))
-  const probeHint = TF('set_pm_hint', { n: Math.ceil((probePct * probeSamples) / 100), c: probeSamples })
+  const mustReturn = (pct) => Math.ceil((pct * probeSamples) / 100)
+  const probeHint = TF('set_pm_hint', { n: mustReturn(probePct), c: probeSamples })
+  const probeDefault = config.tuning_defaults.probe_min_pct
+  const probeVars = {
+    c: probeSamples,
+    half: Math.ceil(probeSamples / 2),
+    drop: 100 - probeLo,
+    d: probeDefault,
+    dn: mustReturn(probeDefault),
+  }
 
   return (
     <div className="stpage" ref={root}>
@@ -129,7 +139,12 @@ export default function ValuesTab({ active }) {
           <ValueRow name="ui" helpKey="set_ui_range" exampleKey="set_x_ui" />
           <ValueRow name="ech" helpKey="set_ech_range" exampleKey="set_x_ech" />
 
-          <SettingRow label={T('set_upwin')} helpKey="set_upwin_d" exampleKey="set_x_upwin">
+          <SettingRow
+            label={T('set_upwin')}
+            helpKey="set_upwin_d"
+            exampleKey="set_x_upwin"
+            vars={{ n: config.uptime_cells, m24: (24 * 60) / config.uptime_cells, m1: 60 / config.uptime_cells }}
+          >
             <Select
               items={config.uptime_windows.map((h) => ({ v: String(h), label: T('h' + h) }))}
               value={form.window}
@@ -139,7 +154,13 @@ export default function ValuesTab({ active }) {
         </SettingsGroup>
 
         <SettingsGroup section icon="activity" titleKey="set_gkd" chipKey="set_gkdc" tone="sc-conn">
-          <ValueRow name="probeMin" helpKey="set_t_probemin_d" exampleKey="set_x_probemin" note={probeHint} />
+          <ValueRow
+            name="probeMin"
+            helpKey="set_t_probemin_d"
+            exampleKey="set_x_probemin"
+            note={probeHint}
+            vars={probeVars}
+          />
           <ValueRow name="revive" helpKey="set_t_revive_d" exampleKey="set_x_revive" />
         </SettingsGroup>
 

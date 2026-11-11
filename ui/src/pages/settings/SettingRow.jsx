@@ -2,11 +2,11 @@ import { cloneElement, useId, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import HelpPop from '../../components/HelpPop.jsx'
 import usePresence from '../../lib/usePresence.js'
-import { T, TF } from '../../i18n/fa.js'
+import { TF } from '../../i18n/fa.js'
 
 const POP_EXIT_MS = 140
 
-export default function SettingRow({ label, helpKey, exampleKey, unit, error, note, wide, half, children }) {
+export default function SettingRow({ label, helpKey, exampleKey, vars, unit, error, note, wide, half, children }) {
   const [open, setOpen] = useState(false)
   const shown = usePresence(open, POP_EXIT_MS)
   const help = useRef(null)
@@ -64,8 +64,8 @@ export default function SettingRow({ label, helpKey, exampleKey, unit, error, no
           id={popId}
           anchor={help}
           title={label}
-          text={T(helpKey)}
-          example={T(exampleKey)}
+          text={TF(helpKey, vars)}
+          example={TF(exampleKey, vars)}
           leaving={!open}
           onClose={close}
         />

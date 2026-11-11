@@ -17,9 +17,9 @@ export default function UptimeBar({ node, windowHours }) {
   const tones = cells.map((value) => tone(value, levels))
   const last = cells.length - 1
   const { at, handlers } = useScrub(cells.length)
+  const step = (windowHours * 3600000) / cells.length
 
   const span = (i) => {
-    const step = windowHours * 60000
     const end = (node.uptime_end != null ? node.uptime_end * 1000 : Date.now()) - (last - i) * step
     return fmtClock(end - step) + '–' + fmtClock(end)
   }
