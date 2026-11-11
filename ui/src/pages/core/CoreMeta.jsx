@@ -1,17 +1,7 @@
 import { Fragment } from 'react'
 import Icon from '../../components/Icon.jsx'
 import CopyValue from '../../components/CopyValue.jsx'
-import {
-  CT_WARN_PCT,
-  RAW_DPORT_DEFAULT,
-  RAW_ROT_HI,
-  RAW_ROT_LO,
-  RAW_SPORT_FIXED,
-  carrierFamily,
-  carrierProfile,
-  edgeCount,
-  edgePool,
-} from './carrier.js'
+import { CT_WARN_PCT, carrierFamily, carrierProfile, edgeCount, edgePool } from './carrier.js'
 import { poolRotateItems } from './form/presets.js'
 import { hostAddress } from '../../lib/subnet.js'
 import { useUiConfig } from '../../state/UiConfigContext.jsx'
@@ -87,14 +77,14 @@ function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
-function sidePorts(link, rungTransports, ported) {
+function sidePorts(link, rungTransports, ported, defaults) {
   const transport = link.transport
   if (transport === 'raw') {
     if (!rawPorted(link, ported)) return []
     const live = link.rot_live || {}
-    const dst = num(live.dport) || num(link.raw_port) || RAW_DPORT_DEFAULT
+    const dst = num(live.dport) || num(link.raw_port) || defaults.raw_port
     if (!rawRotating(link)) {
-      const client = num(link.sport_live) || num(link.raw_sport) || RAW_SPORT_FIXED
+      const client = num(link.sport_live) || num(link.raw_sport) || defaults.raw_sport
       return [[portCell(T('port_src'), client), portCell(T('port_dst'), dst)]]
     }
     return [
@@ -124,7 +114,7 @@ function capCells(link) {
   ]
 }
 
-function rawCells(link, ported) {
+function rawCells(link, ported, defaults) {
   if (!rawPorted(link, ported)) return []
   const live = link.rot_live || {}
   const cells = []
@@ -133,8 +123,8 @@ function rawCells(link, ported) {
   if (!rawRotating(link)) return cells
 
   const every = num(live.every) || num(link.raw_sport_rotate)
-  const lo = num(live.lo) || num(link.sport_lo) || RAW_ROT_LO
-  const hi = num(live.hi) || num(link.sport_hi) || RAW_ROT_HI
+  const lo = num(live.lo) || num(link.sport_lo) || defaults.band[0]
+  const hi = num(live.hi) || num(link.sport_hi) || defaults.band[1]
   const drawn = num(live.drawn)
   cells.push(cell(T('rot_src'), <b>{every ? TF('rot_every', { n: every }) : T('rot_on_fail')}</b>))
   cells.push(cell(T('rot_band'), <b className="mono iso">{lo + '–' + hi}</b>))
@@ -149,7 +139,7 @@ function edgeRotation(link) {
   return item ? item.label : secs + 's'
 }
 
-function sharedCells(link, ported) {
+function sharedCells(link, ported, defaults) {
   const profile = carrierProfile(link)
   const cipher = link.cipher !== 'none' ? (link.cipher === 'auto' ? 'aes-256-gcm' : link.cipher) : ''
   const cells = [
@@ -165,7 +155,7 @@ function sharedCells(link, ported) {
       )
     ),
     ...capCells(link),
-    ...rawCells(link, ported),
+    ...rawCells(link, ported, defaults),
   ]
   if (edgePool(link) || edgeCount(link) > 1) cells.push(cell(T('rot_edge'), <b>{edgeRotation(link)}</b>))
   return cells
@@ -187,7 +177,7 @@ function Cell({ c }) {
 }
 
 export default function CoreMeta({ link }) {
-  const { enums } = useUiConfig()
+  const { enums, defaults } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
   const ported = (enums && enums.raw_ported) || []
   const rows = [
@@ -195,8 +185,8 @@ export default function CoreMeta({ link }) {
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
-    ...sidePorts(link, rungTransports, ported),
-    ...pairs(sharedCells(link, ported)),
+    ...sidePorts(link, rungTransports, ported, defaults),
+    ...pairs(sharedCells(link, ported, defaults)),
   ]
 
   return (

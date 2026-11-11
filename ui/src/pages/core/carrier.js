@@ -1,9 +1,5 @@
 import { num } from '../../lib/num.js'
 
-export const RAW_DPORT_DEFAULT = 443
-export const RAW_SPORT_FIXED = 51820
-export const RAW_ROT_LO = 10000
-export const RAW_ROT_HI = 59999
 export const RAW_PROTO_BARE = 253
 export const CT_WARN_PCT = 80
 

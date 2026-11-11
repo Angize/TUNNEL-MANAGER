@@ -1,4 +1,4 @@
-import { RAW_DPORT_DEFAULT, RAW_PROTO_BARE, RAW_SPORT_FIXED } from '../carrier.js'
+import { RAW_PROTO_BARE } from '../carrier.js'
 import {
   coverOk,
   desyncOk,
@@ -49,9 +49,9 @@ export default function normalise(form, cfg, aIps, bIps) {
 
   if (protoVisOn(view) && at('rawProto') === '') set('rawProto', String(RAW_PROTO_BARE))
   if (rawPorted(view, enums)) {
-    if (at('rawPort') === '') set('rawPort', String(RAW_DPORT_DEFAULT))
+    if (at('rawPort') === '') set('rawPort', String(cfg.defaults.raw_port))
     if (at('SportRandom')) set('rawSport', '')
-    else if (at('rawSport') === '') set('rawSport', String(RAW_SPORT_FIXED))
+    else if (at('rawSport') === '') set('rawSport', String(cfg.defaults.raw_sport))
   }
 
   if (at('Tr') === 'raw') {

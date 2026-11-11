@@ -6592,6 +6592,9 @@ def _self_ech_fields(d, cur, out):
 
 EDGE_MAX = 2
 RAW_PORT_DEFAULT = 443
+RAW_SPORT_DEFAULT = 51820
+RAW_BAND_DEFAULT = (10000, 59999)
+PORT_TRIES_DEFAULT = 2
 NATIVE_PROTOS = {"gre": 47, "sit": 41, "ipip": 4, "ipsec": 50}
 
 
@@ -12756,7 +12759,10 @@ def api_ui_config(d):
         "limits": {"fake_ttl": [1, DESYNC_INJECT_TTL_MAX], "fake_count": [1, FAKE_COUNT_MAX], "split_pos": [0, SPLIT_POS_MAX],
                    "split_ttl": [0, SPLIT_TTL_MAX], "port": [1, 65535], "port_tries": [1, PORT_TRIES_MAX],
                    "band_min_lo": RAW_BAND_MIN_LO, "band_min_span": RAW_BAND_MIN_SPAN,
-                   "install_parallel": _INSTALL_PARALLEL},
+                   "install_parallel": _INSTALL_PARALLEL, "raw_sport_rotate": [1, RAW_SPROT_MAX],
+                   "raw_dports": [1, RAW_DPORTS_MAX], "cdn_make": [1, CDN_MAKE_MAX]},
+        "defaults": {"raw_port": RAW_PORT_DEFAULT, "raw_sport": RAW_SPORT_DEFAULT, "band": list(RAW_BAND_DEFAULT),
+                     "port_tries": PORT_TRIES_DEFAULT},
         "settings_ranges": {k: list(v) for k, v in SETTINGS_RANGES.items()},
         "uptime_windows": list(UPTIME_WINDOWS),
         "uptime_levels": [UPTIME_OK, UPTIME_BAD],

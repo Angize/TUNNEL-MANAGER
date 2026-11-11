@@ -1,7 +1,7 @@
 import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
 import { edgePort, isIpv4, providerName } from '../../../lib/cdn.js'
-import { POOL_MAX, RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
+import { POOL_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
 import { cdnShapeApplies, cdnShapeOn, rawUpPorted, sprotLive } from './gates.js'
 
 function blank(text) {
@@ -63,15 +63,14 @@ export function sprotOf(form) {
   return blank(form.rawSprot) ? SPROT_DEFAULT : intOf(form.rawSprot)
 }
 
-export function sprotErr(form, enums) {
+export function sprotErr(form, enums, limits) {
   if (!sprotLive(form, enums)) return ''
-  const n = sprotOf(form)
-  if (!(n >= 1 && n <= RAW_SPROT_MAX)) return T('raw_sprot_bad')
+  const every = limits.raw_sport_rotate
+  if (!inRange(sprotOf(form), every)) return TF('raw_sprot_bad', { lo: every[0], hi: every[1] })
   if (!rawUpPorted(form, enums)) return ''
   const dports = intOf(form.rawDports)
-  return dports === 0 || (dports >= 1 && dports <= RAW_DPORTS_MAX)
-    ? ''
-    : TF('raw_dports_bad', { n: RAW_DPORTS_MAX })
+  const spread = limits.raw_dports
+  return dports === 0 || inRange(dports, spread) ? '' : TF('raw_dports_bad', { lo: spread[0], hi: spread[1] })
 }
 
 export function bandErr(form, limits) {

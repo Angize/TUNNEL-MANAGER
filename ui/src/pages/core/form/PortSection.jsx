@@ -9,11 +9,10 @@ import { Seg2, SegOpt, WarnCap } from './controls.jsx'
 import { rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
-import { RAW_DPORTS_MAX, RAW_SPROT_MAX, SPROT_DEFAULT } from './presets.js'
+import { SPROT_DEFAULT } from './presets.js'
 import { intOf, sprotErr } from './validate.js'
 import { rangeLabel } from '../../../lib/form.js'
-import { RAW_DPORT_DEFAULT, RAW_SPORT_FIXED } from '../carrier.js'
-import { T } from '../../../i18n/fa.js'
+import { T, TF } from '../../../i18n/fa.js'
 
 const DPORT_PRESETS = {
   udp: [
@@ -43,7 +42,7 @@ const SPORT_PRESETS = {
   sctp: [],
 }
 
-function SourcePort({ form, enums, limits, patch }) {
+function SourcePort({ form, enums, limits, defaults, patch }) {
   const id = useId()
   const locked = sprotLive(form, enums)
   const current = intOf(form.rawSport)
@@ -59,7 +58,7 @@ function SourcePort({ form, enums, limits, patch }) {
           <SegOpt
             on={!form.SportRandom}
             title={T('raw_sport_fixed_n')}
-            sub={T('raw_sport_fixed_m')}
+            sub={TF('raw_sport_fixed_m', { n: defaults.raw_sport })}
             onClick={() => patch({ SportRandom: false })}
           />
           <SegOpt
@@ -89,7 +88,7 @@ function SourcePort({ form, enums, limits, patch }) {
             id={id}
             className="mono"
             maxLength={5}
-            placeholder={String(RAW_SPORT_FIXED)}
+            placeholder={String(defaults.raw_sport)}
             style={{ textAlign: 'center', direction: 'ltr' }}
             value={form.rawSport}
             onChange={(v) => patch({ rawSport: v })}
@@ -100,9 +99,11 @@ function SourcePort({ form, enums, limits, patch }) {
   )
 }
 
-function SportRotation({ form, enums, patch }) {
+function SportRotation({ form, enums, limits, patch }) {
   const live = sprotLive(form, enums)
   const upPorted = rawUpPorted(form, enums)
+  const every = limits.raw_sport_rotate
+  const spread = limits.raw_dports
 
   const toggle = () => {
     if (live) {
@@ -120,20 +121,20 @@ function SportRotation({ form, enums, patch }) {
       <Reveal show={live}>
         <div>
           <div className={upPorted ? 'grid2' : undefined}>
-            <Field label={rangeLabel(T('raw_sprot_lbl'), 1, RAW_SPROT_MAX)}>
+            <Field label={rangeLabel(T('raw_sprot_lbl'), ...every)}>
               <Stepper
-                min={1}
-                max={RAW_SPROT_MAX}
+                min={every[0]}
+                max={every[1]}
                 placeholder={String(SPROT_DEFAULT)}
                 value={form.rawSprot}
                 onChange={(v) => patch({ rawSprot: v })}
               />
             </Field>
             {upPorted ? (
-              <Field label={rangeLabel(T('raw_dports_lbl'), 1, RAW_DPORTS_MAX)}>
+              <Field label={rangeLabel(T('raw_dports_lbl'), ...spread)}>
                 <Stepper
-                  min={1}
-                  max={RAW_DPORTS_MAX}
+                  min={spread[0]}
+                  max={spread[1]}
                   placeholder="1"
                   value={form.rawDports}
                   onChange={(v) => patch({ rawDports: v })}
@@ -141,7 +142,7 @@ function SportRotation({ form, enums, patch }) {
               </Field>
             ) : null}
           </div>
-          <WarnCap text={sprotErr(form, enums)} style={{ marginTop: 8 }} />
+          <WarnCap text={sprotErr(form, enums, limits)} style={{ marginTop: 8 }} />
         </div>
       </Reveal>
     </div>
@@ -179,15 +180,15 @@ function RawPort({ form, cfg, patch }) {
         id={id}
         className="mono"
         maxLength={5}
-        placeholder={String(RAW_DPORT_DEFAULT)}
+        placeholder={String(cfg.defaults.raw_port)}
         style={{ textAlign: 'center', direction: 'ltr' }}
         value={form.rawPort}
         onChange={(v) => patch({ rawPort: v })}
       />
       <SwapCascade value={!!form.SportRandom}>
-        <SourcePort form={form} enums={cfg.enums} limits={cfg.limits} patch={patch} />
+        <SourcePort form={form} enums={cfg.enums} limits={cfg.limits} defaults={cfg.defaults} patch={patch} />
         <Reveal show={form.SportRandom}>{draws}</Reveal>
-        <SportRotation form={form} enums={cfg.enums} patch={patch} />
+        <SportRotation form={form} enums={cfg.enums} limits={cfg.limits} patch={patch} />
         <Reveal show={!form.SportRandom}>{draws}</Reveal>
       </SwapCascade>
       <SwitchRow

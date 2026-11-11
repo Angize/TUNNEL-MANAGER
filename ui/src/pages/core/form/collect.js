@@ -133,7 +133,7 @@ export function collectCarrier(form, cfg, owners, body) {
       if (protoError) return protoError
       body.raw_proto = intOf(form.rawProto) || RAW_PROTO_BARE
     }
-    const sprotError = sprotErr(form, enums)
+    const sprotError = sprotErr(form, enums, limits)
     if (sprotError) return sprotError
     body.raw_sport_rotate = sprotLive(form, enums) ? sprotOf(form) : 0
     body.raw_dports = sprotLive(form, enums) ? intOf(form.rawDports) : 0

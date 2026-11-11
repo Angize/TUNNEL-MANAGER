@@ -500,7 +500,28 @@
     ],
     "band_min_lo": 1024,
     "band_min_span": 100,
-    "install_parallel": 4
+    "install_parallel": 4,
+    "raw_sport_rotate": [
+     1,
+     60
+    ],
+    "raw_dports": [
+     1,
+     16
+    ],
+    "cdn_make": [
+     1,
+     8
+    ]
+   },
+   "defaults": {
+    "raw_port": 443,
+    "raw_sport": 51820,
+    "band": [
+     10000,
+     59999
+    ],
+    "port_tries": 2
    },
    "settings_ranges": {
     "reconcile_interval": [

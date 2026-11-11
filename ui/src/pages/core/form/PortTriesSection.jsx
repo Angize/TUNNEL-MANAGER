@@ -17,7 +17,7 @@ function Tries({ form, cfg, patch }) {
       <Stepper
         min={cfg.limits.port_tries[0]}
         max={cfg.limits.port_tries[1]}
-        placeholder="2"
+        placeholder={String(cfg.defaults.port_tries)}
         value={form.portTries}
         onChange={(v) => patch({ portTries: v })}
       />
