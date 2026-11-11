@@ -6521,15 +6521,15 @@ def _gen_self_ech(public, inner):
     return dict(_gen_ech_key(public), inner=inner, srv_cert=nc["cert"], srv_key=nc["key"], ws_ca=nc["cert"])
 
 
-_WS_PATH_RE = re.compile(r"^(?=.{1,256}$)/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$")
+_WS_PATH_RE = re.compile(r"^(?=.{1,256}$)(?!.*//)(?!.*/\.{1,2}(?:/|$))/(?:[A-Za-z0-9._~!$&'()*+,;=:@/-]|%[0-9A-Fa-f]{2})*$")
 
 
 def _ws_path_into(out, d, cur):
     path = str((d["ws_path"] if "ws_path" in d else cur.get("ws_path")) or "").strip()
     if path:
         if not _WS_PATH_RE.match(path):
-            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است (باید با / شروع شود)",
-                      "invalid WebSocket path (ws_path) (must start with /)")
+            raise Bad("bad_ws_path", "مسیرِ WebSocket (ws_path) نامعتبر است — باید با / شروع شود و // یا بخشِ «.» و «..» نداشته باشد",
+                      "invalid WebSocket path (ws_path) — it must start with / and contain no // and no . or .. segment")
         out["ws_path"] = path
 
 
