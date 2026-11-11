@@ -12766,7 +12766,7 @@ def api_ui_config(d):
         "usage_crit_pct": UP_CRIT,
         "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],
         "enums": {
-            "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),
+            "ciphers": list(CORE_CIPHERS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
             "raw_ported": list(PORTED_RAW_PROFILES), "raw_sum": list(RAW_SUM_PROFILES),
             "ctb_default": list(CTB_DEFAULT_PROFILES),
