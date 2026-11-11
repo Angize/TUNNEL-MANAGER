@@ -12,6 +12,7 @@ import { postError, readError } from '../../../lib/errors.js'
 import { LTR_TEXT } from '../../../lib/form.js'
 import useHeightTween from '../../../lib/useHeightTween.js'
 import { CDN_PROVIDERS, labelError, labelOf, providerName, splitZoneKey, zoneItems } from '../../../lib/cdn.js'
+import { useUiConfig } from '../../../state/UiConfigContext.jsx'
 import { T, TF } from '../../../i18n/fa.js'
 
 function useZones(keys) {
@@ -191,6 +192,7 @@ function ReadyList({ ready, picked, multi, onPick }) {
 }
 
 export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, onMade, onClose }) {
+  const { limits } = useUiConfig()
   const zones = useZones(keys)
   const ready = useReady(inUse)
   const items = zoneItems(zones.by, !!form.Ech)
@@ -351,8 +353,8 @@ export default function CdnMaker({ form, keys, serverIp, inUse, multi, onPlace, 
                 <span>{T('cdn_count_lbl')}</span>
                 <Stepper
                   value={count}
-                  min={1}
-                  max={8}
+                  min={limits.cdn_make[0]}
+                  max={limits.cdn_make[1]}
                   onChange={(v) => {
                     setCount(v)
                     reset()

@@ -1,7 +1,5 @@
 import { T } from '../../../i18n/fa.js'
 
-export const RAW_DPORTS_MAX = 16
-export const RAW_SPROT_MAX = 60
 export const SPROT_DEFAULT = 4
 export const PEER_ACC_MIN = 3
 export const POOL_MAX = 64
