@@ -64,7 +64,6 @@ export function SettingsFormProvider({ tabs, children }) {
   }, [])
 
   const load = useCallback(async () => {
-    setLoadError('')
     let s
     try {
       s = await apiGet('settings')
@@ -72,6 +71,7 @@ export function SettingsFormProvider({ tabs, children }) {
       setLoadError(readError(e))
       return
     }
+    setLoadError('')
     apply(s)
   }, [apply])
 

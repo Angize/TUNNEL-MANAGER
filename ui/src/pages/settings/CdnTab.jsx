@@ -5,6 +5,7 @@ import Select from '../../components/Select.jsx'
 import SecretInput from '../../components/SecretInput.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { Seg2, SegOpt, WarnCap } from '../core/form/controls.jsx'
@@ -295,12 +296,13 @@ export default function CdnTab() {
 
   useRiseIn(box, !!cdn)
 
-  const load = () => {
-    setErr('')
-    return apiGet('cdn')
-      .then((r) => setCdn(r.cdn))
+  const load = () =>
+    apiGet('cdn')
+      .then((r) => {
+        setErr('')
+        setCdn(r.cdn)
+      })
       .catch((e) => setErr(readError(e)))
-  }
 
   const reload = () =>
     apiGet('cdn')
@@ -325,15 +327,7 @@ export default function CdnTab() {
           <SkelBlocks rows={SKEL_ROWS.cdnCloud} />
         </SkelZone>
       ) : null}
-      {!cdn && err ? (
-        <div className="card loadfail">
-          <span>{T('cdn_load_failed') + ' ' + err}</span>
-          <button type="button" className="ghost" onClick={load}>
-            <Icon name="redo" />
-            {T('retry')}
-          </button>
-        </div>
-      ) : null}
+      {!cdn && err ? <LoadFail text={T('cdn_load_failed') + ' ' + err} onRetry={load} /> : null}
       {cdn
         ? CDN_PROVIDERS.map((p) => (
             <ProviderCard

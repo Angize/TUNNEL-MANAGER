@@ -183,7 +183,8 @@ textarea:focus {
 }
 
 .primary:disabled:has(.bspin),
-.ghost:disabled:has(.bspin) {
+.ghost:disabled:has(.bspin),
+.loadfail .ghost[aria-busy='true'] {
   cursor: progress;
 }
 

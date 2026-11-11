@@ -19,6 +19,9 @@ import DialogHost from './components/DialogHost.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Reveal from './components/Reveal.jsx'
 import { PageSkeleton } from './components/Skeleton.jsx'
+import LoadFail from './components/LoadFail.jsx'
+import { readError } from './lib/errors.js'
+import { T } from './i18n/fa.js'
 import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
@@ -65,6 +68,8 @@ function Shell() {
   const [lost, setLost] = useState(null)
   const retry = useRef(() => {})
   const [uiConfig, setUiConfig] = useState(null)
+  const [configErr, setConfigErr] = useState('')
+  const configRetry = useRef(() => {})
   const { refresh: actsRefresh } = useActs()
   const pageRef = useRef(page)
   const readinessRef = useRef(null)
@@ -100,15 +105,27 @@ function Shell() {
 
   useEffect(() => {
     let alive = true
+    let done = false
     let retry = 0
     const loadConfig = () =>
       apiGet('ui-config')
         .then((cfg) => {
-          if (alive) setUiConfig(cfg)
+          if (!alive || done) return
+          done = true
+          clearTimeout(retry)
+          setConfigErr('')
+          setUiConfig(cfg)
         })
-        .catch(() => {
-          if (alive) retry = setTimeout(loadConfig, DEFAULT_INTERVAL)
+        .catch((e) => {
+          if (!alive || done) return
+          setConfigErr(readError(e))
+          clearTimeout(retry)
+          retry = setTimeout(loadConfig, DEFAULT_INTERVAL)
         })
+    configRetry.current = () => {
+      clearTimeout(retry)
+      return loadConfig()
+    }
     loadConfig()
     loadReadiness(true)
     return () => {
@@ -283,7 +300,13 @@ function Shell() {
         <main className="main">
           <TopBar dark={dark} onToggleTheme={onToggleTheme} />
           <Reveal show={!!lost}>
-            <ConnBar lost={lost} onRetry={() => retry.current()} />
+            <ConnBar
+              lost={lost}
+              onRetry={() => {
+                retry.current()
+                if (!uiConfig) configRetry.current()
+              }}
+            />
           </Reveal>
           <Reveal show={!!readiness && !readiness.ok}>
             <ReadinessBar readiness={readiness} onNavigate={navigate} />
@@ -297,6 +320,8 @@ function Shell() {
                   </ErrorBoundary>
                 </SummaryProvider>
               </UiConfigProvider>
+            ) : configErr ? (
+              <LoadFail text={T('boot_load_fail') + ' ' + configErr} onRetry={() => configRetry.current()} />
             ) : (
               <PageSkeleton
                 page={page}

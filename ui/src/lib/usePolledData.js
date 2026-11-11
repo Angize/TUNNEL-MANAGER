@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { setPageRefresh } from './poll.js'
 import { sameDeep } from './sameDeep.js'
+import { readError } from './errors.js'
 
 export default function usePolledData(load, key, active = true, onLoaded) {
   const [data, setData] = useState(null)
   const [progress, setProgress] = useState(0)
+  const [error, setError] = useState('')
   const hasData = useRef(false)
   const first = useRef(null)
   const alive = useRef(true)
@@ -32,11 +34,13 @@ export default function usePolledData(load, key, active = true, onLoaded) {
       let value
       try {
         value = await loader.current(report)
-      } catch {
+      } catch (e) {
+        if (alive.current && mine === latest.current && !hasData.current) setError(readError(e))
         return
       }
       if (!alive.current || mine !== latest.current || value === undefined) return
       hasData.current = true
+      setError('')
       setData((prev) => sameDeep(prev, value))
       if (loaded.current) loaded.current(value)
     })()
@@ -64,5 +68,5 @@ export default function usePolledData(load, key, active = true, onLoaded) {
     return setPageRefresh(reload)
   }, [reload, active])
 
-  return [data, reload, progress]
+  return [data, reload, progress, error]
 }

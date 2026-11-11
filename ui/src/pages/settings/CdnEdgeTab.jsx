@@ -1,10 +1,10 @@
 import { useEffect, useId, useState } from 'react'
-import Icon from '../../components/Icon.jsx'
 import Field from '../../components/Field.jsx'
 import Select from '../../components/Select.jsx'
 import SwitchRow from '../../components/SwitchRow.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import { SKEL_ROWS, SkelBlocks, SkelZone } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
 import Stepper from '../../components/Stepper.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
@@ -178,10 +178,10 @@ export default function CdnEdgeTab() {
   const pickId = useId()
 
   const load = async () => {
-    setErr('')
     const r = await apiPost('cdn-edge', { act: 'state' })
     if (r.ok) {
       const list = r.d.edges || []
+      setErr('')
       setEdges(list)
       setPick((v) => v || firstPick(list))
     } else {
@@ -224,15 +224,7 @@ export default function CdnEdgeTab() {
           <SkelBlocks rows={SKEL_ROWS.cdnEdge} />
         </SkelZone>
       ) : null}
-      {edges === null && err ? (
-        <div className="card loadfail">
-          <span>{T('edge_load_failed') + ' ' + err}</span>
-          <button type="button" className="ghost" onClick={load}>
-            <Icon name="redo" />
-            {T('retry')}
-          </button>
-        </div>
-      ) : null}
+      {edges === null && err ? <LoadFail text={T('edge_load_failed') + ' ' + err} onRetry={load} /> : null}
       {edges ? (
         <SettingsGroup
           icon="shield"

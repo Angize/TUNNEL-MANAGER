@@ -4,6 +4,7 @@ import Toolbar from '../../components/Toolbar.jsx'
 import Reveal from '../../components/Reveal.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import { SkelNodes, SkelZone, skelCount } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
@@ -15,10 +16,9 @@ import DeleteNodeModal from './DeleteNodeModal.jsx'
 import MovedIpModal from './MovedIpModal.jsx'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError, readError } from '../../lib/errors.js'
+import { postError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { isCentralStale } from '../../lib/nodes.js'
-import useBusy from '../../lib/useBusy.js'
 import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
@@ -49,24 +49,15 @@ export default function NodesPage({ active }) {
   const [deleting, setDeleting] = useState(null)
   const [moved, setMoved] = useState(null)
   const settled = useRef(0)
-  const [loadErr, setLoadErr] = useState('')
-  const [retrying, guard] = useBusy()
 
   const load = useCallback(async (onProgress) => {
     if (listBusy()) return undefined
     const epoch = settled.current
-    let r
-    try {
-      r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
-    } catch (e) {
-      setLoadErr(readError(e))
-      throw e
-    }
-    setLoadErr('')
+    const r = await apiGet('nodes?q=' + encodeURIComponent(query), onProgress)
     return { nodes: r.nodes, windowHours: r.uptime_window, epoch }
   }, [query])
 
-  const [data, reload, progress] = usePolledData(load, query, active)
+  const [data, reload, progress, loadErr] = usePolledData(load, query, active)
   const skel = skelCount(useSummary(), 'nodes_total')
   const bulk = useBulk()
   const { asked, took, setDialog } = bulk
@@ -127,20 +118,14 @@ export default function NodesPage({ active }) {
 
       <Toolbar value={query} placeholder={T('nodes_search')} reorder onSearch={setQuery} />
 
-      <LoadBar on={data === null && !loadErr} value={progress} />
+      {loadErr ? null : <LoadBar on={data === null} value={progress} />}
       {data === null && !loadErr ? (
         <SkelZone>
           <SkelNodes n={skel} />
         </SkelZone>
       ) : null}
       {data === null && loadErr ? (
-        <div className="card loadfail">
-          <span>{T('nodes_load_fail') + ' ' + loadErr}</span>
-          <button type="button" className="ghost" disabled={retrying} onClick={guard(reload)}>
-            {retrying ? <span className="bspin ink sm" /> : <Icon name="redo" />}
-            {T('retry')}
-          </button>
-        </div>
+        <LoadFail text={T('nodes_load_fail') + ' ' + loadErr} onRetry={reload} />
       ) : null}
       <div ref={listBox} className="flist">
         {data === null ? null : (

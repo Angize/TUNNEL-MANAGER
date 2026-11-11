@@ -4,6 +4,7 @@ import Icon from '../../components/Icon.jsx'
 import Toolbar from '../../components/Toolbar.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
 import { SkelLogs, SkelZone } from '../../components/Skeleton.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import useRiseIn from '../../lib/useRiseIn.js'
 import { onScreen, stepFor } from '../../lib/riseIn.js'
 import Reveal from '../../components/Reveal.jsx'
@@ -13,7 +14,7 @@ import useHiddenTypes from './useHiddenTypes.js'
 import { eventKey } from './logFormat.js'
 import { T, TF } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
-import { postError } from '../../lib/errors.js'
+import { postError, readError } from '../../lib/errors.js'
 import { confirmBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { LOGS_SEEN_KEY, setLS } from '../../lib/storage.js'
@@ -55,6 +56,7 @@ export default function LogsPage() {
 
   const [events, setEvents] = useState(null)
   const [progress, setProgress] = useState(0)
+  const [loadErr, setLoadErr] = useState('')
   const [hiddenOut, setHiddenOut] = useState(0)
   const [filter, setFilter] = useState('all')
   const [query, setQuery] = useState('')
@@ -82,30 +84,36 @@ export default function LogsPage() {
   const { hidden, hiddenCount, known, adoptFromServer, toggleType, toggleGroup } =
     useHiddenTypes({ evTypes, onSaved: refetch })
 
-  const load = useCallback(async () => {
+  const load = useCallback(() => {
     const sig = evSeq + ':' + logCount
-    if (sig === signature.current || flight.current) return
+    if (flight.current) return flight.current.run
+    if (sig === signature.current) return undefined
     const mine = {}
     flight.current = mine
-    let r = null
-    try {
-      r = await apiGet('events', newest.current ? undefined : setProgress)
-    } catch {
-      r = null
-    }
-    if (flight.current !== mine) return
-    flight.current = null
-    if (!r) return
-    signature.current = sig
-    const before = newest.current
-    newest.current = newestId(r.events, before || [0, 0])
-    if (before) {
-      const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
-      if (fresh.length) setBorn(new Set(fresh))
-    }
-    setEvents(r.events)
-    setHiddenOut(r.hidden_out)
-    adoptFromServer(r.hidden)
+    mine.run = (async () => {
+      let r = null
+      let failed = ''
+      try {
+        r = await apiGet('events', newest.current ? undefined : setProgress)
+      } catch (e) {
+        failed = readError(e)
+      }
+      if (flight.current !== mine) return
+      flight.current = null
+      setLoadErr(failed)
+      if (!r) return
+      signature.current = sig
+      const before = newest.current
+      newest.current = newestId(r.events, before || [0, 0])
+      if (before) {
+        const fresh = r.events.filter((e) => idAfter(idKey(e.id), before))
+        if (fresh.length) setBorn(new Set(fresh))
+      }
+      setEvents(r.events)
+      setHiddenOut(r.hidden_out)
+      adoptFromServer(r.hidden)
+    })()
+    return mine.run
   }, [evSeq, logCount, adoptFromServer])
 
   loadRef.current = load
@@ -270,11 +278,15 @@ export default function LogsPage() {
         ) : null}
       </Reveal>
 
-      <LoadBar on={events === null} value={progress} />
+      {loadErr ? null : <LoadBar on={events === null} value={progress} />}
       {events === null ? (
-        <SkelZone>
-          <SkelLogs />
-        </SkelZone>
+        loadErr ? (
+          <LoadFail text={T('logs_load_fail') + ' ' + loadErr} onRetry={load} />
+        ) : (
+          <SkelZone>
+            <SkelLogs />
+          </SkelZone>
+        )
       ) : !events.length ? (
         <div className={'card muted empty' + (hiddenOut ? ' lgfempty' : '')}>
           {T(hiddenOut ? 'logf_empty' : 'logs_empty')}

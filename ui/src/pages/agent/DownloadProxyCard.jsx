@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from '../../components/Icon.jsx'
 import Select from '../../components/Select.jsx'
 import LoadBar from '../../components/LoadBar.jsx'
+import LoadFail from '../../components/LoadFail.jsx'
 import { proxyItems } from '../../components/ProxyFields.jsx'
 import { T } from '../../i18n/fa.js'
 import { apiGet, apiPost } from '../../lib/api.js'
@@ -20,11 +21,11 @@ export default function DownloadProxyCard() {
   const inflight = useRef(false)
 
   const load = useCallback(async () => {
-    setError('')
     setPxPart(0)
     setStPart(0)
     try {
       const [px, s] = await Promise.all([apiGet('proxies', setPxPart), apiGet('settings', setStPart)])
+      setError('')
       setProxies(px.proxies)
       setValue({ on: !!s.dl_proxy_on, id: String(s.dl_proxy_id || '') })
     } catch (e) {
@@ -80,7 +81,7 @@ export default function DownloadProxyCard() {
           </div>
         ) : null}
       </div>
-      <LoadBar on={loading} value={(pxPart + stPart) / 2} />
+      {error ? null : <LoadBar on={loading} value={(pxPart + stPart) / 2} />}
       {ready ? (
         <div className="oprow" aria-busy={busy}>
           <div className={'opsel' + (value.on ? '' : ' off') + (busy ? ' busy' : '')} inert={!value.on}>
@@ -92,13 +93,7 @@ export default function DownloadProxyCard() {
           {T('dlpx_none')}
         </div>
       ) : error ? (
-        <div className="msg loadfail">
-          <span>{T('dlpx_load_fail') + ' ' + error}</span>
-          <button type="button" className="ghost" onClick={load}>
-            <Icon name="redo" />
-            {T('retry')}
-          </button>
-        </div>
+        <LoadFail inline text={T('dlpx_load_fail') + ' ' + error} onRetry={load} />
       ) : null}
     </div>
   )
