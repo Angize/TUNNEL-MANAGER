@@ -166,6 +166,12 @@
   gap: 12px;
 }
 
+@media (max-width: 359px) {
+  .skgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .sknx {
   display: flex;
   flex-direction: column;

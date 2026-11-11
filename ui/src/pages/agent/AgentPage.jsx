@@ -516,7 +516,7 @@ export default function AgentPage() {
 
   return (
     <>
-      <div className="card opc sc-panel upc">
+      <div className="card opc sc-panel upc upduo">
         <UpdateRow
           icon="server"
           title={T('ag_lbl_agent')}
