@@ -25,6 +25,7 @@ import {
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
@@ -40,13 +41,14 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
   const [busy, guard] = useBusy()
   const [saved, markSaved] = useSaved()
   const { subnetFree } = useSummary()
+  const { subnet_bases: bases } = useUiConfig()
   const mounted = useRef(true)
   const closeRef = useRef(onClose)
   const [nodes, setNodes] = useState(null)
   const [aNode, setANode] = useState(link.a_node)
   const [bNode, setBNode] = useState(link.b_node)
   const [type, setType] = useState(link.type)
-  const [base, setBase] = useState(() => subnetBaseOf(link))
+  const [base, setBase] = useState(() => subnetBaseOf(bases, link))
   const [subnet, setSubnet] = useState(link.subnet)
   const [aIp, setAIp] = useState('')
   const [bIp, setBIp] = useState('')
@@ -77,7 +79,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
 
   const recalc = (nextType, nextBase) => {
     if (nextBase && nextBase !== 'custom') {
-      setSubnet(subnetForBase(nextType, link.tunnel_id, nextBase))
+      setSubnet(subnetForBase(bases, nextType, link.tunnel_id, nextBase))
     }
   }
 
@@ -116,7 +118,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
       alertBox(T('two_diff_nodes'))
       return
     }
-    const fitError = base === 'custom' ? '' : subnetFitError(type, link.tunnel_id, base)
+    const fitError = base === 'custom' ? '' : subnetFitError(bases, type, link.tunnel_id, base)
     if (fitError) {
       setMessage('')
       setTab('ip')
@@ -230,7 +232,7 @@ export default function TunnelEditModal({ link, onClose, onSaved }) {
 
               <Field label={T('local_range')}>
                 <Select
-                  items={subnetRangeItems(subnetFree, type, base)}
+                  items={subnetRangeItems(bases, subnetFree, type, base)}
                   value={base}
                   placeholder={T('range')}
                   onChange={changeBase}

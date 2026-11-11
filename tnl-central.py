@@ -2913,7 +2913,7 @@ def subnet_default(ttype, tid, base=None):
     if ttype == "sit":
         return "fd00:%x:%x::/64" % (tid >> 16, tid & 0xFFFF)
     if not base:
-        base = next((b for b in ("192.168", "172.16", "10") if tid <= subnet_cap(b)), "10")
+        base = next((b for b in SUBNET_BASES if tid <= subnet_cap(b)), max(SUBNET_BASES, key=subnet_cap))
     net, prefix = SUBNET_BASES.get(str(base), SUBNET_BASES[SUBNET_BASE_DEFAULT])
     cap = subnet_cap(base)
     if not TID_MIN <= tid <= cap:
@@ -12764,6 +12764,8 @@ def api_ui_config(d):
         "bw_ranges": list(BW_RANGES),
         "workers_max": CORE_MAX_WORKERS,
         "usage_crit_pct": UP_CRIT,
+        "subnet_bases": [[b, *SUBNET_BASES[b], subnet_cap(b)]
+                         for b in sorted(SUBNET_BASES, key=lambda k: k != SUBNET_BASE_DEFAULT)],
         "api": [[cmd, "POST" if cmd in MUTATIONS else "GET", cmd not in TOKEN_DENY] for cmd in API],
         "enums": {
             "ciphers": list(CORE_CIPHERS), "tr_all": list(CORE_TRANSPORTS),

@@ -1,5 +1,5 @@
 import { num } from '../../../lib/num.js'
-import { subnetBaseOf } from '../../../lib/subnet.js'
+import { subnetBaseOf, subnetDefaultBase } from '../../../lib/subnet.js'
 import { endIp, seedIp } from '../../../lib/nodes.js'
 import { wkClamp } from './gates.js'
 import { CDN_FIELD_NAMES, cdnShape } from './presets.js'
@@ -77,7 +77,7 @@ export function createForm(cfg) {
     poolCdn: false,
     cdnZone: '',
     cdnEdgeAuto: true,
-    range: '192.168',
+    range: subnetDefaultBase(cfg.subnet_bases),
     subnet: '',
     cdn: cdnInitial(cfg.enums, null),
 
@@ -155,7 +155,7 @@ export function editForm(cfg, link) {
     poolCdn: !!(link.cdn && link.cdn.pool),
     cdnZone: link.cdn && !link.cdn.pool ? link.cdn.zone : '',
     cdnEdgeAuto: !link.cdn || !link.edge_ip || link.edge_ip === link.cdn.host,
-    range: subnetBaseOf(link),
+    range: subnetBaseOf(cfg.subnet_bases, link),
     subnet: link.subnet || '',
     cdn: cdnInitial(cfg.enums, link),
 

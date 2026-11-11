@@ -14,10 +14,11 @@ import { alertBox } from '../../lib/dialog.js'
 import { toast } from '../../lib/toast.js'
 import { nodeIps, nodeItemsKeeping } from '../../lib/nodes.js'
 import { LTR_TEXT } from '../../lib/form.js'
-import { PORT_TYPES, TUNNEL_TYPES, subnetRangeItems } from '../../lib/subnet.js'
+import { PORT_TYPES, TUNNEL_TYPES, subnetDefaultBase, subnetRangeItems } from '../../lib/subnet.js'
 import useBusy from '../../lib/useBusy.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
+import { useUiConfig } from '../../state/UiConfigContext.jsx'
 import FormMsg from '../../components/FormMsg.jsx'
 import SaveLabel from '../../components/SaveLabel.jsx'
 import useSaved from '../../lib/useSaved.js'
@@ -59,6 +60,7 @@ function TypeExtraBox({ type, port, onPort }) {
 }
 
 export default function TunnelCreateModal({ onClose, onCreated }) {
+  const { subnet_bases: bases } = useUiConfig()
   const [nodes, setNodes] = useState(null)
   const [busy, guard] = useBusy()
   const [saved, markSaved] = useSaved()
@@ -68,7 +70,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   const [bIp, setBIp] = useState('')
   const [type, setType] = useState('vxlan')
   const [port, setPort] = useState('')
-  const [range, setRange] = useState('192.168')
+  const [range, setRange] = useState(() => subnetDefaultBase(bases))
   const [customSubnet, setCustomSubnet] = useState('')
   const [message, setMessage] = useState('')
   const [tab, setTab] = useState('ip')
@@ -226,7 +228,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
 
               <Field label={T('local_range')}>
                 <Select
-                  items={subnetRangeItems(subnetFree, type, range)}
+                  items={subnetRangeItems(bases, subnetFree, type, range)}
                   value={range}
                   placeholder={T('range')}
                   onChange={setRange}

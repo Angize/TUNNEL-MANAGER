@@ -60,7 +60,7 @@ function Side({ form, side, ips, stored, patch }) {
   )
 }
 
-function SubnetExtra({ form, link, patch }) {
+function SubnetExtra({ form, bases, link, patch }) {
   if (form.range === 'custom') {
     return (
       <Field label={T('custom_subnet')}>
@@ -79,7 +79,7 @@ function SubnetExtra({ form, link, patch }) {
     <div className="fldhint">
       {T('core_subnet_lbl') + ': '}
       <b className="mono" dir="ltr">
-        {subnetForBase('core', link.tunnel_id, form.range) || '—'}
+        {subnetForBase(bases, 'core', link.tunnel_id, form.range) || '—'}
       </b>
     </div>
   )
@@ -210,13 +210,13 @@ export default function IpsTab({
 
       <Field label={T('core_range_lbl')}>
         <Select
-          items={subnetRangeItems(subnetFree)}
+          items={subnetRangeItems(cfg.subnet_bases, subnetFree)}
           value={form.range}
           placeholder={T('range')}
           onChange={(v) => patch({ range: v })}
         />
       </Field>
-      <SubnetExtra form={form} link={link} patch={patch} />
+      <SubnetExtra form={form} bases={cfg.subnet_bases} link={link} patch={patch} />
     </>
   )
 }
