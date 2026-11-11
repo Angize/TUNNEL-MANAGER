@@ -10948,19 +10948,19 @@ def _cdn_blocks(prov, zn, got, tls):
     mode = str((got.get("ddos") or {}).get("protection_mode") or "")
     out = []
     if redirect:
-        out.append(("https_redirect", tx("«{0}» در «{1}» روشن است؛ ws بدونِ TLS به https برگردانده می‌شود و تونل بالا نمی‌آید — wss را روشن کن یا این گزینه را خاموش کن",
-                                         "'{0}' is on in '{1}'; ws without TLS is sent to https and the tunnel never comes up — turn wss on or that option off",
-                                         "Always Use HTTPS" if prov == "cf" else "HTTPS redirect", zn)))
+        out.append(tx("«{0}» در «{1}» روشن است؛ ws بدونِ TLS به https برگردانده می‌شود و تونل بالا نمی‌آید — wss را روشن کن یا این گزینه را خاموش کن",
+                      "'{0}' is on in '{1}'; ws without TLS is sent to https and the tunnel never comes up — turn wss on or that option off",
+                      "Always Use HTTPS" if prov == "cf" else "HTTPS redirect", zn))
     if mode in ("cookie", "javascript", "captcha"):
-        out.append(("ddos", tx("حفاظتِ DDoS در «{0}» روی «{1}» است؛ چالشِ آن جلوی اتصالِ تونل را می‌گیرد",
-                               "the DDoS protection of '{0}' is '{1}'; its challenge blocks the tunnel", zn, mode)))
+        out.append(tx("حفاظتِ DDoS در «{0}» روی «{1}» است؛ چالشِ آن جلوی اتصالِ تونل را می‌گیرد",
+                      "the DDoS protection of '{0}' is '{1}'; its challenge blocks the tunnel", zn, mode))
     return out
 
 
 def _cdn_unblocked(prov, zn, got, tls):
     blocks = _cdn_blocks(prov, zn, got, tls)
     if blocks:
-        raise Bad("cdn_zone_blocks", tx_join("؛ ", [t for _c, t in blocks], "; "))
+        raise Bad("cdn_zone_blocks", tx_join("؛ ", blocks, "; "))
 
 
 def _cf_apply(cred, zone, items, ctx, jr):
@@ -11636,9 +11636,9 @@ def _cdn_public():
     out["edges"] = list(get_settings().get("cdn_edges") or [])
     out["fronts"] = [x for x in _edge_list() if x["on"]]
     rows = sorted(_cdn_hosts().values(), key=lambda e: (-_sint(e.get("made")), e["host"]))
-    users = {h: L for L in load_links() for h in _cdn_link_hosts(L)}
+    users = {h: L["id"] for L in load_links() for h in _cdn_link_hosts(L)}
     out["hosts"] = [{"host": e["host"], "provider": e["provider"], "zone": e["zone"], "made": _sint(e.get("made")),
-                     "link": (users.get(e["host"]) or {}).get("id", ""), "name": (users.get(e["host"]) or {}).get("name", "")}
+                     "link": users.get(e["host"], "")}
                     for e in rows]
     return out
 
@@ -11909,7 +11909,7 @@ def _edge_list():
         out.append({"id": n["id"], "name": n["name"], "host": n["host"], "on": bool(e.get("on")),
                     "port": _edge_port(e), "decoy": e.get("decoy") or "", "buf_mb": _edge_buf(e),
                     "routes": sum(r["transport"] == "ws" and r["enabled"] for r in rows),
-                    "relays": sum(r["transport"] != "ws" and r["enabled"] for r in rows), "users": len(rows),
+                    "relays": sum(r["transport"] != "ws" and r["enabled"] for r in rows),
                     "tunnels": rows, "online": _node_answered(n["id"]), "front": bool(ping.get("front")),
                     "relay_live": int(relay.get("rules") or 0),
                     "hidden": bool(n.get("disabled")), "ips": _edge_choices(n)})
@@ -12062,26 +12062,25 @@ def _cdn_notes(cred, z, tls, carrier):
         host_ssl = tls and _cdn_ssl_mode() == "host"
         got = _cdn_gather(_cf_zone_jobs(cred, z["id"], tls, carrier, host_ssl))
         if tls and not host_ssl and (got["ssl"] != "flexible" or got["auto"] == "auto"):
-            notes.append(("ssl_zone", tx("SSLِ کلِ «{0}» الان {1} است و موقعِ ذخیرهٔ تونل Flexible می‌شود{2} — هر سایتِ دیگری روی این دامنه هم Flexible می‌شود",
-                                         "the whole-zone SSL of '{0}' is {1} now and becomes Flexible when the tunnel is saved{2} — every other site on this domain becomes Flexible too",
-                                         zn, got["ssl"] or "?", tx("، و «SSL خودکار» هم خاموش می‌شود", ", and Automatic SSL is turned off")
-                                         if got["auto"] == "auto" else "")))
+            notes.append(tx("SSLِ کلِ «{0}» الان {1} است و موقعِ ذخیرهٔ تونل Flexible می‌شود{2} — هر سایتِ دیگری روی این دامنه هم Flexible می‌شود",
+                            "the whole-zone SSL of '{0}' is {1} now and becomes Flexible when the tunnel is saved{2} — every other site on this domain becomes Flexible too",
+                            zn, got["ssl"] or "?", tx("، و «SSL خودکار» هم خاموش می‌شود", ", and Automatic SSL is turned off")
+                            if got["auto"] == "auto" else ""))
         if carrier == "ws" and got["ws"] != "on":
-            notes.append(("ws_off", tx("WebSockets در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
-                                       "WebSockets is off in '{0}' and is turned on when the tunnel is saved", zn)))
+            notes.append(tx("WebSockets در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
+                            "WebSockets is off in '{0}' and is turned on when the tunnel is saved", zn))
         if carrier == "grpc":
-            notes.append(("grpc_manual", tx("gRPC در کلودفلر فقط از داشبورد روشن می‌شود (Network › gRPC) — پنل نمی‌تواند روشنش کند",
-                                            "gRPC on Cloudflare is turned on only in the dashboard (Network › gRPC) — the panel cannot do it")))
+            notes.append(tx("gRPC در کلودفلر فقط از داشبورد روشن می‌شود (Network › gRPC) — پنل نمی‌تواند روشنش کند",
+                            "gRPC on Cloudflare is turned on only in the dashboard (Network › gRPC) — the panel cannot do it"))
     else:
         got = _cdn_gather(_ar_zone_jobs(cred, z, tls, carrier))
         if carrier == "grpc" and not got["lb"].get("grpc_status"):
-            notes.append(("grpc_off", tx("gRPC در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
-                                         "gRPC is off in '{0}' and is turned on when the tunnel is saved", zn)))
+            notes.append(tx("gRPC در «{0}» خاموش است و موقعِ ذخیرهٔ تونل روشن می‌شود",
+                            "gRPC is off in '{0}' and is turned on when the tunnel is saved", zn))
         if tls and not got["cert"].get("certificates") and not got["cert"].get("orders"):
-            notes.append(("cert", tx("«{0}» هنوز گواهی ندارد؛ موقعِ ذخیرهٔ تونل درخواست می‌شود و صدورش چند دقیقه طول می‌کشد",
-                                     "'{0}' has no certificate yet; it is requested when the tunnel is saved and takes a few minutes", zn)))
-    return ([{"code": c, "t": t, "block": True} for c, t in _cdn_blocks(prov, zn, got, tls)]
-            + [{"code": c, "t": t} for c, t in notes])
+            notes.append(tx("«{0}» هنوز گواهی ندارد؛ موقعِ ذخیرهٔ تونل درخواست می‌شود و صدورش چند دقیقه طول می‌کشد",
+                            "'{0}' has no certificate yet; it is requested when the tunnel is saved and takes a few minutes", zn))
+    return [{"t": t, "block": True} for t in _cdn_blocks(prov, zn, got, tls)] + [{"t": t} for t in notes]
 
 
 def api_cdn_notes(d):
