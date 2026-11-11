@@ -58,7 +58,7 @@ export function fieldRange(key, config) {
 export function fieldStep(key, config) {
   const spec = FIELDS[key]
   const step = spec.tuning && config.tuning_steps[spec.tuning]
-  return step ? step[0] : 0
+  return step || 0
 }
 
 function listViolation(values) {

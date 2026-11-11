@@ -112,14 +112,7 @@
    "log_count": 34,
    "log_unread": 34,
    "boot": "88de97600f27815b",
-   "ui_interval": 2,
-   "poll_interval": 2,
-   "suspect_backoff": [
-    600,
-    1800,
-    "… 1 more"
-   ],
-   "dead_retest_secs": 21600
+   "ui_interval": 2
   }
  },
  "nodes": {
@@ -158,7 +151,6 @@
       "ok": true,
       "agent": "tnl-node",
       "version": "v1.0.0",
-      "ready": true,
       "central": "http://10.77.2.2:8080",
       "hostname": "adN1",
       "ips": {
@@ -237,7 +229,6 @@
       "ok": true,
       "agent": "tnl-node",
       "version": "v1.0.0",
-      "ready": true,
       "central": "http://10.77.2.2:8080",
       "hostname": "adN2",
       "ips": {
@@ -416,10 +407,7 @@
     "tcp_buf_mb": 16
    },
    "tuning_steps": {
-    "probe_min_pct": [
-     5,
-     "minimum returned packets"
-    ]
+    "probe_min_pct": 5
    },
    "tuning_ranges": {
     "dead_retest_secs": [
@@ -485,7 +473,6 @@
     "dl_proxy_id": "",
     "api_external": false
    },
-   "split_ttl_max": 8,
    "limits": {
     "fake_ttl": [
      1,
@@ -1371,7 +1358,6 @@
     "ok": true,
     "agent": "tnl-node",
     "version": "v1.0.0",
-    "ready": true,
     "central": "http://10.77.2.2:8080",
     "hostname": "adN1",
     "ips": {

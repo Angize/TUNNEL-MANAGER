@@ -366,7 +366,7 @@ export const DOCS = {
   },
   'node-test': {
     t: 'Test the connection to a node',
-    d: "Asks the node's agent right now: version, IPs, readiness and the panel address it knows.",
+    d: "Asks the node's agent right now: version, IPs and the panel address it knows.",
     p: [['id', 1, S, 'node id']],
   },
   'node-stats': {
