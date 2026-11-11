@@ -96,16 +96,16 @@
   height: 105px;
 }
 
-.card.okpi.skkpi {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 86px;
-  padding: 18px 14px 16px;
+.skkpi .skv {
+  margin: 10px 0 14px;
 }
 
-.card.okpi.skkpi:has(> .sknote) {
-  min-height: 108px;
+.skkpi .skbar {
+  margin-top: auto;
+}
+
+.skkpi .sknote {
+  margin: 10.5px 0 4.5px;
 }
 
 .sec.sksec {

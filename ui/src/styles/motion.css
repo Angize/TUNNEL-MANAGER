@@ -368,6 +368,15 @@ body.reord-on .rgrip {
   transition: color .24s ease;
 }
 
+.okic {
+  transition: background-color .24s ease, color .24s ease;
+}
+
+.okbar,
+.okbar i {
+  transition: background-color .24s ease, transform .4s var(--ease-out);
+}
+
 .msgt {
   display: inline-block;
   animation: fadeup .18s var(--ease-out);

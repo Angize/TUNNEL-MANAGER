@@ -11,10 +11,15 @@ export function usageLevel(pct, crit) {
   return 'ok'
 }
 
-export function scoreColor(score) {
-  if (score >= 85) return LEVEL_COLOR.ok
-  if (score >= 60) return LEVEL_COLOR.warn
-  return LEVEL_COLOR.crit
+export function scoreLevel(score) {
+  if (score >= 85) return 'ok'
+  if (score >= 60) return 'warn'
+  return 'crit'
+}
+
+export function shareLevel(part, whole) {
+  if (part === whole) return 'ok'
+  return part ? 'warn' : 'crit'
 }
 
 export function uptimeLevel(pct, [ok, bad]) {
