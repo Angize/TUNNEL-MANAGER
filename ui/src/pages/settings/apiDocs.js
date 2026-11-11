@@ -169,7 +169,7 @@ const TUNNEL_FIELDS = [
   ['rotate_secs', 0, N, 'IP rotation interval in seconds, 0 = only on failure (default 600)'],
   ['cdn_carrier', 0, S, 'CDN carrier on ws: ws, http or grpc (grpc needs ws_tls)'],
   ['ws_host', 0, S, 'CDN domain'],
-  ['ws_path', 0, S, 'WebSocket path — starts with /'],
+  ['ws_path', 0, S, 'WebSocket path — starts with /, no // and no . or .. segment (bad_ws_path)'],
   ['ws_tls', 0, B, 'wss (TLS up to the CDN edge) — needs ws_host and edge_ip'],
   ['edge_ip', 0, S, 'CDN edge IP, with or without a port'],
   ['ech', 0, B, 'Encrypted ClientHello — needs ws_tls'],

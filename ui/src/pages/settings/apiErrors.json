@@ -1045,7 +1045,7 @@
    [
     400,
     "bad_ws_path",
-    "invalid WebSocket path (ws_path) (must start with /)"
+    "invalid WebSocket path (ws_path) — it must start with / and contain no // and no . or .. segment"
    ],
    [
     400,
@@ -1931,7 +1931,7 @@
    [
     400,
     "bad_ws_path",
-    "invalid WebSocket path (ws_path) (must start with /)"
+    "invalid WebSocket path (ws_path) — it must start with / and contain no // and no . or .. segment"
    ],
    [
     400,
