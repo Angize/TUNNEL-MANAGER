@@ -22,6 +22,10 @@
   top: 3px;
 }
 
+.dlpx > .ldslot {
+  margin-top: -12px;
+}
+
 .opc .ophd {
   display: flex;
   align-items: center;
@@ -119,6 +123,10 @@
   display: flex;
   align-items: center;
   min-height: var(--sc-h);
+  padding: 0 12px;
+  border: 1px dashed var(--edge);
+  border-radius: 10px;
+  background: var(--field);
   font-size: 12px;
   line-height: 1.5;
   color: var(--sub);
@@ -132,12 +140,20 @@
   width: 100%;
 }
 
+.oprow > .opsel .msbtn > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .oprow .ic {
   width: 14px;
   height: 14px;
 }
 
-.upc {
+.upc,
+.dlpx {
   gap: 12px;
 }
 
@@ -170,6 +186,7 @@
 
 .uprow .hd2 small .stw {
   color: var(--gold-tx);
+  font-size: inherit;
 }
 
 .uprow > .upgo {
@@ -188,6 +205,13 @@
 .uprow > .upgo .ic {
   width: 14px;
   height: 14px;
+}
+
+@media (min-width: 360px) {
+  .upduo > .uprow > .upgo {
+    min-width: 120px;
+    justify-content: center;
+  }
 }
 
 .uprow > .upx {
@@ -214,6 +238,7 @@
 
 .upmore {
   --sc-h: 34px;
+  --up-side: 124px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -227,12 +252,22 @@
   font-size: 12px;
 }
 
+.upmore .oprow > .opfit,
+.upmore .oprow > .corcheck {
+  flex: 0 0 var(--up-side);
+}
+
+.upmore .oprow > .opfit:has(+ .opdel) {
+  flex-basis: calc(var(--up-side) - var(--sc-h) - 8px);
+}
+
 .upmeta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
   font-size: 11px;
+  line-height: 1.7;
   color: var(--sub);
 }
 
@@ -257,5 +292,31 @@
   .uprow > .upx {
     width: 40px;
     height: 40px;
+  }
+}
+
+@media (max-width: 359px) {
+  .opc .uprow {
+    gap: 6px;
+  }
+
+  .uprow > .upgo {
+    padding: 0 10px;
+  }
+
+  .uprow > .upgo .ic {
+    display: none;
+  }
+
+  .upmore .oprow {
+    flex-wrap: wrap;
+  }
+
+  .upmore .oprow > .ghost:not(.opfit, .corcheck, .opdel) {
+    flex-basis: 100%;
+  }
+
+  .upmore .oprow > .opfit {
+    flex-grow: 1;
   }
 }

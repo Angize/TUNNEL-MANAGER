@@ -1,28 +1,32 @@
 .minisg {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
 }
 
 .minisg > span {
+  margin: 0 2px;
   font-size: 11px;
   color: var(--sub);
   flex: 0 0 auto;
 }
 
 .minisg .seg2 {
-  flex: 1;
+  flex: none;
+  height: var(--sc-h);
   margin: 0;
-  gap: 3px;
-  padding: 3px;
+  gap: 2px;
+  padding: 2px;
   background: var(--ctl);
   border: 1px solid var(--edge);
   border-radius: 11px;
 }
 
 .minisg .seg2 .segopt {
-  padding: 6px 2px;
-  border-radius: 8px;
+  justify-content: center;
+  padding: 0 2px;
+  border-radius: 9px;
   border: 0;
   box-shadow: none;
   background: transparent;
@@ -54,6 +58,12 @@
 @media (min-width: 841px) {
   #agList {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+@media (max-width: 359px) {
+  #agList {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -160,7 +170,7 @@
 .nxa .ib {
   flex: 1;
   width: auto;
-  height: 36px;
+  height: 34px;
   gap: 6px;
   border-radius: 10px;
   font-family: inherit;
@@ -337,10 +347,6 @@ body.pushing .savedock:not(.docked) {
 @media (max-width: 840px) {
   .pfab {
     bottom: 80px;
-  }
-
-  .minisg .seg2 .segopt {
-    min-height: 38px;
   }
 
   .nxa .ib {
