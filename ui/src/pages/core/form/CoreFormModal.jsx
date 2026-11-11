@@ -297,12 +297,12 @@ export default function CoreFormModal({ link, onClose, onDone }) {
       }
       body.subnet = subnet
     } else if (link) {
-      const fitError = subnetFitError('core', link.tunnel_id, form.range)
+      const fitError = subnetFitError(cfg.subnet_bases, 'core', link.tunnel_id, form.range)
       if (fitError) {
         await stop(fitError, 'ip')
         return
       }
-      body.subnet = subnetForBase('core', link.tunnel_id, form.range)
+      body.subnet = subnetForBase(cfg.subnet_bases, 'core', link.tunnel_id, form.range)
     } else body.subnet_base = form.range
 
     const portError = portErr(form.port, cfg.limits)
