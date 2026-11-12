@@ -6,7 +6,7 @@ import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
+import { rawFacadeable, rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { SPROT_DEFAULT } from './presets.js'
@@ -197,6 +197,14 @@ function RawPort({ form, cfg, patch }) {
         note={T('ctb_d')}
         onToggle={() => patch({ Ctb: !form.Ctb })}
       />
+      <Reveal show={rawFacadeable(form, cfg.enums)}>
+        <SwitchRow
+          on={!!form.Facade}
+          title={T('facade_t')}
+          note={T('facade_d')}
+          onToggle={() => patch({ Facade: !form.Facade })}
+        />
+      </Reveal>
     </div>
   )
 }

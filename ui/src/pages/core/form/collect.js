@@ -8,6 +8,7 @@ import {
   fecDatagram,
   portTriesOn,
   protoVisOn,
+  rawFacadeable,
   rawPorted,
   sprotLive,
   wkCarrier,
@@ -138,6 +139,7 @@ export function collectCarrier(form, cfg, owners, body) {
     body.raw_sport_rotate = sprotLive(form, enums) ? sprotOf(form) : 0
     body.raw_dports = sprotLive(form, enums) ? intOf(form.rawDports) : 0
     body.conntrack_bypass = rawPorted(form, enums) && !!form.Ctb
+    body.raw_facade = rawFacadeable(form, enums) && !!form.Facade
     if (rawPorted(form, enums)) {
       const dportError = portErr(form.rawPort, limits)
       if (dportError) return dportError

@@ -99,6 +99,8 @@ export default {
 
   ctb_t: 'رد شدن از conntrack',
   ctb_d: 'جریانِ حامل در conntrack نود ثبت نمی‌شود',
+  facade_t: 'استتار (DNS/HTTP)',
+  facade_d: 'بسته‌ها شکلِ ترافیکِ واقعی می‌گیرند: udp مثلِ DNS، tcp مثلِ HTTP',
 
   band_lbl: 'بازهٔ پورتِ مبدأ (پیش‌فرض {r})',
   band_bad: 'بازه باید دو پورتِ بینِ {n} تا 65535 باشد و ابتدایش کوچک‌تر',
