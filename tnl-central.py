@@ -6707,7 +6707,7 @@ def _edge_wires(L, e=None):
         wire = [6 if t == "tcp" else 17, int(L["port"])]
         return wire, wire
     up, down = _raw_pair_of({}, L)
-    port = int(L.get("raw_port") or RAW_PORT_DEFAULT)
+    port = RAW_FACADE_PORT[up] if L.get("raw_facade") else int(L.get("raw_port") or RAW_PORT_DEFAULT)
 
     def wire(profile, fixed):
         proto = (int(L.get("raw_proto") or 0) if profile == "bare" else 0) or CORE_RAW_PROFILE_PROTOS[profile]
@@ -7259,18 +7259,14 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
             ce["conntrack_bypass"] = True
         _fac = bool(d["raw_facade"]) if "raw_facade" in d else bool(cur.get("raw_facade"))
         if _fac:
-            if profile not in RAW_FACADE_PORT or down not in RAW_FACADE_PORT:
+            if profile != down or profile not in RAW_FACADE_PORT:
                 raise Bad("facade_bad_profile",
-                          "«استتار» udp را شبیهِ DNS و tcp را شبیهِ HTTP می‌کند، پس هر دو جهت باید udp یا هر دو tcp باشند؛ «{0}» این کار را نمی‌کند",
-                          "the facade dresses udp as DNS and tcp as HTTP, so both directions must be udp or both tcp; '{0}' cannot", pair_name)
-            if RAW_FACADE_PORT[profile] != RAW_FACADE_PORT[down]:
-                raise Bad("facade_mismatch",
-                          "«استتار» یک پروتکل را در هر دو جهت تقلید می‌کند، پس آپلود و دانلود باید یکی باشند",
-                          "the facade imitates one protocol in both directions, so upload and download must match")
-            if ce.get("raw_dports"):
-                raise Bad("facade_dports",
-                          "«استتار» پورتِ مقصد را به پورتِ همان پروتکل میخ می‌کند، پس با «چند پورتِ مقصد» جمع نمی‌شود",
-                          "the facade pins the destination port to the imitated protocol, so it cannot combine with raw_dports")
+                          "«استتار» در هر دو جهت udp را شبیهِ DNS و tcp را شبیهِ HTTP می‌کند، پس آپلود و دانلود باید هر دو udp یا هر دو tcp باشند؛ «{0}» این‌طور نیست",
+                          "the facade dresses udp as DNS and tcp as HTTP in both directions, so upload and download must both be udp or both tcp; '{0}' is not", pair_name)
+            if ce.get("raw_port") or ce.get("raw_dports"):
+                raise Bad("facade_port",
+                          "«استتار» پورتِ مقصد را خودش می‌گذارد (udp روی 53، tcp روی 80)، پس «پورتِ حامل» و «چند پورتِ مقصد» با آن خالی بمانند",
+                          "the facade sets the destination port itself (udp on 53, tcp on 80), so leave raw_port and raw_dports empty with it")
             ce["raw_facade"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, cur, ech_later))
@@ -12798,7 +12794,7 @@ def api_ui_config(d):
             "ciphers": list(CORE_CIPHERS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
             "raw_ported": list(PORTED_RAW_PROFILES), "raw_sum": list(RAW_SUM_PROFILES),
-            "raw_facade": list(RAW_FACADE_PORT),
+            "raw_facade": dict(RAW_FACADE_PORT),
             "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),

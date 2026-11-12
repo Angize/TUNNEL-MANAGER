@@ -13,9 +13,15 @@ export function rawUpPorted(form, enums) {
 }
 
 export function rawFacadeable(form, enums) {
-  const fac = enums.raw_facade || []
-  const down = form.RawProfileDown || form.RawProfile
-  return form.Tr === 'raw' && form.RawProfile === down && fac.includes(form.RawProfile)
+  return form.Tr === 'raw' && form.RawProfile === form.RawProfileDown && !!enums.raw_facade[form.RawProfile]
+}
+
+export function facadeOn(form, enums) {
+  return rawFacadeable(form, enums) && !!form.Facade
+}
+
+export function dportsOn(form, enums) {
+  return rawUpPorted(form, enums) && !facadeOn(form, enums)
 }
 
 export function portTriesOn(form, enums) {

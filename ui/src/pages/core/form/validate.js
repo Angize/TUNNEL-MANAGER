@@ -2,7 +2,7 @@ import { T, TF } from '../../../i18n/fa.js'
 import { latinDigits } from '../../../lib/num.js'
 import { edgePort, isIpv4, providerName } from '../../../lib/cdn.js'
 import { POOL_MAX, SPROT_DEFAULT, cdnLabel, cdnShape } from './presets.js'
-import { cdnShapeApplies, cdnShapeOn, rawUpPorted, sprotLive } from './gates.js'
+import { cdnShapeApplies, cdnShapeOn, dportsOn, sprotLive } from './gates.js'
 
 function blank(text) {
   return latinDigits(text).trim() === ''
@@ -67,7 +67,7 @@ export function sprotErr(form, enums, limits) {
   if (!sprotLive(form, enums)) return ''
   const every = limits.raw_sport_rotate
   if (!inRange(sprotOf(form), every)) return TF('raw_sprot_bad', { lo: every[0], hi: every[1] })
-  if (!rawUpPorted(form, enums)) return ''
+  if (!dportsOn(form, enums)) return ''
   const dports = intOf(form.rawDports)
   const spread = limits.raw_dports
   return dports === 0 || inRange(dports, spread) ? '' : TF('raw_dports_bad', { lo: spread[0], hi: spread[1] })

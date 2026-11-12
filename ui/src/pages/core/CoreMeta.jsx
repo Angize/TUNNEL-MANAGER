@@ -77,12 +77,13 @@ function rawRotating(link) {
   return !!num(link.raw_sport_rotate) || !!link.raw_sport_random
 }
 
-function sidePorts(link, rungTransports, ported, defaults) {
+function sidePorts(link, rungTransports, ported, facadePorts, defaults) {
   const transport = link.transport
   if (transport === 'raw') {
     if (!rawPorted(link, ported)) return []
     const live = link.rot_live || {}
-    const dst = num(live.dport) || num(link.raw_port) || defaults.raw_port
+    const shell = link.raw_facade ? facadePorts[link.raw_profile] : 0
+    const dst = num(live.dport) || shell || num(link.raw_port) || defaults.raw_port
     if (!rawRotating(link)) {
       const client = num(link.sport_live) || num(link.raw_sport) || defaults.raw_sport
       return [[portCell(T('port_src'), client), portCell(T('port_dst'), dst)]]
@@ -180,12 +181,13 @@ export default function CoreMeta({ link }) {
   const { enums, defaults } = useUiConfig()
   const rungTransports = (enums && enums.tr_rung) || []
   const ported = (enums && enums.raw_ported) || []
+  const facadePorts = (enums && enums.raw_facade) || {}
   const rows = [
     [
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={CLIENT_HOST} />),
       cell(T('tun_ip'), <TunnelIp subnet={link.subnet} host={SERVER_HOST} />),
     ],
-    ...sidePorts(link, rungTransports, ported, defaults),
+    ...sidePorts(link, rungTransports, ported, facadePorts, defaults),
     ...pairs(sharedCells(link, ported, defaults)),
   ]
 

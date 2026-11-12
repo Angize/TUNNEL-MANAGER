@@ -6,7 +6,7 @@ import Field from '../../../components/Field.jsx'
 import NumberInput from '../../../components/NumberInput.jsx'
 import Stepper from '../../../components/Stepper.jsx'
 import { Seg2, SegOpt, WarnCap } from './controls.jsx'
-import { rawFacadeable, rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
+import { dportsOn, facadeOn, rawFacadeable, rawPortProfile, rawPorted, rawUpPorted, sprotLive } from './gates.js'
 import PortTriesSection from './PortTriesSection.jsx'
 import BandSection from './BandSection.jsx'
 import { SPROT_DEFAULT } from './presets.js'
@@ -101,7 +101,7 @@ function SourcePort({ form, enums, limits, defaults, patch }) {
 
 function SportRotation({ form, enums, limits, patch }) {
   const live = sprotLive(form, enums)
-  const upPorted = rawUpPorted(form, enums)
+  const spreadOn = dportsOn(form, enums)
   const every = limits.raw_sport_rotate
   const spread = limits.raw_dports
 
@@ -120,7 +120,7 @@ function SportRotation({ form, enums, limits, patch }) {
       <SwitchRow on={live} title={T('raw_sprot_t')} note={T('raw_sprot_d')} onToggle={toggle} />
       <Reveal show={live}>
         <div>
-          <div className={upPorted ? 'grid2' : undefined}>
+          <div className={spreadOn ? 'grid2' : undefined}>
             <Field label={rangeLabel(T('raw_sprot_lbl'), ...every)}>
               <Stepper
                 min={every[0]}
@@ -130,7 +130,7 @@ function SportRotation({ form, enums, limits, patch }) {
                 onChange={(v) => patch({ rawSprot: v })}
               />
             </Field>
-            {upPorted ? (
+            {spreadOn ? (
               <Field label={rangeLabel(T('raw_dports_lbl'), ...spread)}>
                 <Stepper
                   min={spread[0]}
@@ -152,6 +152,7 @@ function SportRotation({ form, enums, limits, patch }) {
 function RawPort({ form, cfg, patch }) {
   const id = useId()
   const current = intOf(form.rawPort)
+  const facadeable = rawFacadeable(form, cfg.enums)
   const label = rangeLabel(T(rawUpPorted(form, cfg.enums) ? 'raw_port_lbl' : 'raw_port_down_lbl'), ...cfg.limits.port)
   const draws = (
     <>
@@ -161,30 +162,40 @@ function RawPort({ form, cfg, patch }) {
   )
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <label className="first" htmlFor={id}>
-        {label}
-      </label>
-      <Seg2 label={label} style={{ marginBottom: 8 }}>
-        {(DPORT_PRESETS[rawPortProfile(form, cfg.enums)] || []).map((preset) => (
-          <SegOpt
-            key={preset.v}
-            on={current === preset.v}
-            title={String(preset.v)}
-            sub={preset.sub()}
-            onClick={() => patch({ rawPort: String(preset.v) })}
-          />
-        ))}
-      </Seg2>
-      <NumberInput
-        id={id}
-        className="mono"
-        maxLength={5}
-        placeholder={String(cfg.defaults.raw_port)}
-        style={{ textAlign: 'center', direction: 'ltr' }}
-        value={form.rawPort}
-        onChange={(v) => patch({ rawPort: v })}
-      />
+    <div style={{ marginTop: facadeable ? 0 : 12 }}>
+      <Reveal show={facadeable}>
+        <SwitchRow
+          on={!!form.Facade}
+          title={T('facade_t')}
+          note={T('facade_d')}
+          onToggle={() => patch({ Facade: !form.Facade })}
+        />
+      </Reveal>
+      <Reveal show={!facadeOn(form, cfg.enums)}>
+        <label className={facadeable ? undefined : 'first'} htmlFor={id}>
+          {label}
+        </label>
+        <Seg2 label={label} style={{ marginBottom: 8 }}>
+          {(DPORT_PRESETS[rawPortProfile(form, cfg.enums)] || []).map((preset) => (
+            <SegOpt
+              key={preset.v}
+              on={current === preset.v}
+              title={String(preset.v)}
+              sub={preset.sub()}
+              onClick={() => patch({ rawPort: String(preset.v) })}
+            />
+          ))}
+        </Seg2>
+        <NumberInput
+          id={id}
+          className="mono"
+          maxLength={5}
+          placeholder={String(cfg.defaults.raw_port)}
+          style={{ textAlign: 'center', direction: 'ltr' }}
+          value={form.rawPort}
+          onChange={(v) => patch({ rawPort: v })}
+        />
+      </Reveal>
       <SwapCascade value={!!form.SportRandom}>
         <SourcePort form={form} enums={cfg.enums} limits={cfg.limits} defaults={cfg.defaults} patch={patch} />
         <Reveal show={form.SportRandom}>{draws}</Reveal>
@@ -197,14 +208,6 @@ function RawPort({ form, cfg, patch }) {
         note={T('ctb_d')}
         onToggle={() => patch({ Ctb: !form.Ctb })}
       />
-      <Reveal show={rawFacadeable(form, cfg.enums)}>
-        <SwitchRow
-          on={!!form.Facade}
-          title={T('facade_t')}
-          note={T('facade_d')}
-          onToggle={() => patch({ Facade: !form.Facade })}
-        />
-      </Reveal>
     </div>
   )
 }
