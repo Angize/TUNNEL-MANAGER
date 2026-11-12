@@ -151,6 +151,7 @@ const TUNNEL_FIELDS = [
   ['raw_sport_rotate', 0, N, 'a fresh source port every few packets (range in ui-config limits.raw_sport_rotate), on each direction that is udp, tcp or sctp'],
   ['raw_dports', 0, N, 'number of client destination ports (range in ui-config limits.raw_dports) — only with raw_sport_rotate and a udp, tcp or sctp raw_profile (upload)'],
   ['conntrack_bypass', 0, B, 'bypass the conntrack table — when either direction is udp, tcp or sctp; turns on when sctp newly appears in either direction and the body leaves it out'],
+  ['raw_facade', 0, B, 'dress the carrier as DNS (udp, port 53) or HTTP (tcp, port 80) — both directions udp or both tcp (ports in ui-config enums.raw_facade); sets the destination port itself, so leave raw_port and raw_dports empty'],
   ['sport_lo', 0, N, 'start of the source port band (1024 and up) — udp, tcp and ws; on raw only with raw_sport_random or raw_sport_rotate on a udp, tcp or sctp profile, otherwise ignored'],
   ['sport_hi', 0, N, 'end of the source port band — the band is at least 100 ports wide'],
   ['port_tries', 0, N, 'number of source port draws (range in ui-config limits.port_tries) — udp and tcp; on ws only with ws_port_roll on; on raw only with raw_sport_random; otherwise ignored'],

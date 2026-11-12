@@ -1294,6 +1294,16 @@
    ],
    [
     400,
+    "facade_bad_profile",
+    "the facade dresses udp as DNS and tcp as HTTP in both directions, so upload and download must both be udp or both tcp; '…' is not"
+   ],
+   [
+    400,
+    "facade_port",
+    "the facade sets the destination port itself (udp on 53, tcp on 80), so leave raw_port and raw_dports empty with it"
+   ],
+   [
+    400,
     "fake_mode_no_sum",
     "the '…' profile has no checksum, so a bad-checksum decoy is a valid packet that reaches the server — use decoy mode ttl or a profile with a checksum (udp, tcp, sctp, icmp)"
    ],
@@ -2172,6 +2182,16 @@
     400,
     "edge_wire_taken",
     "on edge IP … tunnel '…' also passes with protocol … from this node to another target — the edge cannot tell them apart; change the edge IP, the profile or the port"
+   ],
+   [
+    400,
+    "facade_bad_profile",
+    "the facade dresses udp as DNS and tcp as HTTP in both directions, so upload and download must both be udp or both tcp; '…' is not"
+   ],
+   [
+    400,
+    "facade_port",
+    "the facade sets the destination port itself (udp on 53, tcp on 80), so leave raw_port and raw_dports empty with it"
    ],
    [
     400,

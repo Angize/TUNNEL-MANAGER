@@ -610,6 +610,10 @@
      "tcp",
      "… 2 more"
     ],
+    "raw_facade": {
+     "udp": 53,
+     "tcp": 80
+    },
     "ctb_default": [
      "sctp"
     ],

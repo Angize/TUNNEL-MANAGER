@@ -2981,6 +2981,7 @@ _END_KEYS = ("a_workers", "b_workers", "ws_port_roll")
 _LINK_EXTRA_KEYS = ("port", "psk", "cipher", "transport", "obfs", "cover", "cover_sni", "raw_profile",
                     "raw_profile_down", "raw_gre_ptype", "raw_gre_ptype_down",
                     "raw_proto", "raw_port", "raw_sport", "raw_sport_random", "raw_sport_rotate", "raw_dports",
+                    "raw_facade",
                     "sport_lo", "sport_hi", "conntrack_bypass", "port_tries", "a_workers", "b_workers",
                     "fec", "fec_data", "fec_parity", "ws_host", "ws_path", "ws_tls",
                     "sni_split", "split_pos", "sni_mode", "split_ttl", "cdn_carrier",
@@ -3256,6 +3257,8 @@ def _tunnel_extra(src):
         e["raw_sport_rotate"] = src["raw_sport_rotate"]
     if src.get("raw_dports"):
         e["raw_dports"] = src["raw_dports"]
+    if src.get("raw_facade"):
+        e["raw_facade"] = True
     if src.get("sport_lo") and src.get("sport_hi"):
         e["sport_lo"] = src["sport_lo"]
         e["sport_hi"] = src["sport_hi"]
@@ -6704,7 +6707,7 @@ def _edge_wires(L, e=None):
         wire = [6 if t == "tcp" else 17, int(L["port"])]
         return wire, wire
     up, down = _raw_pair_of({}, L)
-    port = int(L.get("raw_port") or RAW_PORT_DEFAULT)
+    port = RAW_FACADE_PORT[up] if L.get("raw_facade") else int(L.get("raw_port") or RAW_PORT_DEFAULT)
 
     def wire(profile, fixed):
         proto = (int(L.get("raw_proto") or 0) if profile == "bare" else 0) or CORE_RAW_PROFILE_PROTOS[profile]
@@ -7044,6 +7047,7 @@ RAW_SPROT_MAX = 60
 PORT_TRIES_MAX = 60
 
 
+RAW_FACADE_PORT = {"udp": 53, "tcp": 80}
 _SHAPE_RAW_PORTED = ("raw_port", "raw_sport", "raw_sport_rotate", "conntrack_bypass")
 _SHAPE_RAW_UP_PORTED = ("raw_sport_random", "raw_dports")
 _SHAPE_TCP_ONLY = ("cover", "cover_sni")
@@ -7073,6 +7077,8 @@ def _shape_consumes(key, transport, profile, srand, moving, dsmode, down):
         return transport == "raw" and profile == "gre"
     if key == "raw_gre_ptype_down":
         return transport == "raw" and down == "gre"
+    if key == "raw_facade":
+        return transport == "raw" and profile == down and profile in RAW_FACADE_PORT
     if key in _SHAPE_TCP_ONLY:
         return transport == "tcp"
     if key in _SHAPE_WS_ONLY:
@@ -7251,6 +7257,17 @@ def _core_extra(d, cur, a_ip, b_ip, a_ips, b_ips, new=False, ech_later=False):
                           "conntrack_bypass only makes sense for the udp, tcp and sctp profiles; '{0}' does not open a new flow per packet",
                           pair_name)
             ce["conntrack_bypass"] = True
+        _fac = bool(d["raw_facade"]) if "raw_facade" in d else bool(cur.get("raw_facade"))
+        if _fac:
+            if profile != down or profile not in RAW_FACADE_PORT:
+                raise Bad("facade_bad_profile",
+                          "«استتار» در هر دو جهت udp را شبیهِ DNS و tcp را شبیهِ HTTP می‌کند، پس آپلود و دانلود باید هر دو udp یا هر دو tcp باشند؛ «{0}» این‌طور نیست",
+                          "the facade dresses udp as DNS and tcp as HTTP in both directions, so upload and download must both be udp or both tcp; '{0}' is not", pair_name)
+            if ce.get("raw_port") or ce.get("raw_dports"):
+                raise Bad("facade_port",
+                          "«استتار» پورتِ مقصد را خودش می‌گذارد (udp روی 53، tcp روی 80)، پس «پورتِ حامل» و «چند پورتِ مقصد» با آن خالی بمانند",
+                          "the facade sets the destination port itself (udp on 53, tcp on 80), so leave raw_port and raw_dports empty with it")
+            ce["raw_facade"] = True
     if transport == "ws":
         ce.update(_ws_fields(d, cur, ech_later))
     else:
@@ -12777,6 +12794,7 @@ def api_ui_config(d):
             "ciphers": list(CORE_CIPHERS),
             "tr_direct": list(DIRECT_TRANSPORTS), "tr_rung": list(PORT_RUNG_TRANSPORTS),
             "raw_ported": list(PORTED_RAW_PROFILES), "raw_sum": list(RAW_SUM_PROFILES),
+            "raw_facade": dict(RAW_FACADE_PORT),
             "ctb_default": list(CTB_DEFAULT_PROFILES),
             "http_shape": {k: {"lo": lo, "hi": hi, "d": dflt} for k, (lo, hi, dflt) in HTTP_SHAPE.items()},
             "http_shape_grpc": list(HTTP_SHAPE_GRPC),

@@ -4,7 +4,9 @@ import {
   bandOn,
   cdnShapeApplies,
   desyncOk,
+  dportsOn,
   dsTtlUsed,
+  facadeOn,
   fecDatagram,
   portTriesOn,
   protoVisOn,
@@ -135,13 +137,14 @@ export function collectCarrier(form, cfg, owners, body) {
     }
     const sprotError = sprotErr(form, enums, limits)
     if (sprotError) return sprotError
+    body.raw_facade = facadeOn(form, enums)
     body.raw_sport_rotate = sprotLive(form, enums) ? sprotOf(form) : 0
-    body.raw_dports = sprotLive(form, enums) ? intOf(form.rawDports) : 0
+    body.raw_dports = sprotLive(form, enums) && dportsOn(form, enums) ? intOf(form.rawDports) : 0
     body.conntrack_bypass = rawPorted(form, enums) && !!form.Ctb
     if (rawPorted(form, enums)) {
-      const dportError = portErr(form.rawPort, limits)
+      const dportError = body.raw_facade ? '' : portErr(form.rawPort, limits)
       if (dportError) return dportError
-      body.raw_port = intOf(form.rawPort)
+      body.raw_port = body.raw_facade ? 0 : intOf(form.rawPort)
       if (body.raw_sport_rotate) {
         body.raw_sport_random = false
         body.raw_sport = 0

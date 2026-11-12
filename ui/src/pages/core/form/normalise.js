@@ -5,6 +5,7 @@ import {
   dsSumOk,
   fecDatagram,
   protoVisOn,
+  rawFacadeable,
   rawPorted,
   rawUpPorted,
   rotIsDirect,
@@ -44,6 +45,7 @@ export default function normalise(form, cfg, aIps, bIps) {
     set('SportRandom', false)
     set('rawDports', '')
   }
+  if (!rawFacadeable(view, enums)) set('Facade', false)
   if (!(at('Tr') === 'ws' && at('Ech'))) set('EchProxy', false)
   if (wssMandatory(view)) set('WsTls', true)
 
