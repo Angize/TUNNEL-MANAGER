@@ -87,6 +87,25 @@ class PanelLogin(unittest.TestCase):
         self.assertTrue(any(c["name"] == "tnl_session" and c["httpOnly"] for c in self.page.context.cookies()))
         self.assertEqual(sent, [{"user": self.username, "pass": "wrong"}, {"user": self.username, "pass": self.password}])
 
+    def test_password_glyph_matches_field_icon_and_keeps_its_touch_target(self):
+        self.user.fill(self.username)
+        self.user.press("Enter")
+        self.password_field.fill("نمونه")
+        field_icon = self.page.locator("#passBox .field-glyph svg").bounding_box()
+        for width in (393, 1280):
+            self.page.set_viewport_size({"width": width, "height": 812})
+            for name, pressed in (("نمایش رمز عبور", "false"), ("پنهان کردن رمز عبور", "true")):
+                toggle = self.page.get_by_role("button", name=name)
+                expect(toggle).to_have_attribute("aria-pressed", pressed)
+                glyph = toggle.locator("svg").bounding_box()
+                target = toggle.bounding_box()
+                for dimension in ("width", "height"):
+                    self.assertEqual(glyph[dimension], field_icon[dimension])
+                    self.assertGreaterEqual(target[dimension], 44)
+                toggle.click()
+                expect(self.password_field).to_have_value("نمونه")
+                expect(self.password_field).to_have_attribute("type", "text" if pressed == "false" else "password")
+
     def test_recover_from_network_error_and_show_server_wait_message(self):
         self.user.fill(self.username)
         self.user.press("Enter")
