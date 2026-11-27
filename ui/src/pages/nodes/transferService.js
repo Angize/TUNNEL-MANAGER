@@ -40,17 +40,12 @@ export async function prepareDestination(node, form, proxy, publish, job) {
     const inventory = j.transfer || {}
     const sourceTunnels = inventory.sourceTunnels?.map(t => ({ ...t, kind: t.kind === 'core' ? 'هسته'
       : TUNNEL_TYPES.find(type => type.v === t.kind)?.label || t.kind }))
-    const component = key => j.done && !j.success && !['present','installed'].includes(inventory[key])
-      ? { status: inventory[key] === 'installing' ? 'نصب تأیید نشد' : 'بررسی کامل نشد', tone: 'bad' }
-      : componentStatus(inventory[key], inventory[key + 'Mode'])
-    publish({ ...inventory, sourceTunnels, job, pending: !j.done, agent: component('agent'), core: component('core') })
-    if (j.done) {
-      if (!j.success) {
-        const step = j.steps.find(s => s.state === 'err')
-        throw Error(translateError([step?.detail || j.banner, step?.log].filter(Boolean).join(' — ')))
-      }
-      return
-    }
+    const failed = j.done && !j.success
+    const issues = failed ? j.steps.filter(step => step.state === 'err' || step.state === 'warn') : []
+    publish({ ...inventory, sourceTunnels, job, pending: !j.done, issues,
+      agent: componentStatus(inventory.agent, inventory.agentMode), core: componentStatus(inventory.core, inventory.coreMode) })
+    if (failed) throw Error(j.banner || 'آماده‌سازی مقصد کامل نشد.')
+    if (j.done) return
     await delay(550)
   }
 }

@@ -9,6 +9,7 @@ import { isNodeNameValid } from './nodeName.js'
 import { latinDigits } from '../../lib/num.js'
 import { prepareDestination, runTransfer } from './transferService.js'
 import TransferDetails from './TransferDetails.jsx'
+import { InstallReport } from './InstallProgress.jsx'
 import './transfer.css'
 
 const steps = ['مقصد', 'آماده‌سازی', 'تونل‌ها', 'انتقال']
@@ -142,10 +143,11 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       </div>
       <p className="nt-note"><Icon name="info" />اگر ایجنت یا هسته نصب نباشد، طبق تنظیمات نصب پنل آماده می‌شود.</p>
     </>}
-    {step === 1 && <><div className="nt-box" aria-live="polite">
+    {step === 1 && fault && <div role="alert"><InstallReport tone="err" banner={fault} steps={inventory?.issues} /></div>}
+    {step === 1 && !fault && <><div className="nt-box" aria-live="polite">
       {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'server'} label={i ? 'هسته' : 'ایجنت'} value={inventory?.[key]?.status || 'در حال بررسی…'} tone={inventory?.[key]?.tone} detail={inventory?.[key]?.detail} />)}
-      <Item icon="link" label="تونل‌های موجود در مقصد" value={inventory?.existing ? num(inventory.existing.length) + ' تونل' : fault ? 'بررسی کامل نشد' : 'در حال بررسی…'} detail={inventory?.existing?.map(t => t.name).join('، ')} />
-    </div><p className="nt-note"><Icon name={busy ? 'clock' : fault ? 'warn' : 'okc'} />{fault || (busy ? 'آماده‌سازی مقصد در جریان است.' : 'مقصد برای انتخاب تونل‌ها آماده است.')}</p></>}
+      <Item icon="link" label="تونل‌های موجود در مقصد" value={inventory?.existing ? num(inventory.existing.length) + ' تونل' : 'در حال بررسی…'} detail={inventory?.existing?.map(t => t.name).join('، ')} />
+    </div><p className="nt-note"><Icon name={busy ? 'clock' : 'okc'} />{busy ? 'آماده‌سازی مقصد در جریان است.' : 'مقصد برای انتخاب تونل‌ها آماده است.'}</p></>}
     {step === 2 && <>
       <div className="nt-box">
         {!!eligible.length && <label className="nt-choice nt-all"><input type="checkbox" checked={eligible.length === picked.length}

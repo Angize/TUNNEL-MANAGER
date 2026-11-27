@@ -66,25 +66,35 @@ export default function InstallProgress({ state, onForgetKey }) {
   const bannerText = running ? state.steps[at - 1].label : state.error || state.banner
   const shownSteps = running
     ? []
-    : state.steps
-        .map((step, i) => ({ step, shown: displayState(state.confirmed[i] || ''), i }))
-        .filter((x, i) => i < state.revealIdx && x.shown !== 'ok')
+    : state.steps.slice(0, state.revealIdx)
+        .map((step, i) => ({ ...step, state: displayState(state.confirmed[i]) }))
+        .filter(step => step.state !== 'ok')
 
+  return <InstallReport
+    tone={running ? 'run' : state.success ? 'ok' : 'err'}
+    banner={bannerText}
+    counter={running ? TF('inst_step_of', { n: at, total }) : null}
+    steps={shownSteps}
+    onForgetKey={state.hostkey ? onForgetKey : undefined}
+  />
+}
+
+export function InstallReport({ tone, banner, counter, steps = [], onForgetKey }) {
   return (
     <div className="iwrap">
-      <div className={'ibanner ' + (running ? 'run' : state.success ? 'ok' : 'err')}>
-        {running ? <span className="ispin" /> : state.success ? <Check /> : <Cross />}
-        <Roll text={bannerText} />
-        {running ? <span className="ibx">{TF('inst_step_of', { n: at, total })}</span> : null}
+      <div className={'ibanner ' + tone}>
+        {tone === 'run' ? <span className="ispin" /> : tone === 'ok' ? <Check /> : <Cross />}
+        <Roll text={banner} />
+        {counter && <span className="ibx">{counter}</span>}
       </div>
-      {shownSteps.map(({ step, shown, i }) => (
-        <div className={'istep ' + shown} key={i}>
-          <StepIcon state={shown} />
+      {steps.map(step => (
+        <div className={'istep ' + step.state} key={step.key || step.label}>
+          <StepIcon state={step.state} />
           <div className="istep-b">
             <div className="istep-t">{step.label || ''}</div>
             {step.detail ? <div className="istep-s">{step.detail}</div> : null}
-            {shown === 'err' && step.log ? <div className="ilog">{step.log}</div> : null}
-            {shown === 'err' && state.hostkey && onForgetKey ? <HostKeyFix onFix={onForgetKey} /> : null}
+            {step.state === 'err' && step.log ? <div className="ilog">{step.log}</div> : null}
+            {step.state === 'err' && onForgetKey ? <HostKeyFix onFix={onForgetKey} /> : null}
           </div>
         </div>
       ))}
