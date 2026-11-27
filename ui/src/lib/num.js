@@ -8,8 +8,10 @@ export function latinNumber(text) {
   return latinDigits(text).replace(/٫/g, '.')
 }
 
-export function faNum(n) {
-  return num(n).toLocaleString('fa-IR')
+const numberFormat = new Intl.NumberFormat('fa-IR-u-nu-latn')
+
+export function formatNumber(n) {
+  return numberFormat.format(num(n))
 }
 
 export function num(x) {

@@ -3636,7 +3636,7 @@ def _refresh_bg(nids):
 def _node_token(value):
     token = str(value or "").strip()
     if token and len(token) < 16:
-        raise Bad("token_short", "توکن کوتاه است — حداقل ۱۶ کاراکتر بگذار", "the token is too short — use at least 16 characters")
+        raise Bad("token_short", "توکن کوتاه است — حداقل 16 کاراکتر بگذار", "the token is too short — use at least 16 characters")
     return token
 
 
@@ -7064,7 +7064,7 @@ def _ws_pool_fields(d, cur):
     if not clean_hosts:
         raise Bad("pool_needs_sni", "استخر به حداقل یک دامنهٔ (SNI) نیاز دارد", "the pool needs at least one domain (SNI)")
     if len(clean_ips) < 2 and len(clean_hosts) < 2:
-        raise Bad("pool_no_axis", "استخرِ لبه باید دستِ‌کم روی یک محور بچرخد — یا ۲ آی‌پیِ لبه یا ۲ دامنه",
+        raise Bad("pool_no_axis", "استخرِ لبه باید دستِ‌کم روی یک محور بچرخد — یا 2 آی‌پیِ لبه یا 2 دامنه",
                   "the edge pool must rotate on at least one axis — 2 edge IPs or 2 domains")
     if len(clean_ips) > 64 or len(clean_hosts) > 64:
         raise Bad("pool_too_big", "استخر خیلی بزرگ است (حداکثر 64)", "the pool is too large (at most 64)")
@@ -9994,7 +9994,7 @@ def _pf_field(k, v):
     if k in PF_PORT_LABELS:
         p = _sint(v)
         if not 1 <= p <= 65535:
-            raise Bad("bad_port", "{0} باید بینِ ۱ تا ۶۵۵۳۵ باشد", "{0} must be from 1 to 65535", PF_PORT_LABELS[k])
+            raise Bad("bad_port", "{0} باید بینِ 1 تا 65535 باشد", "{0} must be from 1 to 65535", PF_PORT_LABELS[k])
         return p
     if k == "dst_ips":
         raw = v if isinstance(v, list) else re.split(r"[\s,]+", str(v))
@@ -10016,7 +10016,7 @@ def _pf_field(k, v):
     if k == "interval_min":
         m = _sint(v)
         if not 1 <= m <= 1440:
-            raise Bad("bad_interval", "بازهٔ چرخش باید بینِ ۱ تا ۱۴۴۰ دقیقه باشد", "the rotation interval must be from 1 to 1440 minutes")
+            raise Bad("bad_interval", "بازهٔ چرخش باید بینِ 1 تا 1440 دقیقه باشد", "the rotation interval must be from 1 to 1440 minutes")
         return m
     return v
 
@@ -10469,7 +10469,7 @@ def api_proxies(d):
 def _proxy_name(d, taken):
     name = str(d.get("name") or "").strip()
     if not 1 <= len(name) <= 40:
-        raise Bad("bad_proxy_name", "نامِ پروکسی لازم است (حداکثر ۴۰ نویسه)", "a proxy name is required (at most 40 characters)")
+        raise Bad("bad_proxy_name", "نامِ پروکسی لازم است (حداکثر 40 نویسه)", "a proxy name is required (at most 40 characters)")
     if name.lower() in taken:
         raise Bad("proxy_name_taken", "پروکسیِ دیگری با همین نام هست", "another proxy has this name")
     return name
@@ -10881,7 +10881,7 @@ def _cdn_want(raw):
                   "the subdomain takes only lowercase letters, digits and hyphens and cannot start or end with a hyphen")
     host = label + "." + zone
     if len(host) > 253:
-        raise Bad("bad_cdn_label", "نامِ کامل بیش از ۲۵۳ نویسه است", "the full name is longer than 253 characters")
+        raise Bad("bad_cdn_label", "نامِ کامل بیش از 253 نویسه است", "the full name is longer than 253 characters")
     return {"provider": prov, "zone": zone, "host": host}
 
 
@@ -12295,7 +12295,7 @@ def api_cdn_edge(d):
         if act == "on":
             was = _edge_port(e)
             port = _int_in(d.get("port") or was, 1, 65535,
-                           Bad("bad_edge_port", "پورتِ لبه باید بین ۱ و ۶۵۵۳۵ باشد", "the edge port must be 1..65535"))
+                           Bad("bad_edge_port", "پورتِ لبه باید بین 1 و 65535 باشد", "the edge port must be 1..65535"))
             decoy = str(d.get("decoy") or e.get("decoy") or EDGE_DECOY_DEFAULT).strip().lower()
             if not re.match(_DOMAIN_RE, decoy):
                 raise Bad("bad_edge_decoy", "نامِ طعمه نامعتبر است", "the decoy name is invalid")
@@ -12472,7 +12472,7 @@ def api_cdn_check(d):
     if "count" in d:
         n = _sint(d.get("count"))
         if not 1 <= n <= CDN_MAKE_MAX:
-            raise Bad("bad_cdn_count", "تعدادِ اسم‌ها باید بین ۱ تا {0} باشد", "the number of names must be from 1 to {0}", CDN_MAKE_MAX)
+            raise Bad("bad_cdn_count", "تعدادِ اسم‌ها باید بین 1 تا {0} باشد", "the number of names must be from 1 to {0}", CDN_MAKE_MAX)
         cred = _cdn_cred(prov)
         return {"ok": True, "hosts": _cdn_pick(cred, _cdn_zone(cred, _cdn_zone_name(d.get("zone"))), n)}
     want = _cdn_want(d)
@@ -12547,7 +12547,7 @@ def api_cdn_make(d):
     prov = _cdn_prov(d.get("provider"))
     labels = d.get("labels")
     if not isinstance(labels, list) or not 1 <= len(labels) <= CDN_MAKE_MAX:
-        raise Bad("bad_cdn_labels", "بین ۱ تا {0} زیردامنه بده", "give 1 to {0} subdomains", CDN_MAKE_MAX)
+        raise Bad("bad_cdn_labels", "بین 1 تا {0} زیردامنه بده", "give 1 to {0} subdomains", CDN_MAKE_MAX)
     wants = [_cdn_want({"provider": prov, "zone": d.get("zone"), "label": x}) for x in labels]
     hosts = [w["host"] for w in wants]
     if len(set(hosts)) != len(hosts):
@@ -12598,7 +12598,7 @@ def _cdn_drop(host):
 def api_cdn_drop(d):
     hosts = d.get("hosts")
     if not isinstance(hosts, list) or not 1 <= len(hosts) <= CDN_DROP_MAX:
-        raise Bad("bad_cdn_hosts", "بین ۱ تا {0} زیردامنه بده", "give 1 to {0} subdomains", CDN_DROP_MAX)
+        raise Bad("bad_cdn_hosts", "بین 1 تا {0} زیردامنه بده", "give 1 to {0} subdomains", CDN_DROP_MAX)
     dropped, failed = [], []
     for host in dict.fromkeys(str(x or "").strip().lower() for x in hosts):
         try:
