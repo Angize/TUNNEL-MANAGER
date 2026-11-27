@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError, apiGet } from '../../lib/api.js'
-import { readError } from '../../lib/errors.js'
+import { ApiError, apiGet, apiPost } from '../../lib/api.js'
+import { postError, readError } from '../../lib/errors.js'
 import { MAX_POLL_FAILURES } from '../../lib/poll.js'
 import { T } from '../../i18n/fa.js'
 
 const TICK_MS = 150
 const POLL_MS = 380
 const MIN_SPIN_MS = 600
+
+export async function forgetInstallKey(job) {
+  const response = await apiPost('install-forget-key', { job })
+  return response.ok && response.d.ok ? '' : postError(response)
+}
 
 function now() {
   return window.performance && performance.now ? performance.now() : Date.now()
