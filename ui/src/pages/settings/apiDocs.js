@@ -264,7 +264,7 @@ export const DOCS = {
     d: "Adds a node whose agent is already installed. Install it with the command from node-install-cmd so it holds this panel's signing key; an agent without it refuses agent and core updates. The panel connects to it in the background; read its state from nodes.",
     p: [
       ['name', 1, S, 'unique name: Latin letters, digits, space and _ . -, up to 40 characters'],
-      ['host', 1, S, "the node's IP or domain"],
+      ['host', 1, S, 'IPv4'],
       ['port', 1, N, 'agent port (usually 8099)'],
       ['token', 1, S, 'agent token, at least 16 characters'],
       ...PROXY_REF,
@@ -275,7 +275,7 @@ export const DOCS = {
     d: 'Installs the agent on the server over SSH and adds the node. The work runs in the background; read its progress with install-status and that job.',
     p: [
       ['name', 1, S, 'unique node name'],
-      ['ssh_host', 1, S, "the server's IP or domain"],
+      ['ssh_host', 1, S, 'IPv4'],
       ['ssh_port', 0, N, 'SSH port (default 22)'],
       ['ssh_user', 0, S, 'SSH user (default root)'],
       ['ssh_pass', 0, S, 'SSH password — this or ssh_key is required'],
@@ -298,7 +298,7 @@ export const DOCS = {
     t: 'Install the agent on many servers',
     d: 'Checks every row first and refuses the whole list if one row is wrong, naming that row. Then installs the agent on each server over SSH, a few at a time in list order, and adds the nodes. Only one such install runs at a time. Read its progress with install-batch.',
     p: [
-      ['rows', 1, L, 'servers, each {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}; only name and ssh_host are required, and a key a row leaves out comes from the shared field of the same name (a row with its own ssh_pass or ssh_key takes neither shared one)'],
+      ['rows', 1, L, 'servers, each {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}; only name and ssh_host (IPv4) are required, and a key a row leaves out comes from the shared field of the same name (a row with its own ssh_pass or ssh_key takes neither shared one)'],
       ['ssh_port', 0, N, 'SSH port for rows that do not give one (default 22)'],
       ['ssh_user', 0, S, 'SSH user for rows that do not give one (default root)'],
       ['ssh_pass', 0, S, 'SSH password for rows without their own — this, ssh_key or a password on every row is required'],
@@ -323,7 +323,7 @@ export const DOCS = {
     p: [
       ['batch', 1, S, 'batch id from the node-install-batch answer'],
       ['row', 1, N, 'row number, counted from 0'],
-      ['entry', 1, O, 'the row as it was sent: {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}'],
+      ['entry', 1, O, 'the row as it was sent, with an IPv4 ssh_host: {"name", "ssh_host", "ssh_port", "ssh_user", "ssh_pass", "ssh_key", "agent_port"}'],
       ['ssh_port', 0, N, 'SSH port if the row does not give one (default 22)'],
       ['ssh_user', 0, S, 'SSH user if the row does not give one (default root)'],
       ['ssh_pass', 0, S, "SSH password if the row has none — this, ssh_key or the row's own password is required"],
@@ -342,7 +342,7 @@ export const DOCS = {
     p: [
       ['id', 1, S, 'node id'],
       ['name', 1, S, 'unique name'],
-      ['host', 1, S, 'IP or domain'],
+      ['host', 1, S, 'IPv4'],
       ['port', 1, N, 'agent port'],
       ['token', 0, S, 'new agent token; empty = keep the current one'],
       ...PROXY_REF,
