@@ -298,14 +298,16 @@
   }
 }
 
-.eib:hover {
-  border-color: var(--acc);
-  color: var(--acc-tx);
-}
+@media (hover: hover) and (pointer: fine) {
+  .eib:hover {
+    border-color: var(--acc);
+    color: var(--acc-tx);
+  }
 
-.eib.del:hover {
-  border-color: var(--bad);
-  color: var(--bad-tx);
+  .eib.del:hover {
+    border-color: var(--bad);
+    color: var(--bad-tx);
+  }
 }
 
 .eib.aim.on {

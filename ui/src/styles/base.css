@@ -26,6 +26,13 @@ html {
   background: var(--page);
 }
 
+:is(input, textarea, select):is(:autofill, :-webkit-autofill) {
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: var(--tx);
+  caret-color: var(--tx);
+}
+
 body {
   font-family: Vazirmatn, Tahoma, sans-serif;
   color: var(--tx);

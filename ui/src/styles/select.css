@@ -59,8 +59,10 @@
   outline-offset: -2px;
 }
 
-.msrow:hover {
-  background: var(--glass);
+@media (hover: hover) and (pointer: fine) {
+  .msrow:hover {
+    background: var(--glass);
+  }
 }
 
 .msrow.sel {

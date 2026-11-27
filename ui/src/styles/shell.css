@@ -95,9 +95,11 @@
   height: 17px;
 }
 
-.navi:hover {
-  color: var(--tx);
-  background: var(--ctl);
+@media (hover: hover) and (pointer: fine) {
+  .navi:hover {
+    color: var(--tx);
+    background: var(--ctl);
+  }
 }
 
 .navi.on {
@@ -105,8 +107,10 @@
   font-weight: 700;
 }
 
-.navi.on:hover {
-  background: transparent;
+@media (hover: hover) and (pointer: fine) {
+  .navi.on:hover {
+    background: transparent;
+  }
 }
 
 .navi.on .ic {

@@ -664,8 +664,10 @@
   transition: color 0.15s, border-color 0.15s;
 }
 
-.tf-rng button:hover {
-  color: var(--tx);
+@media (hover: hover) and (pointer: fine) {
+  .tf-rng button:hover {
+    color: var(--tx);
+  }
 }
 
 .tf-rng button.on {

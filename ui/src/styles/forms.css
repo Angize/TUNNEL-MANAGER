@@ -243,8 +243,10 @@ textarea:focus {
   user-select: none;
 }
 
-.swrow:not(.dis):hover {
-  border-color: color-mix(in srgb, var(--acc) 35%, var(--edge));
+@media (hover: hover) and (pointer: fine) {
+  .swrow:not(.dis):hover {
+    border-color: color-mix(in srgb, var(--acc) 35%, var(--edge));
+  }
 }
 
 .swrow.dis {
@@ -737,9 +739,11 @@ textarea:focus {
   cursor: pointer;
 }
 
-.stpb:hover:not([aria-disabled='true']) {
-  background: var(--accw);
-  color: var(--acc-tx);
+@media (hover: hover) and (pointer: fine) {
+  .stpb:hover:not([aria-disabled='true']) {
+    background: var(--accw);
+    color: var(--acc-tx);
+  }
 }
 
 .stpb[aria-disabled='true'] {

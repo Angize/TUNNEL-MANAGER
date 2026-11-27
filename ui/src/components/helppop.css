@@ -109,9 +109,11 @@
   inset: -10px;
 }
 
-.hpx:hover {
-  background: var(--accw);
-  color: var(--acc-tx);
+@media (hover: hover) and (pointer: fine) {
+  .hpx:hover {
+    background: var(--accw);
+    color: var(--acc-tx);
+  }
 }
 
 .hpop p {

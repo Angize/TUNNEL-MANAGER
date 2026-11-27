@@ -119,9 +119,11 @@
   font-family: inherit;
 }
 
-.srq:hover {
-  border-color: var(--acc);
-  color: var(--acc-tx);
+@media (hover: hover) and (pointer: fine) {
+  .srq:hover {
+    border-color: var(--acc);
+    color: var(--acc-tx);
+  }
 }
 
 @media (max-width: 840px) {

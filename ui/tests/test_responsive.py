@@ -93,6 +93,50 @@ class ResponsivePanel(unittest.TestCase):
             self.assertLessEqual(bounds["x"] + bounds["width"], gauge["x"] + gauge["width"] + 1)
             self.assertLessEqual(gauge["x"] + gauge["width"], card["x"] + card["width"])
 
+    def test_touch_controls_and_autofilled_fields_in_node_form(self):
+        with self.browser.new_context(viewport={"width": 393, "height": 851}, has_touch=True,
+                                      is_mobile=True, reduced_motion="reduce") as context:
+            page = context.new_page()
+            page.route(ORIGIN + "**", self.serve)
+            page.goto(ORIGIN)
+            expect(page.locator(".gauges")).to_be_visible()
+            devtools = context.new_cdp_session(page)
+            devtools.send("DOM.enable")
+            devtools.send("CSS.enable")
+            root = devtools.send("DOM.getDocument")["root"]["nodeId"]
+
+            def force(selector, states):
+                node = devtools.send("DOM.querySelector", {"nodeId": root, "selector": selector})["nodeId"]
+                devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": states})
+
+            page.locator(".tabbar button").nth(1).tap()
+            for theme in ("light", "dark"):
+                if theme == "dark":
+                    page.locator(".mtop button").last.tap()
+                    expect(page.locator("html")).to_have_class("dark")
+                page.locator(".lpane:not([inert]) .tbtnrow button").first.tap()
+                modal = page.get_by_role("dialog")
+                expect(modal).to_be_visible()
+                close = ".modal .mx"
+                original = page.locator(close).evaluate("el => getComputedStyle(el).backgroundColor")
+                force(close, ["hover"])
+                expect(page.locator(close)).to_have_css("background-color", original)
+                expect(page.locator(close)).to_have_css("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)")
+                force(close, [])
+                for selector in ('.modal input[placeholder="DE02"]', '.modal .authbox input[type="password"]',
+                                 '.modal .authbox textarea'):
+                    if selector.endswith("textarea"):
+                        modal.locator(".authseg button").nth(1).tap()
+                    field = page.locator(selector).first
+                    field.fill("sample")
+                    force(selector, ["autofill"])
+                    self.assertTrue(field.evaluate("el => el.matches(':autofill')"))
+                    expect(field).to_have_css("background-clip", "text")
+                    expect(field).to_have_value("sample")
+                    force(selector, [])
+                page.locator(close).tap()
+                expect(modal).to_have_count(0)
+
     def test_fleet_reflows_and_keeps_the_form_footer_reachable(self):
         self.page.locator(".nav .navi").nth(1).click()
         cards = self.page.locator(".lpane:not([inert]) .card.node")

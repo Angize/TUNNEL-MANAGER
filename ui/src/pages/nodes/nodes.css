@@ -236,8 +236,10 @@
   color: var(--violet-tx);
 }
 
-.card.node button.act.tune:hover {
-  background: color-mix(in srgb, var(--violet) 12%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .card.node button.act.tune:hover {
+    background: color-mix(in srgb, var(--violet) 12%, transparent);
+  }
 }
 
 @keyframes mvpulse {
