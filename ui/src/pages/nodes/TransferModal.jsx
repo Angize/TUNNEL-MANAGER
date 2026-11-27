@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Icon from '../../components/Icon.jsx'
 import Field from '../../components/Field.jsx'
+import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
+import useProxies from '../../lib/useProxies.js'
 import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
 import { latinDigits } from '../../lib/num.js'
@@ -47,7 +49,7 @@ function formErrors(form, source) {
   return errors
 }
 
-export default function TransferModal({ node, onClose }) {
+export default function TransferModal({ node, nodes, filtered, onClose }) {
   const [form, setForm] = useState(empty)
   const [step, setStep] = useState(0)
   const [errors, setErrors] = useState({})
@@ -57,6 +59,10 @@ export default function TransferModal({ node, onClose }) {
   const [selected, setSelected] = useState([])
   const [clean, setClean] = useState(false)
   const [results, setResults] = useState(null)
+  const proxies = useProxies()
+  const [chosenProxy, setChosenProxy] = useState(null)
+  const known = nodes.find(n => n.host.toLowerCase() === form.host.trim().toLowerCase())
+  const proxy = chosenProxy || { on: !!known?.proxy_on, id: known?.proxy_id || '' }
   const title = useRef(null)
   useEffect(() => { if (step) title.current?.focus() }, [step])
   const write = (key, value) => {
@@ -65,29 +71,36 @@ export default function TransferModal({ node, onClose }) {
   }
   async function prepare() {
     const issues = formErrors(form, node)
+    if (chosenProxy?.on && !proxies.some(p => p.id === chosenProxy.id)) issues.proxy = 'یک پروکسی از فهرست انتخاب کن.'
     setErrors(issues)
     if (Object.keys(issues).length) {
-      requestAnimationFrame(() => document.querySelector('.nt-modal [aria-invalid=true],.nt-modal .nt-auth-error input')?.focus())
+      requestAnimationFrame(() => document.querySelector('.nt-modal [aria-invalid=true],.nt-modal .nt-auth-error ' +
+        (form.mode === 'key' ? 'textarea' : 'input') + ',.nt-modal .nt-proxy-error [role=switch]')?.focus())
       return
     }
-    setStep(1); setFault(''); setInventory(null); setBusy(true)
-    try { await prepareDestination(node, form, setInventory) }
-    catch (err) { setFault(err.message) }
+    const resume = step === 1 && inventory?.pending ? inventory.job : null
+    setStep(1); setFault(''); setBusy(true)
+    if (!resume) setInventory(null)
+    try { await prepareDestination(node, form, chosenProxy ? proxyBody(chosenProxy) : {}, setInventory, resume) }
+    catch (err) {
+      if (err.status === 400) setInventory(null)
+      setFault(err.message)
+    }
     finally { setBusy(false) }
   }
   const tunnels = inventory?.sourceTunnels || []
-  const picked = tunnels.filter(t => selected.includes(t.id))
+  const selectedIds = new Set(selected)
+  const picked = tunnels.filter(t => selectedIds.has(t.id))
   const eligible = tunnels.filter(t => !t.blocked)
   async function transfer() {
     setFault(''); setBusy(true)
-    setResults(Object.fromEntries(picked.map(t => [t.id,{ status: 'در صف' }])))
+    setResults(rows => rows || Object.fromEntries(picked.map(t => [t.id,{ status: 'در صف' }])))
     try {
-      await runTransfer(inventory.job, picked, clean, (id,result) =>
-        setResults(r => ({ ...r, [id]: result })))
+      await runTransfer(inventory.job, picked, clean, changes => setResults(r => ({ ...r, ...changes })))
     } catch (err) {
       setFault(err.message)
       setResults(rows => Object.fromEntries(Object.entries(rows).map(([id, row]) =>
-        [id, row.tone === 'ok' || row.tone === 'bad' ? row : { status: 'نتیجه نامشخص', tone: 'wait' }])))
+        [id, row.final ? row : { status: 'نتیجه نامشخص', tone: 'wait' }])))
     } finally { setBusy(false) }
   }
   const back = () => {
@@ -101,14 +114,14 @@ export default function TransferModal({ node, onClose }) {
     if (results && !fault) return onClose()
     return transfer()
   }
-  const primary = busy ? step === 1 ? 'در حال آماده‌سازی…' : 'در حال انتقال…'
-    : step === 0 ? 'بررسی و آماده‌سازی مقصد' : step === 1 ? fault ? 'تلاش دوباره' : 'انتخاب تونل‌ها'
-    : step === 2 ? 'مرور انتقال' : results ? fault ? 'بررسی دوبارهٔ نتیجه' : 'پایان' : 'انتقال ' + num(picked.length) + ' تونل'
+  const primary = busy ? step === 1 ? 'آماده‌سازی…' : 'در حال انتقال…'
+    : step === 0 ? 'آماده‌سازی مقصد' : step === 1 ? fault ? 'تلاش دوباره' : 'انتخاب تونل‌ها'
+    : step === 2 ? 'مرور انتقال' : results ? fault ? 'پیگیری نتیجه' : 'پایان' : 'شروع انتقال'
   const heading = ['مشخصات نود مقصد', 'وضعیت نود مقصد', 'کدام تونل‌ها منتقل شوند؟', results ? busy ? 'انتقال در حال انجام است' : 'نتیجهٔ انتقال' : 'مرور و تأیید انتقال'][step]
   const field = (key, label, props = {}) => <Field label={label} error={errors[key]}>
     <input dir="ltr" value={form[key]} onChange={e => write(key,e.target.value)} {...props} /></Field>
   const footer = <>
-    <button type="button" className="primary" disabled={busy || (step === 2 && !picked.length)} onClick={next}>
+    <button type="button" className="primary" aria-busy={busy} disabled={busy || (step === 2 && !picked.length)} onClick={next}>
       {busy && <span className="bspin sm" />}{primary}</button>
     {!results && <button type="button" className="ghost" disabled={busy} onClick={back}>{step ? 'بازگشت' : 'انصراف'}</button>}
   </>
@@ -122,19 +135,24 @@ export default function TransferModal({ node, onClose }) {
       <div className="grid2">{field('agentPort','پورت ایجنت',{inputMode:'numeric'})}</div>
       <div className={errors.auth ? 'nt-auth-error' : ''}><SshAuth mode={form.mode} onMode={v => write('mode',v)} pass={form.pass} onPass={v => write('pass',v)} sshKey={form.key} onKey={v => write('key',v)} />
       {errors.auth && <small className="nt-error" role="alert">{errors.auth}</small>}</div>
+      <div className={errors.proxy ? 'nt-proxy-error' : undefined}>
+        <ProxyFields proxies={proxies} value={proxy} onChange={value => { setChosenProxy(value); setErrors(e => ({ ...e, proxy: '' })) }} />
+        {errors.proxy && <small className="nt-error" role="alert">{errors.proxy}</small>}
+        {filtered && !known && !chosenProxy && <small>برای مقصد ثبت‌شده، تنظیم اتصال فعلی آن استفاده می‌شود.</small>}
+      </div>
       <p className="nt-note"><Icon name="info" />اگر ایجنت یا هسته نصب نباشد، طبق تنظیمات نصب پنل آماده می‌شود.</p>
     </>}
     {step === 1 && <><div className="nt-box" aria-live="polite">
       {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'server'} label={i ? 'هسته' : 'ایجنت'} value={inventory?.[key]?.status || 'در حال بررسی…'} tone={inventory?.[key]?.tone} detail={inventory?.[key]?.detail} />)}
-      <Item icon="link" label="تونل‌های موجود در مقصد" value={inventory?.existing ? num(inventory.existing.length) + ' تونل' : 'در حال بررسی…'} detail={inventory?.existing?.map(t => t.name).join('، ')} />
+      <Item icon="link" label="تونل‌های موجود در مقصد" value={inventory?.existing ? num(inventory.existing.length) + ' تونل' : fault ? 'بررسی کامل نشد' : 'در حال بررسی…'} detail={inventory?.existing?.map(t => t.name).join('، ')} />
     </div><p className="nt-note"><Icon name={busy ? 'clock' : fault ? 'warn' : 'okc'} />{fault || (busy ? 'آماده‌سازی مقصد در جریان است.' : 'مقصد برای انتخاب تونل‌ها آماده است.')}</p></>}
     {step === 2 && <>
       <div className="nt-box">
         {!!eligible.length && <label className="nt-choice nt-all"><input type="checkbox" checked={eligible.length === picked.length}
           ref={el => { if (el) el.indeterminate = picked.length > 0 && picked.length < eligible.length }}
           onChange={e => setSelected(e.target.checked ? eligible.map(t => t.id) : [])} />انتخاب همه</label>}
-        {tunnels.map(t => <div key={t.id} className="nt-entry"><div className="nt-pickrow"><label className={'nt-choice' + (selected.includes(t.id) ? ' chosen' : '')}>
-          <input type="checkbox" disabled={!!t.blocked} checked={selected.includes(t.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids,t.id] : ids.filter(id => id !== t.id))} />
+        {tunnels.map(t => <div key={t.id} className="nt-entry"><div className="nt-pickrow"><label className={'nt-choice' + (selectedIds.has(t.id) ? ' chosen' : '')}>
+          <input type="checkbox" disabled={!!t.blocked} checked={selectedIds.has(t.id)} onChange={e => setSelected(ids => e.target.checked ? [...ids,t.id] : ids.filter(id => id !== t.id))} />
           <div className="nt-grow"><b><bdi>{t.name}</bdi></b><small>{t.blocked || <>نود مقابل <bdi>{t.peer}</bdi></>}</small></div><span className="nt-tag"><bdi>{t.kind}</bdi></span></label><TransferDetails tunnel={t} /></div></div>)}
         {!tunnels.length && <p className="nt-note">تونلی برای انتقال روی مبدأ وجود ندارد.</p>}
       </div>

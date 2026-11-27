@@ -3712,12 +3712,6 @@ def _scrub(s):
     return re.sub(r"TNL_NODE_TOKEN=\S+", "TNL_NODE_TOKEN=***", s or "")[-1400:]
 
 
-def _install_get(jid):
-    with _install_lock:
-        j = _install_jobs.get(jid)
-        return _copy(j) if j else None
-
-
 def _install_step(jid, key, state, detail=None, log=None):
     with _install_lock:
         j = _install_jobs.get(jid)
@@ -3752,6 +3746,7 @@ def _install_finish(jid, ok, banner):
         j = _install_jobs.get(jid)
         if j:
             j["done"], j["ok"], j["banner"] = True, ok, banner
+            j["ts"] = int(time.time())
 
 
 SSH_KNOWN_HOSTS = os.path.join(CENTRAL_DIR, "known_hosts")
@@ -3962,30 +3957,41 @@ def _transfer_stage(jid, **fields):
         _install_jobs[jid].setdefault("transfer", {}).update(fields)
 
 
+def _transfer_identity(node):
+    return (node["host"], node["port"], hashlib.sha256(node["token"].encode()).digest(),
+            bool(node.get("proxy_on")), node.get("proxy_id") or "")
+
+
 def _transfer_ready(jid, node, source, agent_state):
+    _transfer_stage(jid, agent=agent_state)
+    _install_step(jid, "register", "run")
     with _reg_lock:
         known = _transfer_known(source, node["name"], node["host"])
         if known:
             node["id"] = known["id"]
-        if any(n["id"] != node["id"] and secret_eq(n["token"], node["token"]) for n in load_nodes()):
-            raise Bad("transfer_alias", "این سرور با نشانی دیگری در پنل ثبت شده است", "this agent is already registered at another address")
     ping = node_call(node, "ping", "GET", timeout=15)
     if not ping.get("ok"):
         raise _node_failed(node, ping)
     with _reg_lock:
         current = _transfer_known(source, node["name"], node["host"])
-        if (current or {}).get("id") != (known or {}).get("id") or any(
-                n["id"] != node["id"] and secret_eq(n["token"], node["token"]) for n in load_nodes()):
+        if current != known or not get_node(source):
             raise Bad("transfer_changed", "ثبت نود مقصد تغییر کرد؛ مقصد را دوباره بررسی کن", "the destination registration changed")
-        with store_tx() as t:
-            t.put(_NODES, dict(current or {}, **node))
+        if any(n["id"] != node["id"] and secret_eq(n["token"], node["token"]) for n in load_nodes()):
+            raise Bad("transfer_alias", "این سرور با نشانی دیگری در پنل ثبت شده است", "this agent is already registered at another address")
+        updated = dict(current or {}, **node)
+        if updated != current:
+            with store_tx() as t:
+                t.put(_NODES, updated)
+            _addr_bump(node["id"])
     listing = node_call(node, "list", "GET", timeout=30)
     if not isinstance(listing.get("configs"), list):
         raise _node_failed(node, listing)
-    items = [c for c in listing["configs"] if c.get("type") != "portfw"]
-    existing = [{"name": c.get("name", "")} for c in items]
+    configs = listing["configs"]
+    names = {c.get("name") for c in configs}
+    tids = {_sint(c.get("id")) for c in configs}
+    existing = [{"name": c.get("name", "")} for c in configs if c.get("type") != "portfw"]
     core = "present" if ping.get("core_sha") else "installing"
-    _transfer_stage(jid, agent=agent_state, core=core, existing=existing, destination=node["id"])
+    _transfer_stage(jid, core=core, existing=existing, destination=node["id"])
     if core == "installing":
         r = _push_staged(node)
         if not r.get("ok"):
@@ -4001,7 +4007,7 @@ def _transfer_ready(jid, node, source, agent_state):
         blocked = ""
         if link[side + "_node"] == node["id"] or node["id"] in _edge_ids(link):
             blocked = tx("مقصد یکی از نودهای دیگر همین مسیر است.", "the destination is already part of this route")
-        elif any(c.get("name") == link["name"] or _sint(c.get("id")) == link["tunnel_id"] for c in listing["configs"]):
+        elif link["name"] in names or link["tunnel_id"] in tids:
             blocked = tx("نام یا شناسهٔ این تونل در مقصد استفاده شده است.", "the name or ID is in use at the destination")
         fields = ("tunnel_id", "type", "a_name", "b_name", "a_ip", "b_ip", "subnet", "server_side", "port",
                   "transport", "raw_profile", "raw_profile_down", "cipher", "ws_host", "ws_path", "cdn_carrier",
@@ -4012,17 +4018,20 @@ def _transfer_ready(jid, node, source, agent_state):
                      "details": dict({k: link[k] for k in fields if k in link}, enabled=link.get("enabled", True),
                                      overlay=list(_overlay_ips(link)))})
     _transfer_stage(jid, source=source, sourceTunnels=rows)
+    with _install_lock:
+        _install_jobs[jid]["destination_identity"] = _transfer_identity(node)
+    _install_step(jid, "register", "ok")
     _refresh_bg([node["id"]])
     _install_finish(jid, True, tx("مقصد آماده است", "the destination is ready"))
 
 
 def api_transfer_prepare(d):
     _require(d, ["source"])
-    if not get_node(d["source"]):
+    if not isinstance(d["source"], str) or not get_node(d["source"]):
         raise _no_node()
     plan = _install_plan(d, {})
     known = _transfer_known(d["source"], plan["name"], plan["host"])
-    pon, pid = valid_proxy_ref(known or {})
+    pon, pid = valid_proxy_ref(d if "proxy_on" in d else known or {})
     jid = _install_start(plan, pon, pid, lambda args: threading.Thread(
         target=_install_worker, args=(*args, d["source"]), daemon=True).start())
     return {"ok": True, "job": jid}
@@ -4051,9 +4060,12 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
 
         if source:
             _transfer_stage(jid, agent="checking", core="checking", agentMode=_delivery_mode("agent"), coreMode=_delivery_mode("core"))
+            _install_step(jid, "agent", "run")
             found = _transfer_probe(cfg)
             if found:
                 port, token = found
+                _install_step(jid, "agent", "ok")
+                _install_step(jid, "install", "ok", tx("ایجنت از قبل نصب است", "the agent is already installed"))
                 node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"], "ssh_port": cfg["port"],
                         "port": port, "token": token, "proxy_on": pon, "proxy_id": pid}
                 _transfer_ready(jid, node, source, "present")
@@ -4112,12 +4124,12 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
         token = m.group(1)
         _install_step(jid, "install", "ok", tx("ایجنت نصب و اجرا شد", "the agent is installed and running"))
 
-        _install_step(jid, "register", "run")
         node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"], "ssh_port": cfg["port"],
                 "port": agent_port, "token": token, "proxy_on": pon, "proxy_id": pid}
         if source:
             _transfer_ready(jid, node, source, "installed")
             return
+        _install_step(jid, "register", "run")
         with _reg_lock:
             nodes = load_nodes()
             if _name_taken(nodes, name):
@@ -4190,10 +4202,11 @@ def _install_start(plan, pon, pid, launch):
         key = plan["key"]
         if key:
             fd, kp = tempfile.mkstemp(prefix="tnlkey_")
+            cfg["keyfile"] = kp
             with os.fdopen(fd, "wb") as f:
                 f.write((key if key.endswith(chr(10)) else key + chr(10)).encode())
             os.chmod(kp, 0o600)
-            cfg["keyfile"], cfg["password"] = kp, ""
+            cfg["password"] = ""
         now = int(time.time())
         with _install_lock:
             for k in [k for k, v in _install_jobs.items() if v["done"] and v.get("transfer_done", True) and now - v.get("ts", now) > 3600]:
@@ -4227,10 +4240,18 @@ def api_node_install(d):
 
 def api_node_install_status(d):
     _require(d, ["job"])
-    j = _install_get(d["job"])
-    if not j:
-        raise _no_job()
-    return {**j, "ok": True, "success": bool(j.get("ok"))}
+    with _install_lock:
+        j = _install_jobs.get(str(d["job"]))
+        if not j:
+            raise _no_job()
+        events = j.get("events", ())
+        if "after" in d:
+            after = _int_in(d["after"], 0, len(events), Bad("transfer_cursor", "موقعیت پیگیری انتقال نامعتبر است", "invalid transfer cursor"))
+            return {"results": dict(events[after:]), "after": len(events), "transfer_done": j.get("transfer_done", False)}
+        status = {k: _copy(v) for k, v in j.items() if k not in ("destination_identity", "submission", "events")}
+        if events:
+            status["results"] = dict(events)
+        return {**status, "ok": True, "success": j["ok"]}
 
 
 def _no_batch():
@@ -7888,20 +7909,29 @@ def _transfer_save(lid, updates):
             raise _no_tunnel()
 
 
-def _transfer_cleanup(origin, old, side):
-    r = node_call(origin, "list", "GET", timeout=30)
-    if not isinstance(r.get("configs"), list):
-        return "lost"
-    cfg = next((x for x in r["configs"] if x.get("name") == old["name"]), None)
+def _transfer_copy(node, name):
+    configs = node_call(node, "list", "GET", timeout=30).get("configs")
+    if not isinstance(configs, list):
+        return None
+    return next((cfg for cfg in configs if cfg.get("name") == name), {})
+
+
+def _transfer_cleanup(node, body, before=None):
+    cfg = _transfer_copy(node, body["name"])
     if cfg is None:
+        return "lost"
+    if not cfg:
         return "done"
-    if (cfg.get("type") != old["type"] or _sint(cfg.get("id")) != old["tunnel_id"]
-            or cfg.get("local_ip") != old[side + "_ip"]):
+    net = ipaddress.ip_network(body["subnet"], strict=False)
+    inner = f"{net.network_address + body['host']}/{net.prefixlen}"
+    if ((before is not None and cfg != before) or cfg.get("type") != body["type"] or _sint(cfg.get("id")) != body["id"]
+            or cfg.get("local_ip") != body["self_ip"] or cfg.get("remote_ip") != body["peer_ip"]
+            or cfg.get("tunnel_ip") != inner):
         return "changed"
-    return "done" if node_call(origin, "delete", "POST", {"name": old["name"]}, timeout=NODE_OP_TIMEOUT).get("ok") else "lost"
+    return "done" if node_call(node, "delete", "POST", {"name": body["name"]}, timeout=NODE_OP_TIMEOUT).get("ok") else "lost"
 
 
-def _transfer_one(lid, source, dest, clean, h):
+def _transfer_one(lid, source, dest, identity, clean, h):
     old = get_link(lid)
     if not old or source not in (old["a_node"], old["b_node"]):
         raise Bad("transfer_source_changed", "این تونل دیگر به مبدأ انتخاب‌شده وصل نیست",
@@ -7909,6 +7939,8 @@ def _transfer_one(lid, source, dest, clean, h):
     a, b, target = get_node(old["a_node"]), get_node(old["b_node"]), get_node(dest)
     if not (a and b and target):
         raise _no_node()
+    if _transfer_identity(target) != identity:
+        raise Bad("transfer_changed", "مشخصات اتصال مقصد عوض شده؛ مقصد را دوباره بررسی کن", "the destination connection changed")
     if dest in (a["id"], b["id"]):
         raise Bad("same_node", "مقصد از قبل یکی از دو سر تونل است", "the destination is already an endpoint")
     side = "a" if source == a["id"] else "b"
@@ -7927,7 +7959,7 @@ def _transfer_one(lid, source, dest, clean, h):
     target_ips = ips[index]
     ip = _pick_ip("", target["host"], target_ips)
     changes = {side + "_node": dest, side + "_name": target["name"], side + "_ip": ip}
-    if old.get("ip_rotate"):
+    if old.get("ip_rotate") and old.get(side + "_ip_pool"):
         changes[side + "_ip_pool"] = _pool_with(ip, old.get(side + "_ip_pool"), target_ips)
     link = dict(old, **changes)
     a_ip, b_ip = link["a_ip"], link["b_ip"]
@@ -7944,7 +7976,8 @@ def _transfer_one(lid, source, dest, clean, h):
         changes["edges"] = link["edges"]
     _guard_edge_wires(link, lid, h["key"])
     bodies = _stored_bodies(A, B, link, a_ips=ips[0], b_ips=ips[1])
-    restore = _stored_bodies(a, b, old)[1 - index]
+    original = _stored_bodies(a, b, old)
+    before = _transfer_copy(origin, name) if clean else None
     peer_touched = saved = False
     try:
         r = _node_tunnel(target, bodies[index])
@@ -7977,77 +8010,80 @@ def _transfer_one(lid, source, dest, clean, h):
         problems = []
         if saved:
             try:
-                _transfer_save(lid, {k: old[k] for k in changes if k in old})
+                _transfer_save(lid, {k: old[k] for k in changes})
+            except Exception as ex:
+                raise Bad("transfer_unknown", "ثبت مسیر قبلی در پنل تأیید نشد. هر دو نسخه حفظ شدند؛ وضعیت پنل و نودها را بررسی کن. {0}",
+                          "the old registration could not be confirmed; both copies were retained: {0}", _why(ex)) from None
+            try:
                 _transfer_routes(old, h)
             except Exception as ex:
                 problems.append(_why(ex))
-        if peer_touched and not _put_back(peer, restore):
+        if peer_touched and not _put_back(peer, original[1 - index]):
             problems.append(tx("بازگردانی نود مقابل انجام نشد", "peer rollback failed"))
-        tail = _drop_tunnel_from([target], name)
-        raise Bad(_code(err), tx_join("؛ ", [p for p in [_why(err), *problems, tail] if p], "; ")) from None
+        if problems:
+            raise Bad("transfer_unknown", "بازگردانی کامل نشد. هر دو نسخه حفظ شدند. {0}", "rollback is incomplete; both copies were retained. {0}",
+                      tx_join("؛ ", [_why(err), *problems], "; ")) from None
+        if _transfer_cleanup(target, bodies[index]) != "done":
+            raise Bad("transfer_unknown", "پاک‌سازی نسخهٔ مقصد تأیید نشد؛ مقصد را بررسی کن. {0}",
+                      "destination cleanup is unconfirmed; inspect the destination. {0}", _why(err)) from None
+        raise
     outcome = "kept"
     if clean:
-        outcome = _transfer_cleanup(origin, old, side)
+        outcome = _transfer_cleanup(origin, original[index], before) if before is not None else "lost"
     _set_drift(lid, False)
-    _refresh_bg([source, dest, peer["id"]])
     return outcome
+
+
+def _transfer_batch(job, ids, clean):
+    source, dest = job["transfer"]["source"], job["transfer"]["destination"]
+    refresh = {source, dest}
+
+    def publish(lid, state, detail=""):
+        with _install_lock:
+            job["events"].append((lid, {"state": state, "detail": detail}))
+
+    for lid in ids:
+        def move(h):
+            a, b = _link_nodes({"id": lid})
+            refresh.update((a, b))
+            try:
+                act_step(h, tx("انتقال تونل", "transferring tunnel"), stop=False)
+                with _PairLock(a, b, source, dest), _CdnLinkLock(lid):
+                    h["cleanup"] = _transfer_one(lid, source, dest, job["destination_identity"], clean, h)
+            finally:
+                _name_free(h["key"])
+                _release_edges(h["key"])
+        publish(lid, "run")
+        try:
+            h = _act_open(*_link_act_key({"id": lid}))
+            _act_run(h, move)
+            state = "unknown" if h.get("code") == "transfer_unknown" else h["state"]
+            publish(lid, state, h.get("error") or h.get("cleanup") or "")
+        except Exception as err:
+            publish(lid, "fail", _why(err))
+    with _install_lock:
+        job.update(transfer_done=True, ts=int(time.time()))
+    _refresh_cache(refresh)
 
 
 def api_transfer_run(d):
     _require(d, ["job", "links"])
-    j = _install_get(d["job"])
-    inv = (j or {}).get("transfer", {})
-    if not j or not j["done"] or not j["ok"] or not inv.get("source"):
-        raise Bad("transfer_not_ready", "مقصد را دوباره بررسی کن", "inspect the destination again")
-    ids = d["links"]
-    allowed = {r["id"] for r in inv["sourceTunnels"] if not r["blocked"]}
-    if not isinstance(ids, list) or not ids or not all(isinstance(k, str) and k in allowed for k in ids) or len(set(ids)) != len(ids):
-        raise Bad("transfer_selection", "تونل‌های انتخاب‌شده معتبر نیستند", "invalid tunnel selection")
-    clean = d.get("clean", False)
+    ids, clean = d["links"], d.get("clean", False)
     if not isinstance(clean, bool):
         raise Bad("transfer_cleanup", "گزینهٔ پاک‌سازی نامعتبر است", "invalid cleanup option")
-    source, dest = inv["source"], inv["destination"]
-
-    def publish(lid, result):
-        with _install_lock:
-            j = _install_jobs[d["job"]]
-            j["results"][lid] = result
-            j["ts"] = int(time.time())
-
-    def run():
-        for lid in ids:
-            def move(h):
-                a, b = _link_nodes({"id": lid})
-                try:
-                    with _PairLock(a, b, source, dest), _CdnLinkLock(lid):
-                        outcome = _transfer_one(lid, source, dest, clean, h)
-                    h["cleanup"] = outcome
-                    return {"ok": True}
-                finally:
-                    _name_free(h["key"])
-                    _release_edges(h["key"])
-            publish(lid, {"state": "run"})
-            try:
-                h = _act_open(*_link_act_key({"id": lid}))
-                act_step(h, tx("انتقال تونل", "transferring tunnel"), stop=False)
-                _act_run(h, move)
-                result = {"state": h["state"], "detail": h.get("error") or h.get("cleanup") or ""}
-            except Exception as err:
-                result = {"state": "fail", "detail": _why(err)}
-            publish(lid, result)
-        with _install_lock:
-            _install_jobs[d["job"]]["transfer_done"] = True
-
     with _install_lock:
-        live = _install_jobs.get(d["job"])
-        if not live:
-            raise _no_job()
-        if live.get("submission"):
-            if live["submission"] != (ids, clean):
+        job = _install_jobs.get(str(d["job"]))
+        if not job or not job["ok"] or "destination_identity" not in job:
+            raise Bad("transfer_not_ready", "مقصد را دوباره بررسی کن", "inspect the destination again")
+        if job.get("submission"):
+            if job["submission"] != (ids, clean):
                 raise Bad("transfer_submitted", "انتقال این انتخاب قبلاً شروع شده است", "this transfer was already submitted")
             return {"ok": True}
-        live.update(submission=(ids, clean), results={}, transfer_done=False)
-        threading.Thread(target=run, daemon=True).start()
+        allowed = {r["id"] for r in job["transfer"]["sourceTunnels"] if not r["blocked"]}
+        if not isinstance(ids, list) or not ids or not all(isinstance(k, str) and k in allowed for k in ids) or len(set(ids)) != len(ids):
+            raise Bad("transfer_selection", "تونل‌های انتخاب‌شده معتبر نیستند", "invalid tunnel selection")
+        threading.Thread(target=_transfer_batch, args=(job, ids, clean), daemon=True).start()
+        job.update(submission=(ids, clean), events=[], transfer_done=False)
         return {"ok": True}
 
 
@@ -8730,9 +8766,9 @@ def _stray_rows(nodes, links):
 _stray_lock = threading.Lock()
 _stray_seen = {}
 _stray_live = []
-_STRAY_BODY = tx("این پیکربندی از یک ساخت یا جابه‌جاییِ نیمه‌کاره مانده و پنل هیچ رکوردی برایش ندارد؛ "
+_STRAY_BODY = tx("پنل برای این نسخه روی این نود رکوردی ندارد. ممکن است هنگام انتقال آن را نگه داشته باشی؛ "
                  "تا وقتی هست، شناسه‌اش روی آن نود اشغال است. اگر لازمش نداری، در داشبورد کنارِ هشدارش «پاک کن» را بزن.",
-                 "this setup is left from a half-done build or move and the panel has no record of it; "
+                 "this copy is not registered on this node and may have been retained during a transfer; "
                  "while it exists its id is taken on that node. If you do not need it, delete it with stray-del.")
 
 

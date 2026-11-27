@@ -155,7 +155,7 @@ export default function NodesPage({ active }) {
         )}
       </div>
 
-      {transfer ? <TransferModal node={transfer} onClose={() => { setTransfer(null); reload() }} /> : null}
+      {transfer ? <TransferModal node={transfer} nodes={nodes} filtered={!!query} onClose={() => { setTransfer(null); reload() }} /> : null}
       {adding ? <NodeAddModal bulk={bulk} onClose={closeAdd} onAdded={reload} /> : null}
       {editing ? (
         <NodeEditModal node={editing} onClose={() => setEditing(null)} onSaved={reload} />
