@@ -404,7 +404,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: var(--sc-g);
+  width: min(560px, 100%);
+  margin: 0 auto 12px;
   padding: 8px;
   padding-inline-start: 14px;
   border-radius: 18px;
@@ -464,6 +465,18 @@
   box-shadow: var(--dsh);
   transform: translateX(-50%);
   animation-name: dockup;
+}
+
+body:has(.bfab:not([inert])) .main > .savedock {
+  bottom: 74px;
+}
+
+body.pushing:has(.bfab:not([inert])) .main > .savedock {
+  bottom: 126px;
+}
+
+body:has(.main > .savedock):not(:has(.modalov)) .toasts {
+  margin-bottom: 68px;
 }
 
 

@@ -79,6 +79,12 @@
   animation: modrise .38s cubic-bezier(.22, 1, .36, 1);
 }
 
+.dlgov .modal {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
 .modal.wide {
   width: 414px;
   display: flex;
@@ -89,8 +95,12 @@
 }
 
 @media (min-width: 900px) {
+  .modal.wide:has(> .mbody) {
+    width: clamp(480px, 46vw, 580px);
+  }
+
   .modal.wide.edit {
-    width: 480px;
+    width: clamp(520px, 50vw, 660px);
     max-height: min(90vh, 980px);
   }
 }

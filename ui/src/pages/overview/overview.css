@@ -209,8 +209,9 @@
 }
 
 .sgrp {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
   gap: 6px;
 }
 
@@ -449,7 +450,7 @@
 
 .gauges {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 16px;
 }
@@ -476,9 +477,14 @@
 
 .gwrap {
   position: relative;
-  width: 84px;
-  height: 84px;
+  width: min(100%, 84px);
+  aspect-ratio: 1;
   margin: 0 auto;
+}
+
+.gwrap svg {
+  display: block;
+  width: 100%;
 }
 
 .gtrack {
@@ -902,7 +908,12 @@
   }
 
   .ogrid.oduo {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+    align-items: start;
+  }
+
+  .ogrid:not(.oduo) > .osec:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 
   .ogrid > .osec {
@@ -941,5 +952,15 @@
     height: auto;
     min-height: 190px;
     max-height: 280px;
+  }
+}
+
+@media (min-width: 1500px) {
+  .ogrid:not(.oduo) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ogrid:not(.oduo) > .osec:last-child:nth-child(odd) {
+    grid-column: auto;
   }
 }

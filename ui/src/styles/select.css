@@ -12,6 +12,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  overflow-wrap: anywhere;
+  gap: 4px;
   font-family: inherit;
 }
 
@@ -20,6 +22,7 @@
 }
 
 .msbtn .cv {
+  flex: none;
   color: var(--sub);
   transition: transform .2s var(--ease-in-out), color .2s ease;
   font-size: 12px;
@@ -219,7 +222,11 @@
   min-width: 0;
 }
 
-.sspoplist .msl,
+.sspoplist .msl {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .sspoplist .mssub {
   max-width: 100%;
   line-height: 1.4;
