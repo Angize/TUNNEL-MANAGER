@@ -1462,6 +1462,7 @@ input.phrtl:placeholder-shown {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: max-content;
   max-width: calc(100vw - 24px);
 }
 

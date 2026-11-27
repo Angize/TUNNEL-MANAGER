@@ -157,7 +157,7 @@ export default function TransferModal({ node, nodes, filtered, minimized, onMini
       {count && <bdi className="bfn">{count}</bdi>}
     </button>
   }
-  return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={busy ? onMinimize : onClose} footer={footer}>
+  return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" closeLabel={busy ? 'ادامه در پس‌زمینه' : undefined} onClose={busy ? onMinimize : onClose} footer={footer}>
     <StepRail step={step} />
     {step >= 2 && <Route source={node.name} dest={form.name} />}
     <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{num(picked.length)} از {num(tunnels.length)} انتخاب شده</span>}</div>
