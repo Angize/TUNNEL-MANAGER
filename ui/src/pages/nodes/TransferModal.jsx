@@ -131,7 +131,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     : step === 2 ? 'مرور انتقال' : results ? fault ? 'پیگیری نتیجه' : 'پایان' : 'شروع انتقال'
   const heading = ['مشخصات نود مقصد', 'آماده‌سازی نود مقصد', 'کدام تونل‌ها منتقل شوند؟', results ? busy ? 'انتقال در حال انجام است' : 'نتیجهٔ انتقال' : 'مرور و تأیید انتقال'][step]
   const field = (key, label, props = {}) => <Field label={label} error={errors[key]}>
-    <input dir="ltr" value={form[key]} onChange={e => write(key,e.target.value)} {...props} /></Field>
+    <input dir="ltr" value={form[key]} onChange={e => write(key, props.inputMode === 'numeric' ? latinDigits(e.target.value) : e.target.value)} {...props} /></Field>
   const footer = <>
     <button type="button" className="primary" aria-busy={busy} disabled={busy || (step === 2 && !picked.length)} onClick={next}>
       {busy && <span className="bspin sm" />}{primary}</button>
