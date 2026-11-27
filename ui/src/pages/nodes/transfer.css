@@ -38,11 +38,12 @@
 .nt-state.ok{color:var(--ok-tx)}
 .nt-state.bad,.nt-error{color:var(--bad-tx)}
 .nt-state.wait{color:var(--gold-tx)}
-.nt-policy,.nt-note{display:flex;align-items:center;flex-wrap:wrap;gap:7px;line-height:1.8;font-size:12px}
+.nt-policy,.nt-note{line-height:1.8;font-size:12px;overflow-wrap:anywhere}
+.nt-policy,.nt-note:has(>.ic){display:grid;grid-template-columns:15px minmax(0,1fr);column-gap:7px;align-items:start}
 .nt-policy{padding:10px 12px;color:var(--sub)}
 .nt-policy.armed,.nt-modal label.nt-clean.armed{color:var(--gold-tx);background:var(--warnw);border-color:color-mix(in srgb,var(--gold) 35%,var(--bord))}
 .nt-note{margin-top:12px}
-.nt-note .ic,.nt-policy .ic{width:15px;height:15px}
+.nt-note .ic,.nt-policy .ic{width:15px;height:15px;margin-block-start:calc((1lh - 15px)/2)}
 @media(max-width:480px){.nt-modal .mbody{padding:14px}.nt-modal .grid2{grid-template-columns:repeat(2,minmax(0,1fr))}.nt-modal input,.nt-modal textarea{min-width:0}.nt-modal .nt-choice,.nt-modal .nt-item{gap:8px;padding-inline:10px}.nt-route{padding-inline:10px}.nt-steps{margin-bottom:15px}}
 
 
