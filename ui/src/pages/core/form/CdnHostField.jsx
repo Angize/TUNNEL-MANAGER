@@ -83,7 +83,7 @@ function EdgePick({ form, patch, edges, managed }) {
         {auto ? (
           <div className="cdnplaced">
             <span className="cdnpbadge" aria-hidden="true">
-              <Icon name="link" />
+              <Icon name="globe" />
             </span>
             <span className="cdnsamet">
               <b>{T('edge_same')}</b>
