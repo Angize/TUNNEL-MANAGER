@@ -44,12 +44,8 @@
 .logo {
   width: 32px;
   height: 32px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, var(--fill), var(--fill-deep));
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 15px;
+  border-radius: 9px;
+  display: block;
   flex: 0 0 auto;
   box-shadow: 0 8px 18px -8px var(--acc);
 }

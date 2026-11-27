@@ -13095,8 +13095,9 @@ UI_TYPES = {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".woff2": "font/woff2",
+    ".svg": "image/svg+xml",
 }
-PUBLIC_ASSET = re.compile(r"/assets/fonts/[A-Za-z0-9_-]+\.woff2")
+PUBLIC_ASSET = re.compile(r"/assets/(?:fonts/[A-Za-z0-9_-]+\.woff2|fleet-mark\.svg)")
 
 
 def ui_asset(rel):

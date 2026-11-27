@@ -146,7 +146,7 @@ function ProxyCard({ proxy, onEdit, onChanged }) {
       )}
       <UsedBy nodes={proxy.nodes} tunnels={proxy.tunnels} panel={proxy.panel} cdn={proxy.cdn} />
       <div className="nact iconly">
-        <ActBtn cls="ok" icon="bolt" title={T('px_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
+        <ActBtn cls="ok" icon="probe" title={T('px_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(proxy)} />
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
       </div>

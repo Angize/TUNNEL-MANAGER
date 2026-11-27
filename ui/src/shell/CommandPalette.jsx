@@ -41,30 +41,30 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
     () => [
       { i: 'dash', label: T('nav_overview'), act: () => goto('overview') },
       { i: 'server', label: T('nav_nodes'), act: () => goto('nodes') },
-      { i: 'globe', label: T('nav_fleet') + ' · ' + T('nav_proxies'), act: () => goto('proxies') },
-      { i: 'link', label: T('nav_links') + ' · ' + T('nav_core'), act: () => goto('core') },
+      { i: 'proxy', label: T('nav_fleet') + ' · ' + T('nav_proxies'), act: () => goto('proxies') },
+      { i: 'cpu', label: T('nav_links') + ' · ' + T('nav_core'), act: () => goto('core') },
       { i: 'link', label: T('nav_links') + ' · ' + T('nav_tunnels'), act: () => goto('tunnels') },
-      { i: 'link', label: T('nav_links') + ' · ' + T('nav_portfw'), act: () => goto('portfw') },
+      { i: 'portForward', label: T('nav_links') + ' · ' + T('nav_portfw'), act: () => goto('portfw') },
       { i: 'list', label: T('nav_logs'), act: () => goto('logs') },
       { i: 'cog', label: T('nav_settings'), act: () => goto('settings') },
       {
-        i: 'plus',
+        i: 'addCore',
         label: T('pal_add_core'),
         act: () => goto('core', () => runCommand('core:create')),
       },
       {
-        i: 'plus',
+        i: 'addTunnel',
         label: T('pal_add_tun'),
         act: () => goto('tunnels', () => runCommand('tunnels:create')),
       },
-      { i: 'redo', label: T('pal_agent'), act: () => goto('set-upkeep') },
+      { i: 'agent', label: T('pal_agent'), act: () => goto('set-upkeep') },
       {
-        i: 'activity',
+        i: 'probe',
         label: T('pal_checkall_core'),
         act: () => goto('core', () => runCommand('core:checkall')),
       },
       {
-        i: 'activity',
+        i: 'probe',
         label: T('pal_checkall'),
         act: () => goto('tunnels', () => runCommand('tunnels:checkall')),
       },
@@ -101,7 +101,7 @@ export default function CommandPalette({ dark, onNavigate, onToggleTheme, onClos
       )
       .slice(0, LIMIT)
       .map((l) => ({
-        i: 'link',
+        i: l.type === 'core' ? 'cpu' : 'link',
         label: l.a_name + ' ↔ ' + l.b_name,
         sub: l.name,
         act: () => {

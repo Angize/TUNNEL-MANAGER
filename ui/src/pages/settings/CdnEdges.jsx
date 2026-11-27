@@ -56,7 +56,7 @@ export default function CdnEdges({ edges, onStatus }) {
     <div className="card opc sc-panel apcard cdnhosts cdnedges">
       <div className="ophd">
         <span className="sgt cdnedgesi">
-          <Icon name="grid" />
+          <Icon name="pool" />
         </span>
         <div className="hd2">
           <b>{T('edges_t')}</b>

@@ -139,7 +139,7 @@ export default function BackupCard() {
   return (
     <div className="card opc sc-panel upc">
       <UpdateRow
-        icon="shield"
+        icon="backup"
         title={T('bk_card')}
         sub={T('bk_sub_short')}
         goIcon="download"
@@ -159,7 +159,7 @@ export default function BackupCard() {
             aria-busy={busy === 'put'}
             onClick={() => picker.current && picker.current.click()}
           >
-            {busy === 'put' ? <span className="bspin ink sm" /> : <Icon name="upload" />}
+            {busy === 'put' ? <span className="bspin ink sm" /> : <Icon name="restore" />}
             {T('set_bk_put')}
           </button>
           <button
@@ -169,7 +169,7 @@ export default function BackupCard() {
             aria-busy={busy === 'rot'}
             onClick={rotate}
           >
-            {busy === 'rot' ? <span className="bspin ink sm" /> : <Icon name="lock" />}
+            {busy === 'rot' ? <span className="bspin ink sm" /> : <Icon name="token" />}
             {T('bk_rot_btn')}
           </button>
         </div>

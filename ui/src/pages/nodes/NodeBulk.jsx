@@ -118,7 +118,7 @@ export function BulkForm({ bulk, list, proxies }) {
   return (
     <div>
       <div className="autonote">
-        <Icon name="bolt" />
+        <Icon name="bulkInstall" />
         <span>{TF('nb_note', { n: parallel })}</span>
       </div>
 
@@ -334,7 +334,7 @@ export function BulkFooter({ bulk, list, onClose }) {
             <span className="bspin" />
           ) : (
             <>
-              <Icon name="bolt" />
+              <Icon name="bulkInstall" />
               {list.counts.ok ? TF('nb_install_n', { n: list.counts.ok }) : T('nb_fab')}
             </>
           )}

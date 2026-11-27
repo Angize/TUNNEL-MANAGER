@@ -113,7 +113,7 @@ export default function NodesPage({ active }) {
       ) : null}
       <div className="tbtnrow">
         <button className="primary glass" onClick={() => setAdding(true)}>
-          <Icon name="plus" />
+          <Icon name="addNode" />
           {T('add_node')}
         </button>
       </div>

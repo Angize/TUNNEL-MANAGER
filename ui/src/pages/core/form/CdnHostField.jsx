@@ -37,7 +37,7 @@ function Placed({ host, provider, onClear }) {
   return (
     <div className="cdnplaced" ref={box}>
       <span className={'cdnpbadge ' + provider} aria-hidden="true">
-        <Icon name={provider === 'ar' ? 'shield' : 'globe'} />
+        <Icon name={provider === 'ar' ? 'arCloud' : 'cfCloud'} />
       </span>
       <span className="cdnphost mono" dir="ltr" title={host}>
         {host}

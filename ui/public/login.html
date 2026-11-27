@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ورود · کنترل فلیت</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234d6bf0'/%3E%3Cstop offset='1' stop-color='%233a53d0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='7' fill='url(%23g)'/%3E%3Cg transform='translate(4.2 4.2) scale(.65)' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/assets/fleet-mark.svg">
 <link rel="preload" href="/assets/fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
 <script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch(x){}</script>
 <style>
@@ -44,8 +44,7 @@ body {
 .box > :nth-child(5) { animation-delay: .24s } .box > :nth-child(6) { animation-delay: .28s } .box > :nth-child(7) { animation-delay: .34s }
 h1 { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
 h1 b { color: var(--acc); }
-.chip { width: 38px; height: 38px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--fill), var(--fill-deep)); box-shadow: 0 8px 18px -8px var(--acc); }
-.chip svg { width: 19px; height: 19px; stroke: #fff; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.chip { width: 38px; height: 38px; border-radius: 13px; box-shadow: 0 8px 18px -8px var(--acc); }
 p.s { color: var(--sub); font-size: 12.5px; margin: 8px 2px 16px; }
 label { display: block; font-size: 12px; color: var(--sub); margin: 14px 2px 7px; }
 input { width: 100%; padding: 12px 13px; border: 1px solid var(--bord); border-radius: 13px; background: var(--field); color: var(--tx); font-size: 14px; font-family: inherit; transition: border-color .2s, box-shadow .2s; }
@@ -68,7 +67,7 @@ button:disabled { opacity: .75; transform: none; cursor: wait; }
 </head>
 <body>
 <form class="box" id="box">
-  <h1><span class="chip"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span> <span><b>tnl</b> کنترل فلیت</span></h1>
+  <h1><img class="chip" src="/assets/fleet-mark.svg" alt=""> <span><b>tnl</b> کنترل فلیت</span></h1>
   <p class="s">برای ورود، نام کاربری و رمز را وارد کنید</p>
   <label for="u">نام کاربری</label><input id="u" autocomplete="username" autofocus>
   <label for="p">رمز عبور</label><input id="p" type="password" autocomplete="current-password">

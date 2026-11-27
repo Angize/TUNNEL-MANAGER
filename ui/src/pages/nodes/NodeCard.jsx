@@ -18,13 +18,13 @@ function NodeTraffic({ traffic }) {
   if (!traffic) return null
   return (
     <div className="ltraf ndtraf">
-      <span className="din iso">↓ {fmtRate(traffic.rx_bps)}</span>
-      <span className="dout iso">↑ {fmtRate(traffic.tx_bps)}</span>
+      <span className="din iso"><Icon name="rx" label="دریافت" /> {fmtRate(traffic.rx_bps)}</span>
+      <span className="dout iso"><Icon name="tx" label="ارسال" /> {fmtRate(traffic.tx_bps)}</span>
       <span className="tot">
         {T('total')}{' '}
         <span className="iso">
-          <b className="din">↓{fmtBytes(traffic.rx_total)}</b>
-          <b className="dout">↑{fmtBytes(traffic.tx_total)}</b>
+          <b className="din"><Icon name="rx" label="دریافت" /> {fmtBytes(traffic.rx_total)}</b>
+          <b className="dout"><Icon name="tx" label="ارسال" /> {fmtBytes(traffic.tx_total)}</b>
         </span>
       </span>
     </div>
@@ -160,12 +160,12 @@ function NodeCard({
             {T('nd_tunnels')} <b>{num(info.tunnels)}</b>
           </span>
           <span className="nchip">
-            <Icon name="globe" />
+            <Icon name="portForward" />
             {T('nd_portfw')} <b>{num(info.portfw)}</b>
           </span>
           {info.version ? (
             <span className="nchip">
-              <Icon name="server" />
+              <Icon name="agent" />
               {T('nd_agent')} <b>{info.version}</b>
             </span>
           ) : null}
@@ -192,12 +192,12 @@ function NodeCard({
       <UptimeBar node={node} windowHours={windowHours} />
 
       <div className="nact iconly">
-        <ActBtn cls="ok" icon="bolt" title={T('tip_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
+        <ActBtn cls="ok" icon="probe" title={T('tip_test')} busy={busyAct === 'test'} locked={!!busyAct} onClick={test} />
         {node.online ? (
-          <ActBtn cls="tune" icon="gauge" title={T('tip_tune')} locked={!!busyAct} onClick={() => onTune(node)} />
+          <ActBtn cls="tune" icon="tune" title={T('tip_tune')} locked={!!busyAct} onClick={() => onTune(node)} />
         ) : null}
         <ActBtn cls="reset" icon="reset" title={T('tip_nreset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
-        <ActBtn cls="info" icon="info" title={T('tip_details')} locked={!!busyAct} onClick={() => onDetails(node)} />
+        <ActBtn cls="info" icon="inspectNode" title={T('tip_details')} locked={!!busyAct} onClick={() => onDetails(node)} />
         <ActBtn cls="info" icon="nodeTransfer" title="انتقال نود" locked={!!busyAct} onClick={() => onTransfer(node)} />
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(node)} />
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} locked={!!busyAct} onClick={() => onDelete(node)} />

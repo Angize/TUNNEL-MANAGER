@@ -39,7 +39,7 @@ function Body({ message }) {
   }
   return (
     <>
-      {message.swap ? <Icon name="swap" /> : null}
+      {message.swap ? <Icon name="flip" /> : null}
       {message.text}
     </>
   )

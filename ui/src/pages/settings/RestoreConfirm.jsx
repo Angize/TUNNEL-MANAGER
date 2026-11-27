@@ -85,7 +85,7 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
   const footer = (
     <>
       <button type="button" className="primary danger" disabled={busy} aria-busy={busy} onClick={onRestore}>
-        {busy ? <span className="bspin sm" /> : <Icon name="upload" />}
+        {busy ? <span className="bspin sm" /> : <Icon name="restore" />}
         {T('bk_go')}
       </button>
       <button type="button" className="ghost" disabled={busy} onClick={onClose}>
@@ -96,7 +96,7 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
 
   return (
     <Modal
-      icon="upload"
+      icon="restore"
       title={T('bk_title')}
       subtitle={TF('bk_sub', { when: madeAt(info.made) })}
       footer={footer}
@@ -138,7 +138,7 @@ export default function RestoreConfirm({ info, busy, onRestore, onClose }) {
                     <bdi>{withUnit(c.key, c.old)}</bdi>
                     {'  '}
                     <span className="bknew">
-                      {'←  '}
+                      <Icon name="back" />
                       <bdi>{withUnit(c.key, c.new)}</bdi>
                     </span>
                   </>

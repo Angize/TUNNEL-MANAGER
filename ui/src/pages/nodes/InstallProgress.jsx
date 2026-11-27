@@ -45,7 +45,7 @@ export function HostKeyFix({ onFix }) {
   return (
     <div className="hkfix">
       <button type="button" className="ghost tone tone-renew" disabled={busy} aria-busy={busy} onClick={run}>
-        {busy ? <span className="bspin ink sm" /> : <Icon name="reset" />}
+        {busy ? <span className="bspin ink sm" /> : <Icon name="token" />}
         {T('inst_hostkey_fix')}
       </button>
       <div className="istep-s">{T('inst_hostkey_hint')}</div>

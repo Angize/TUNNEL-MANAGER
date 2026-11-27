@@ -251,7 +251,7 @@ export default function CdnEdgeTab() {
       {edges === null && err ? <LoadFail text={T('edge_load_failed') + ' ' + err} onRetry={load} /> : null}
       {edges ? (
         <SettingsGroup
-          icon="shield"
+          icon="edge"
           titleKey="edge_title"
           chip={edges.length ? (on.length ? TF('edge_on_n', { n: on.length }) : T('edge_none_on')) : ''}
           tone="sc-conn"

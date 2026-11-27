@@ -127,7 +127,7 @@ export default function CorePage({ active }) {
 
       <div className="tbtnrow">
         <button className="primary glass" onClick={() => setEditing({})}>
-          <Icon name="plus" />
+          <Icon name="addCore" />
           {T('core_add')}
         </button>
         <BulkButton bulk={bulk} />

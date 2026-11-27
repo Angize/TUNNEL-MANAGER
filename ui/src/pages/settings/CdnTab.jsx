@@ -20,7 +20,7 @@ import { T, TF } from '../../i18n/fa.js'
 import CdnHosts from './CdnHosts.jsx'
 import CdnEdges from './CdnEdges.jsx'
 
-const ICON = { cf: 'globe', ar: 'shield' }
+const ICON = { cf: 'cfCloud', ar: 'arCloud' }
 
 function Chip({ tone, text }) {
   return <span className={'cdnchip ' + tone}>{text}</span>
@@ -205,7 +205,7 @@ function ProviderCard({ provider, status, made, proxies, onStatus }) {
             </span>
           </button>
           <button type="button" className="ghost tone tone-renew opfit" onClick={test} disabled={busy}>
-            {phase === 'testing' ? <span className="bspin ink sm" /> : <Icon name="redo" />}
+            {phase === 'testing' ? <span className="bspin ink sm" /> : <Icon name="probe" />}
             {T('cdn_test')}
           </button>
           <button type="button" className="ghost opfit" onClick={() => setPhase('edit')} disabled={busy}>

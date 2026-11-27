@@ -1,3 +1,4 @@
+import Icon from '../../components/Icon.jsx'
 import { useEffect, useId, useRef, useState } from 'react'
 import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
@@ -202,10 +203,10 @@ export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
     <div className="tf-chart">
       <div className="tf-top">
         <span className="din iso">
-          ↓ <b>{show(now && now.rx)}</b>
+          <Icon name="rx" label="دریافت" /> <b>{show(now && now.rx)}</b>
         </span>
         <span className="dout iso">
-          ↑ <b>{show(now && now.tx)}</b>
+          <Icon name="tx" label="ارسال" /> <b>{show(now && now.tx)}</b>
         </span>
       </div>
       <RangePicker ranges={ranges} value={range} onChange={setRange} />
@@ -285,10 +286,10 @@ export default function TrafficChart({ nodeId, live, now, initial = 'live' }) {
               <bdi dir="ltr">{sp.clock}</bdi>
             </span>
             <span className="din iso">
-              ↓ <b>{show(s.rx[at])}</b>
+              <Icon name="rx" label="دریافت" /> <b>{show(s.rx[at])}</b>
             </span>
             <span className="dout iso">
-              ↑ <b>{show(s.tx[at])}</b>
+              <Icon name="tx" label="ارسال" /> <b>{show(s.tx[at])}</b>
             </span>
           </span>
         ) : null}

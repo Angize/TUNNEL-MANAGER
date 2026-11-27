@@ -29,7 +29,7 @@ export default function CleanEdges({ items, value, note, onPick }) {
         aria-expanded={open}
         onClick={() => setOpen(true)}
       >
-        <Icon name="list" />
+        <Icon name="pool" />
         {n ? TF('edge_menu_n', { n }) : T('edge_menu')}
       </button>
       {open ? (

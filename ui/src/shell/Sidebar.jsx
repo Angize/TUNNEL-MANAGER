@@ -9,7 +9,7 @@ import { LINK_KINDS } from '../pages/links/LinksPage.jsx'
 
 export const NAV_ITEMS = [
   { id: 'overview', icon: 'dash' },
-  { id: 'fleet', icon: 'server', count: FLEET_KINDS.map((k) => k.count) },
+  { id: 'fleet', icon: 'fleet', count: FLEET_KINDS.map((k) => k.count) },
   { id: 'links', icon: 'link', count: LINK_KINDS.map((k) => k.count) },
   { id: 'logs', icon: 'list', count: 'log_count' },
   { id: 'settings', icon: 'cog' },
@@ -38,9 +38,7 @@ export default function Sidebar({ page, counts, unread, dark, onNavigate, onTogg
   return (
     <aside className="side">
       <div className="sbrand">
-        <span className="logo">
-          <Icon name="shield" />
-        </span>
+        <img className="logo" src="/assets/fleet-mark.svg" alt="" />
         <span>
           TUNNEL-MANAGER
           <small>{T('brand_sub')}</small>

@@ -164,12 +164,12 @@ export default function ValuesTab({ active }) {
           <ValueRow name="revive" helpKey="set_t_revive_d" exampleKey="set_x_revive" />
         </SettingsGroup>
 
-        <SettingsGroup section icon="redo" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
+        <SettingsGroup section icon="rotateTarget" titleKey="set_g2" chipKey="set_g2c" tone="sc-pool">
           <ValueRow name="suspect" helpKey="set_t_suspect_d" exampleKey="set_x_suspect" />
           <ValueRow name="deadRetest" helpKey="set_t_deadretest_d" exampleKey="set_x_deadretest" />
         </SettingsGroup>
 
-        <SettingsGroup section icon="bolt" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
+        <SettingsGroup section icon="gauge" titleKey="set_g5" chipKey="set_g5c" tone="sc-perf">
           <ValueRow name="sockBuf" helpKey="set_t_sockbuf_d" exampleKey="set_x_sockbuf" />
           <ValueRow name="tcpBuf" helpKey="set_t_tcpbuf_d" exampleKey="set_x_tcpbuf" />
         </SettingsGroup>
@@ -178,7 +178,7 @@ export default function ValuesTab({ active }) {
       <div className="stfoot">
         <p className="stnote">{T('set_apply_note')}</p>
         <button className="ghost tone tone-renew" onClick={f.reset} disabled={f.busy}>
-          <Icon name="reset" />
+          <Icon name="restore" />
           {T('set_reset_all')}
         </button>
       </div>

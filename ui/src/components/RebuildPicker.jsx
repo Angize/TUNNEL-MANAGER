@@ -73,7 +73,7 @@ export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
           <span className="bspin" />
         ) : (
           <>
-            <Icon name="redo" />
+            <Icon name="rebuild" />
             {T('tip_rebuild')}
           </>
         )}
@@ -86,7 +86,7 @@ export default function RebuildPicker({ id, start, onStart, onClose, onDone }) {
 
   return (
     <Modal
-      icon="redo"
+      icon="rebuild"
       title={T('rb_title')}
       subtitle={info.name || ''}
       footer={footer}

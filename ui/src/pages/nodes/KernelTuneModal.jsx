@@ -43,7 +43,7 @@ export default function KernelTuneModal({ node, onClose }) {
   }, [node.id])
 
   if (!status) {
-    return modalLoading({ icon: 'gauge', title: T('kt_title'), subtitle: T('kt_sub'), onClose })
+    return modalLoading({ icon: 'tune', title: T('kt_title'), subtitle: T('kt_sub'), onClose })
   }
 
   const active = !!status.active
@@ -83,7 +83,7 @@ export default function KernelTuneModal({ node, onClose }) {
   )
 
   return (
-    <Modal icon="gauge" title={T('kt_title')} subtitle={T('kt_sub')} footer={footer} onClose={onClose}>
+    <Modal icon="tune" title={T('kt_title')} subtitle={T('kt_sub')} footer={footer} onClose={onClose}>
       <div className="kt-desc">{T('kt_desc')}</div>
       <div className="nd-grid">
         <NodeTile icon="activity" label={T('kt_state')} wide line>
@@ -95,7 +95,7 @@ export default function KernelTuneModal({ node, onClose }) {
         <NodeTile icon="traf" label={T('kt_cc')}>
           <span className="mono">{status.cc || '?'}</span>
         </NodeTile>
-        <NodeTile icon="swap" label={T('kt_qdisc')}>
+        <NodeTile icon="queue" label={T('kt_qdisc')}>
           <span className="mono">{status.qdisc || '?'}</span>
         </NodeTile>
         {changed.length ? (

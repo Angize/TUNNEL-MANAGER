@@ -44,12 +44,12 @@ export default function MovedIpModal({ node, onClose, onAdopted }) {
     <Modal icon="warn" title={T('mv_title')} subtitle={node.name} footer={footer} onClose={onClose}>
       <div className="kt-desc">{T('mv_desc')}</div>
       <div className="nd-grid">
-        <NodeTile icon="globe" label={T('mv_new')}>
+        <NodeTile icon="address" label={T('mv_new')}>
           <span className="mono" style={{ direction: 'ltr' }}>
             {node.moved_to}
           </span>
         </NodeTile>
-        <NodeTile icon="server" label={T('mv_old')}>
+        <NodeTile icon="address" label={T('mv_old')}>
           <span className="mono" style={{ direction: 'ltr' }}>
             {node.host + ':' + node.port}
           </span>

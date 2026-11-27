@@ -17,7 +17,7 @@ export default function DriftNote({ link, busy, locked, onRebuild }) {
       <Icon name="warn" />
       <b className="dbh">{heading(link, moved)}</b>
       <button type="button" className="ghost tone dbgo" disabled={locked} aria-busy={busy} onClick={onRebuild}>
-        {busy ? <span className="bspin ink sm" /> : <Icon name="redo" />}
+        {busy ? <span className="bspin ink sm" /> : <Icon name="rebuild" />}
         {T('tip_rebuild')}
       </button>
       {moved.map(([side, now]) => (
@@ -27,7 +27,7 @@ export default function DriftNote({ link, busy, locked, onRebuild }) {
             <span className="mono old">{link[side + '_ip']}</span>
             {now.length === 1 ? (
               <>
-                <span aria-hidden="true">→</span>
+                <Icon name="forward" />
                 <span className="mono">{now[0]}</span>
               </>
             ) : null}

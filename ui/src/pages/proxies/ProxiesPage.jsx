@@ -39,7 +39,7 @@ export default function ProxiesPage({ active }) {
     <>
       <div className="tbtnrow">
         <button className="primary glass" onClick={() => setEditing(null)}>
-          <Icon name="plus" />
+          <Icon name="addProxy" />
           {T('px_add')}
         </button>
       </div>

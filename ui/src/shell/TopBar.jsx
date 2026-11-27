@@ -9,9 +9,7 @@ export default function TopBar({ dark, onToggleTheme }) {
         <Icon name="logout" />
       </button>
       <div className="sbrand">
-        <span className="logo" style={{ width: 28, height: 28, fontSize: 14 }}>
-          <Icon name="shield" />
-        </span>
+        <img className="logo" style={{ width: 28, height: 28 }} src="/assets/fleet-mark.svg" alt="" />
         <span>TUNNEL-MANAGER</span>
       </div>
       <button

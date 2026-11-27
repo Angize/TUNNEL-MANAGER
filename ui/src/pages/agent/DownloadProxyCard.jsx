@@ -63,7 +63,7 @@ export default function DownloadProxyCard() {
     <div className="card opc sc-conn dlpx">
       <div className="ophd">
         <span className="sgt">
-          <Icon name="shield" />
+          <Icon name="proxy" />
         </span>
         <div className="hd2">
           <b>{T('dlpx_title')}</b>

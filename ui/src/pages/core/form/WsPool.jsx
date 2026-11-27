@@ -55,7 +55,7 @@ export function EdgeRow({ value, label, kind, owner, health, active, lid, pendin
       <span className="eacts">
         {burned && lid ? (
           <ActionButton
-            icon="redo"
+            icon="probe"
             title={T('pa_testnow')}
             onClick={() => onRetest(kind, value)}
           />

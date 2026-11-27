@@ -19,7 +19,7 @@ function ApiGroup({ f }) {
     <div className="card opc sc-panel apcard">
       <div className="ophd">
         <span className="sgt">
-          <Icon name="globe" />
+          <Icon name="api" />
         </span>
         <div className="hd2">
           <b>{T('set_api_title')}</b>
@@ -38,12 +38,12 @@ function ApiGroup({ f }) {
           <CopyValue key={token} text={token} className="aptok" />
         ) : (
           <div className="aptok">
-            <Icon name="lock" />
+            <Icon name="token" />
             {T('set_api_hidden')}
           </div>
         )}
         <button type="button" className="ghost tone tone-renew opfit" onClick={f.newToken}>
-          <Icon name="redo" />
+          <Icon name="token" />
           {T('set_api_new')}
         </button>
       </div>
