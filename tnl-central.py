@@ -3701,7 +3701,12 @@ def _agent_release_url(version):
 _INSTALL_STEPS = [("ssh", tx("اتصالِ SSH", "SSH connection")), ("agent", tx("رساندنِ ایجنت به نود", "delivering the agent to the node")),
                   ("install", tx("نصب و راه‌اندازیِ سرویس", "installing and starting the service")),
                   ("register", tx("ثبت و اتصال در پنل", "registering and connecting in the panel"))]
-_INSTALL_LABELS = dict(_INSTALL_STEPS)
+_TRANSFER_STEPS = [_INSTALL_STEPS[0],
+                   ("agent", tx("بررسی و آماده‌سازی ایجنت", "checking and preparing the agent")),
+                   ("install", tx("راه‌اندازی یا تأیید سرویس ایجنت", "starting or verifying the agent service")),
+                   _INSTALL_STEPS[-1],
+                   ("inventory", tx("بررسی تونل‌های مقصد", "listing destination tunnels")),
+                   ("core", tx("بررسی و آماده‌سازی هسته", "checking and preparing the core"))]
 _install_jobs = {}
 _install_lock = threading.Lock()
 _INSTALL_PARALLEL = 4
@@ -3724,7 +3729,7 @@ def _install_step(jid, key, state, detail=None, log=None):
                     s["detail"] = detail
                 if log is not None:
                     s["log"] = Tx(_scrub(log), _scrub(_en(log))) if isinstance(log, Tx) else _scrub(log)
-                break
+                return s["label"]
 
 
 def _install_running(jid):
@@ -3929,14 +3934,15 @@ def _transfer_probe(cfg):
     prefix = "" if cfg["user"] == "root" else "sudo -n "
     command = ("if test -f /opt/tunnel/tnl-node.py; then python3 /opt/tunnel/tnl-node.py --show; "
                "elif test -e /opt/tunnel/node.conf; then exit 1; else echo TNL_AGENT_ABSENT; fi")
-    rc, out, _ = _ssh_run(cfg, prefix + "sh -c '" + command + "'", 30)
+    rc, out, err = _ssh_run(cfg, prefix + "sh -c '" + command + "'", 30)
     if rc == 0 and out.strip() == "TNL_AGENT_ABSENT":
         return None
     token = re.search(r"^\s*token\s*:\s*(\S+)\s*$", out, re.M)
     port = re.search(r"^\s*port\s*:\s*(\d+)\s*$", out, re.M)
     if rc or not token or not port:
-        raise Bad("transfer_probe", "بررسی ایجنت مقصد از راه اتصال سرور کامل نشد؛ دسترسی کاربر و نصب فعلی را بررسی کن",
-                  "could not inspect the destination agent over SSH")
+        reason = re.sub(r"(?im)^(\s*token\s*:\s*)\S+", r"\1***", err.strip())
+        raise Bad("transfer_probe", reason or tx("پورت و توکن ایجنت دریافت نشد (کد خروج {0}).",
+                                                 "the probe did not return an agent port and token (exit code {0})", rc))
     return _node_port(port.group(1)), _node_token(token.group(1))
 
 
@@ -3983,6 +3989,8 @@ def _transfer_ready(jid, node, source, agent_state):
             with store_tx() as t:
                 t.put(_NODES, updated)
             _addr_bump(node["id"])
+    _install_step(jid, "register", "ok")
+    _install_step(jid, "inventory", "run")
     listing = node_call(node, "list", "GET", timeout=30)
     if not isinstance(listing.get("configs"), list):
         raise _node_failed(node, listing)
@@ -3990,15 +3998,6 @@ def _transfer_ready(jid, node, source, agent_state):
     names = {c.get("name") for c in configs}
     tids = {_sint(c.get("id")) for c in configs}
     existing = [{"name": c.get("name", "")} for c in configs if c.get("type") != "portfw"]
-    core = "present" if ping.get("core_sha") else "installing"
-    _transfer_stage(jid, core=core, existing=existing, destination=node["id"])
-    if core == "installing":
-        r = _push_staged(node)
-        if not r.get("ok"):
-            raise _node_failed(node, r)
-        if not node_call(node, "ping", "GET", timeout=15).get("core_sha"):
-            raise Bad("transfer_core", "نصب هسته در مقصد تأیید نشد", "could not verify the core installation")
-        _transfer_stage(jid, core="installed")
     rows = []
     for link in load_links():
         if source not in (link["a_node"], link["b_node"]):
@@ -4017,10 +4016,21 @@ def _transfer_ready(jid, node, source, agent_state):
                      "kind": link["type"], "blocked": blocked,
                      "details": dict({k: link[k] for k in fields if k in link}, enabled=link.get("enabled", True),
                                      overlay=list(_overlay_ips(link)))})
+    _install_step(jid, "inventory", "ok")
+    _install_step(jid, "core", "run")
+    core = "present" if ping.get("core_sha") else "installing"
+    _transfer_stage(jid, core=core, existing=existing, destination=node["id"])
+    if core == "installing":
+        r = _push_staged(node)
+        if not r.get("ok"):
+            raise _node_failed(node, r)
+        if not node_call(node, "ping", "GET", timeout=15).get("core_sha"):
+            raise Bad("transfer_core", "نصب هسته در مقصد تأیید نشد", "could not verify the core installation")
+        _transfer_stage(jid, core="installed")
     _transfer_stage(jid, source=source, sourceTunnels=rows)
     with _install_lock:
         _install_jobs[jid]["destination_identity"] = _transfer_identity(node)
-    _install_step(jid, "register", "ok")
+    _install_step(jid, "core", "ok")
     _refresh_bg([node["id"]])
     _install_finish(jid, True, tx("مقصد آماده است", "the destination is ready"))
 
@@ -4033,14 +4043,14 @@ def api_transfer_prepare(d):
     known = _transfer_known(d["source"], plan["name"], plan["host"])
     pon, pid = valid_proxy_ref(d if "proxy_on" in d else known or {})
     jid = _install_start(plan, pon, pid, lambda args: threading.Thread(
-        target=_install_worker, args=(*args, d["source"]), daemon=True).start())
+        target=_install_worker, args=(*args, d["source"]), daemon=True).start(), steps=_TRANSFER_STEPS)
     return {"ok": True, "job": jid}
 
 
 def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
     def fail(key, msg, log=""):
-        _install_step(jid, key, "err", msg, log)
-        _install_finish(jid, False, tx("نصب در مرحلهٔ «{0}» متوقف شد", "the install stopped at step '{0}'", _INSTALL_LABELS[key]))
+        label = _install_step(jid, key, "err", msg, log)
+        _install_finish(jid, False, tx("نصب در مرحلهٔ «{0}» متوقف شد", "the install stopped at step '{0}'", label))
 
     try:
         _install_step(jid, "ssh", "run")
@@ -4058,10 +4068,13 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
             return fail("ssh", tx("اتصالِ SSH ناموفق", "SSH connection failed"), (err or out).strip())
         _install_step(jid, "ssh", "ok", tx("{0}@{1}:{2} — وصل شد", "{0}@{1}:{2} — connected", cfg["user"], cfg["host"], cfg["port"]))
 
+        _install_step(jid, "agent", "run")
         if source:
             _transfer_stage(jid, agent="checking", core="checking", agentMode=_delivery_mode("agent"), coreMode=_delivery_mode("core"))
-            _install_step(jid, "agent", "run")
-            found = _transfer_probe(cfg)
+            try:
+                found = _transfer_probe(cfg)
+            except Bad as e:
+                return fail("agent", tx("بررسی ایجنت مقصد از راه SSH کامل نشد", "could not inspect the destination agent over SSH"), _why(e))
             if found:
                 port, token = found
                 _install_step(jid, "agent", "ok")
@@ -4071,7 +4084,6 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
                 _transfer_ready(jid, node, source, "present")
                 return
             _transfer_stage(jid, agent="installing")
-        _install_step(jid, "agent", "run")
         try:
             raw, ameta = _deliverable_agent(_delivery_mode("agent"))
         except OSError:
@@ -4191,7 +4203,7 @@ def _install_plan(row, shared):
             "password": password, "key": key}
 
 
-def _install_start(plan, pon, pid, launch):
+def _install_start(plan, pon, pid, launch, steps=_INSTALL_STEPS):
     jid = secrets.token_hex(6)
     if pon:
         _hold_proxy(pid, "install:" + jid)
@@ -4214,7 +4226,7 @@ def _install_start(plan, pon, pid, launch):
             if any(not j["done"] and j["host"].lower() == plan["host"].lower() for j in _install_jobs.values()):
                 raise Bad("install_running", "آماده‌سازی این سرور از قبل در حال انجام است", "this server is already being prepared")
             _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
-                                            for k, l in _INSTALL_STEPS],
+                                            for k, l in steps],
                                   "done": False, "ok": False, "banner": "", "node_id": None, "ts": now,
                                   "host": plan["host"], "port": plan["port"]}
         launch((jid, cfg, plan["name"], plan["agent_port"], pon, pid))

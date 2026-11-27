@@ -10,9 +10,10 @@ import NodeIpField from './NodeIpField.jsx'
 import { isIpv4 } from '../../lib/cdn.js'
 import { T } from '../../i18n/fa.js'
 import { latinDigits } from '../../lib/num.js'
-import { prepareDestination, runTransfer } from './transferService.js'
+import { destinationInventory, startPreparation, runTransfer } from './transferService.js'
 import TransferDetails from './TransferDetails.jsx'
-import { InstallReport } from './InstallProgress.jsx'
+import useInstallJob from './useInstallJob.js'
+import InstallProgress, { InstallReport } from './InstallProgress.jsx'
 import './transfer.css'
 
 const steps = ['مقصد', 'آماده‌سازی', 'تونل‌ها', 'انتقال']
@@ -63,6 +64,13 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
   const [selected, setSelected] = useState([])
   const [clean, setClean] = useState(false)
   const [results, setResults] = useState(null)
+  const { state: progress, start, reset } = useInstallJob({
+    onFinished(success, banner, transfer) {
+      if (success) setInventory(destinationInventory(transfer))
+      setBusy(false)
+    }
+  })
+  const failed = !!fault || (progress?.finished && !progress.success)
   const proxies = useProxies()
   const [chosenProxy, setChosenProxy] = useState(null)
   const known = nodes.find(n => n.host.toLowerCase() === form.host.trim().toLowerCase())
@@ -74,23 +82,24 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     setErrors(e => ({ ...e, [key === 'pass' || key === 'key' || key === 'mode' ? 'auth' : key]: '' }))
   }
   async function prepare() {
+    if (progress?.resume) {
+      setBusy(true)
+      start(progress.job, progress)
+      return
+    }
     const issues = formErrors(form, node)
     if (chosenProxy?.on && !proxies.some(p => p.id === chosenProxy.id)) issues.proxy = 'یک پروکسی از فهرست انتخاب کن.'
     setErrors(issues)
     if (Object.keys(issues).length) {
+      setStep(0)
       requestAnimationFrame(() => document.querySelector('.nt-modal [aria-invalid=true],.nt-modal .nt-auth-error ' +
         (form.mode === 'key' ? 'textarea' : 'input') + ',.nt-modal .nt-proxy-error [role=switch]')?.focus())
       return
     }
-    const resume = step === 1 && inventory?.pending ? inventory.job : null
-    setStep(1); setFault(''); setBusy(true)
-    if (!resume) setInventory(null)
-    try { await prepareDestination(node, form, chosenProxy ? proxyBody(chosenProxy) : {}, setInventory, resume) }
-    catch (err) {
-      if (err.status === 400) setInventory(null)
-      setFault(err.message)
-    }
-    finally { setBusy(false) }
+    setStep(1); setFault(''); setBusy(true); setInventory(null)
+    reset()
+    try { start(await startPreparation(node, form, chosenProxy ? proxyBody(chosenProxy) : {})) }
+    catch (err) { setFault(err.message); setBusy(false) }
   }
   const tunnels = inventory?.sourceTunnels || []
   const selectedIds = new Set(selected)
@@ -100,7 +109,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     setFault(''); setBusy(true)
     setResults(rows => rows || Object.fromEntries(picked.map(t => [t.id,{ status: 'در صف' }])))
     try {
-      await runTransfer(inventory.job, picked, clean, changes => setResults(r => ({ ...r, ...changes })))
+      await runTransfer(progress.job, picked, clean, changes => setResults(r => ({ ...r, ...changes })))
     } catch (err) {
       setFault(err.message)
       setResults(rows => Object.fromEntries(Object.entries(rows).map(([id, row]) =>
@@ -109,19 +118,19 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
   }
   const back = () => {
     setFault('')
-    if (step === 1) { setSelected([]); setClean(false) }
+    if (step === 1) { reset(); setInventory(null); setSelected([]); setClean(false) }
     if (step) setStep(step - 1); else onClose()
   }
   const next = () => {
-    if (step === 0 || (step === 1 && fault)) return prepare()
+    if (step === 0 || (step === 1 && failed)) return prepare()
     if (step < 3) return setStep(step + 1)
     if (results && !fault) return onClose()
     return transfer()
   }
   const primary = busy ? step === 1 ? 'آماده‌سازی…' : 'در حال انتقال…'
-    : step === 0 ? 'آماده‌سازی مقصد' : step === 1 ? fault ? 'تلاش دوباره' : 'انتخاب تونل‌ها'
+    : step === 0 ? 'آماده‌سازی مقصد' : step === 1 ? failed ? 'تلاش دوباره' : 'انتخاب تونل‌ها'
     : step === 2 ? 'مرور انتقال' : results ? fault ? 'پیگیری نتیجه' : 'پایان' : 'شروع انتقال'
-  const heading = ['مشخصات نود مقصد', 'وضعیت نود مقصد', 'کدام تونل‌ها منتقل شوند؟', results ? busy ? 'انتقال در حال انجام است' : 'نتیجهٔ انتقال' : 'مرور و تأیید انتقال'][step]
+  const heading = ['مشخصات نود مقصد', 'آماده‌سازی نود مقصد', 'کدام تونل‌ها منتقل شوند؟', results ? busy ? 'انتقال در حال انجام است' : 'نتیجهٔ انتقال' : 'مرور و تأیید انتقال'][step]
   const field = (key, label, props = {}) => <Field label={label} error={errors[key]}>
     <input dir="ltr" value={form[key]} onChange={e => write(key,e.target.value)} {...props} /></Field>
   const footer = <>
@@ -129,7 +138,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       {busy && <span className="bspin sm" />}{primary}</button>
     {!results && <button type="button" className="ghost" disabled={busy} onClick={back}>{step ? 'بازگشت' : 'انصراف'}</button>}
   </>
-  return <Modal icon="swap" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={() => { if (!busy) onClose() }} footer={footer}>
+  return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={() => { if (!busy) onClose() }} footer={footer}>
     <StepRail step={step} />
     {step >= 2 && <Route source={node.name} dest={form.name} />}
     <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{num(picked.length)} از {num(tunnels.length)} انتخاب شده</span>}</div>
@@ -147,11 +156,13 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       </div>
       <p className="nt-note"><Icon name="info" />اگر ایجنت یا هسته نصب نباشد، طبق تنظیمات نصب پنل آماده می‌شود.</p>
     </>}
-    {step === 1 && fault && <div role="alert"><InstallReport tone="err" banner={fault} steps={inventory?.issues} /></div>}
-    {step === 1 && !fault && <><div className="nt-box" aria-live="polite">
-      {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'server'} label={i ? 'هسته' : 'ایجنت'} value={inventory?.[key]?.status || 'در حال بررسی…'} tone={inventory?.[key]?.tone} detail={inventory?.[key]?.detail} />)}
-      <Item icon="link" label="تونل‌های موجود در مقصد" value={inventory?.existing ? num(inventory.existing.length) + ' تونل' : 'در حال بررسی…'} detail={inventory?.existing?.map(t => t.name).join('، ')} />
-    </div><p className="nt-note"><Icon name={busy ? 'clock' : 'okc'} />{busy ? 'آماده‌سازی مقصد در جریان است.' : 'مقصد برای انتخاب تونل‌ها آماده است.'}</p></>}
+    {step === 1 && <>
+      {progress ? <InstallProgress state={progress} /> : <InstallReport tone={fault ? 'err' : 'run'} banner={fault || T('inst_ssh')} />}
+      {inventory && <div className="nt-box">
+        {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'server'} label={i ? 'هسته' : 'ایجنت'} tone="ok" {...inventory[key]} />)}
+        <Item icon="link" label="تونل‌های موجود در مقصد" value={num(inventory.existing.length) + ' تونل'} detail={inventory.existing.map(t => t.name).join('، ')} />
+      </div>}
+    </>}
     {step === 2 && <>
       <div className="nt-box">
         {!!eligible.length && <label className="nt-choice nt-all"><input type="checkbox" checked={eligible.length === picked.length}

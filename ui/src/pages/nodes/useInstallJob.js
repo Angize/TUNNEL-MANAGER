@@ -8,15 +8,6 @@ const TICK_MS = 150
 const POLL_MS = 380
 const MIN_SPIN_MS = 600
 
-function installSteps() {
-  return [
-    { label: T('inst_ssh'), detail: T('inst_connecting') },
-    { label: T('inst_agent'), detail: T('inst_waiting') },
-    { label: T('inst_service'), detail: T('inst_waiting') },
-    { label: T('inst_register'), detail: T('inst_waiting') },
-  ]
-}
-
 function now() {
   return window.performance && performance.now ? performance.now() : Date.now()
 }
@@ -44,7 +35,7 @@ export default function useInstallJob({ onFinished }) {
         c.polling = false
         c.failures = 0
         c.steps = d.steps
-        c.confirmed = c.steps.map((s) => s.state)
+        c.transfer = d.transfer
         if (d.banner) c.banner = d.banner
         c.done = !!d.done
         c.success = !!d.success
@@ -61,6 +52,7 @@ export default function useInstallJob({ onFinished }) {
         c.failures++
         if (c.failures >= MAX_POLL_FAILURES) {
           c.error = T('inst_panel_lost')
+          c.resume = true
           c.done = true
           c.success = false
         }
@@ -71,8 +63,8 @@ export default function useInstallJob({ onFinished }) {
     setState({
       job: c.job,
       hostkey: c.hostkey,
-      steps: c.steps.slice(),
-      confirmed: c.confirmed.slice(),
+      steps: c.steps,
+      resume: !!c.resume,
       revealIdx: c.revealIdx,
       banner: c.banner,
       error: c.error,
@@ -93,12 +85,11 @@ export default function useInstallJob({ onFinished }) {
     }
 
     let started = 0
-    for (let i = 0; i < c.confirmed.length; i++) {
-      if (c.confirmed[i] && c.confirmed[i] !== 'wait') started = i + 1
+    for (let i = 0; i < c.steps.length; i++) {
+      if (c.steps[i].state !== 'wait') started = i + 1
     }
-    const cur = c.revealIdx - 1
-    const currentTerminal =
-      cur < 0 || (c.confirmed[cur] && c.confirmed[cur] !== 'wait' && c.confirmed[cur] !== 'run')
+    const current = c.steps[c.revealIdx - 1]?.state
+    const currentTerminal = current === 'ok' || current === 'err' || current === 'warn'
 
     if (c.revealIdx < started && t - c.lastReveal >= MIN_SPIN_MS && currentTerminal) {
       c.revealIdx++
@@ -108,7 +99,7 @@ export default function useInstallJob({ onFinished }) {
     if (
       !c.finished &&
       c.done &&
-      c.revealIdx >= started &&
+      (c.error || c.revealIdx >= started) &&
       t - c.lastReveal >= MIN_SPIN_MS &&
       (started > 0 || c.error)
     ) {
@@ -116,7 +107,7 @@ export default function useInstallJob({ onFinished }) {
       publish(c)
       clearTimeout(timer.current)
       job.current = null
-      onFinishedRef.current(c.success, c.banner)
+      onFinishedRef.current(c.success, c.banner, c.transfer)
       return
     }
 
@@ -125,17 +116,17 @@ export default function useInstallJob({ onFinished }) {
   }, [poll, publish])
 
   const start = useCallback(
-    (jobId) => {
+    (jobId, previous) => {
+      stop()
       job.current = {
         job: jobId,
-        steps: installSteps(),
-        confirmed: ['run', 'wait', 'wait', 'wait'],
+        steps: previous?.steps || [],
         banner: T('inst_installing'),
         done: false,
         success: false,
         hostkey: false,
         error: '',
-        revealIdx: 1,
+        revealIdx: previous?.revealIdx || 1,
         lastReveal: now(),
         lastPoll: 0,
         polling: false,
@@ -145,7 +136,7 @@ export default function useInstallJob({ onFinished }) {
       }
       tick()
     },
-    [tick]
+    [stop, tick]
   )
 
   const reset = useCallback(() => {
