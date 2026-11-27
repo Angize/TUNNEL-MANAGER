@@ -334,24 +334,30 @@ button.act.ok {
   color: var(--ok-tx);
 }
 
-button.act.ok:hover {
-  background: var(--okw);
+@media (hover: hover) and (pointer: fine) {
+  button.act.ok:hover {
+    background: var(--okw);
+  }
 }
 
 button.act.warn {
   color: var(--gold-tx);
 }
 
-button.act.warn:hover {
-  background: var(--goldw);
+@media (hover: hover) and (pointer: fine) {
+  button.act.warn:hover {
+    background: var(--goldw);
+  }
 }
 
 button.act.danger {
   color: var(--bad-tx);
 }
 
-button.act.danger:hover {
-  background: var(--badw);
+@media (hover: hover) and (pointer: fine) {
+  button.act.danger:hover {
+    background: var(--badw);
+  }
 }
 
 .dot {
@@ -524,8 +530,10 @@ body.reord-on .reordbtn {
   transition: .15s;
 }
 
-.rbrow:hover {
-  border-color: color-mix(in srgb, var(--acc) 50%, var(--bord));
+@media (hover: hover) and (pointer: fine) {
+  .rbrow:hover {
+    border-color: color-mix(in srgb, var(--acc) 50%, var(--bord));
+  }
 }
 
 .rbrow.sel {
@@ -667,16 +675,20 @@ button.act.info {
   color: var(--acc-tx);
 }
 
-button.act.info:hover {
-  background: var(--accw);
+@media (hover: hover) and (pointer: fine) {
+  button.act.info:hover {
+    background: var(--accw);
+  }
 }
 
 .act.reset {
   color: var(--sub);
 }
 
-.act.reset:hover {
-  background: var(--ctl);
+@media (hover: hover) and (pointer: fine) {
+  .act.reset:hover {
+    background: var(--ctl);
+  }
 }
 
 button.act:disabled,

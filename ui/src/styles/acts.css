@@ -161,9 +161,11 @@
     transform .12s var(--ease-out);
 }
 
-.abtn:hover {
-  color: var(--tx);
-  border-color: var(--sub);
+@media (hover: hover) and (pointer: fine) {
+  .abtn:hover {
+    color: var(--tx);
+    border-color: var(--sub);
+  }
 }
 
 .abtn.x {
@@ -180,8 +182,10 @@
   border-color: color-mix(in srgb, var(--bad) 35%, transparent);
 }
 
-.abtn.danger:hover {
-  background: var(--badw);
+@media (hover: hover) and (pointer: fine) {
+  .abtn.danger:hover {
+    background: var(--badw);
+  }
 }
 
 .apulse {

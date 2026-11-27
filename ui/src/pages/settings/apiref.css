@@ -332,8 +332,10 @@
   cursor: pointer;
 }
 
-.apcopy:hover {
-  color: var(--tx);
+@media (hover: hover) and (pointer: fine) {
+  .apcopy:hover {
+    color: var(--tx);
+  }
 }
 
 .apcodes {

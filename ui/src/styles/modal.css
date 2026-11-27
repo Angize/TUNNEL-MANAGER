@@ -180,10 +180,12 @@
   height: 16px;
 }
 
-.msticky .mx:hover {
-  background: var(--badw);
-  color: var(--bad-tx);
-  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+@media (hover: hover) and (pointer: fine) {
+  .msticky .mx:hover {
+    background: var(--badw);
+    color: var(--bad-tx);
+    border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+  }
 }
 
 .msticky .medi {
