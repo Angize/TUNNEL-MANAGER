@@ -12,7 +12,7 @@ import { reducedMotion } from '../../lib/motion.js'
 import useProxies from '../../lib/useProxies.js'
 import InstallProgress from './InstallProgress.jsx'
 import NodeIpField from './NodeIpField.jsx'
-import useInstallJob from './useInstallJob.js'
+import useInstallJob, { forgetInstallKey } from './useInstallJob.js'
 import { BulkFooter, BulkForm, BulkRun, useBulkList } from './NodeBulk.jsx'
 import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
@@ -152,9 +152,11 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   }
 
   const forgetKey = async () => {
-    const r = await apiPost('install-forget-key', { job: progress.job })
-    if (!(r.ok && r.d.ok)) {
-      alertBox(postError(r))
+    setBusy(true)
+    const error = await forgetInstallKey(progress.job)
+    setBusy(false)
+    if (error) {
+      alertBox(error)
       return
     }
     await autoInstall()
@@ -192,6 +194,11 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   const submit = () => {
     if (mode !== 'auto') return addManual()
     if (installed) return onClose()
+    if (progress?.resume) {
+      setBusy(true)
+      start(progress.job, progress)
+      return
+    }
     return autoInstall()
   }
 
@@ -202,7 +209,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   ) : mode === 'auto' ? (
     <>
       <Icon name="ssh" />
-      {progress && progress.finished && !progress.success ? T('inst_retry') : T('nadd_install_connect')}
+      {progress?.resume ? 'پیگیری وضعیت نصب' : progress?.finished && !progress.success ? T('inst_retry') : T('nadd_install_connect')}
     </>
   ) : (
     <>

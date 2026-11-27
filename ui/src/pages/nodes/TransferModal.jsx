@@ -12,8 +12,9 @@ import { T } from '../../i18n/fa.js'
 import { formatNumber, latinDigits } from '../../lib/num.js'
 import { destinationInventory, startPreparation, runTransfer } from './transferService.js'
 import TransferDetails from './TransferDetails.jsx'
-import useInstallJob from './useInstallJob.js'
+import useInstallJob, { forgetInstallKey } from './useInstallJob.js'
 import InstallProgress, { InstallReport } from './InstallProgress.jsx'
+import { alertBox } from '../../lib/dialog.js'
 import './transfer.css'
 
 const steps = ['مقصد', 'آماده‌سازی', 'تونل‌ها', 'انتقال']
@@ -100,6 +101,16 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     try { start(await startPreparation(node, form, chosenProxy ? proxyBody(chosenProxy) : {})) }
     catch (err) { setFault(err.message); setBusy(false) }
   }
+  async function retryHostKey() {
+    setBusy(true)
+    const error = await forgetInstallKey(progress.job)
+    if (error) {
+      setBusy(false)
+      alertBox(error)
+      return
+    }
+    await prepare()
+  }
   const tunnels = inventory?.sourceTunnels || []
   const selectedIds = new Set(selected)
   const picked = tunnels.filter(t => selectedIds.has(t.id))
@@ -156,7 +167,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       <p className="nt-note"><Icon name="info" />اگر ایجنت یا هسته نصب نباشد، طبق تنظیمات نصب پنل آماده می‌شود.</p>
     </>}
     {step === 1 && <>
-      {progress ? <InstallProgress state={progress} /> : <InstallReport tone={fault ? 'err' : 'run'} banner={fault || T('inst_ssh')} />}
+      {progress ? <InstallProgress state={progress} onForgetKey={busy ? undefined : retryHostKey} /> : <InstallReport tone={fault ? 'err' : 'run'} banner={fault || T('inst_ssh')} />}
       {inventory && <div className="nt-box">
         {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'agent'} label={i ? 'هسته' : 'ایجنت'} tone="ok" {...inventory[key]} />)}
         <Item icon="link" label="تونل‌های موجود در مقصد" value={formatNumber(inventory.existing.length) + ' تونل'} detail={inventory.existing.map(t => t.name).join('، ')} />

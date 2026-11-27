@@ -4,6 +4,7 @@ import { postError, readError } from '../../lib/errors.js'
 import { toast } from '../../lib/toast.js'
 import { runPageRefresh } from '../../lib/poll.js'
 import { proxyBody } from '../../components/ProxyFields.jsx'
+import { forgetInstallKey } from './useInstallJob.js'
 import { TF } from '../../i18n/fa.js'
 import { endText, endTone, tally, targetText } from './bulk.js'
 
@@ -146,8 +147,8 @@ export default function useBulkInstall() {
       const b = latest.current
       if (!b) return ''
       const row = b.rows[i]
-      const f = await apiPost('install-forget-key', { job: row.job })
-      if (!(f.ok && f.d.ok)) return postError(f)
+      const error = await forgetInstallKey(row.job)
+      if (error) return error
       const r = await apiPost('install-batch-retry', {
         ...creds(form),
         batch: b.id,
