@@ -3930,7 +3930,105 @@ def _ssh_run(cfg, remote_cmd, timeout, stdin_text=None):
         return 124, "", "SSH timeout"
 
 
-def _install_worker(jid, cfg, name, agent_port, pon, pid):
+def _transfer_probe(cfg):
+    prefix = "" if cfg["user"] == "root" else "sudo -n "
+    command = ("if test -f /opt/tunnel/tnl-node.py; then python3 /opt/tunnel/tnl-node.py --show; "
+               "elif test -e /opt/tunnel/node.conf; then exit 1; else echo TNL_AGENT_ABSENT; fi")
+    rc, out, _ = _ssh_run(cfg, prefix + "sh -c '" + command + "'", 30)
+    if rc == 0 and out.strip() == "TNL_AGENT_ABSENT":
+        return None
+    token = re.search(r"^\s*token\s*:\s*(\S+)\s*$", out, re.M)
+    port = re.search(r"^\s*port\s*:\s*(\d+)\s*$", out, re.M)
+    if rc or not token or not port:
+        raise Bad("transfer_probe", "بررسی ایجنت مقصد از راه اتصال سرور کامل نشد؛ دسترسی کاربر و نصب فعلی را بررسی کن",
+                  "could not inspect the destination agent over SSH")
+    return _node_port(port.group(1)), _node_token(token.group(1))
+
+
+def _transfer_known(source, name, host):
+    nodes = load_nodes()
+    known = next((n for n in nodes if n["host"].lower() == host.lower()), None)
+    if known:
+        if known["id"] == source or known["name"] != name:
+            raise Bad("transfer_identity", "این نشانی برای نود مبدأ یا با نام دیگری در پنل ثبت شده است",
+                      "this address belongs to the source or was registered under another name")
+    else:
+        _node_unique(nodes, name, host)
+    return known
+
+
+def _transfer_stage(jid, **fields):
+    with _install_lock:
+        _install_jobs[jid].setdefault("transfer", {}).update(fields)
+
+
+def _transfer_ready(jid, node, source, agent_state):
+    with _reg_lock:
+        known = _transfer_known(source, node["name"], node["host"])
+        if known:
+            node["id"] = known["id"]
+        if any(n["id"] != node["id"] and secret_eq(n["token"], node["token"]) for n in load_nodes()):
+            raise Bad("transfer_alias", "این سرور با نشانی دیگری در پنل ثبت شده است", "this agent is already registered at another address")
+    ping = node_call(node, "ping", "GET", timeout=15)
+    if not ping.get("ok"):
+        raise _node_failed(node, ping)
+    with _reg_lock:
+        current = _transfer_known(source, node["name"], node["host"])
+        if (current or {}).get("id") != (known or {}).get("id") or any(
+                n["id"] != node["id"] and secret_eq(n["token"], node["token"]) for n in load_nodes()):
+            raise Bad("transfer_changed", "ثبت نود مقصد تغییر کرد؛ مقصد را دوباره بررسی کن", "the destination registration changed")
+        with store_tx() as t:
+            t.put(_NODES, dict(current or {}, **node))
+    listing = node_call(node, "list", "GET", timeout=30)
+    if not isinstance(listing.get("configs"), list):
+        raise _node_failed(node, listing)
+    items = [c for c in listing["configs"] if c.get("type") != "portfw"]
+    existing = [{"name": c.get("name", "")} for c in items]
+    core = "present" if ping.get("core_sha") else "installing"
+    _transfer_stage(jid, agent=agent_state, core=core, existing=existing, destination=node["id"])
+    if core == "installing":
+        r = _push_staged(node)
+        if not r.get("ok"):
+            raise _node_failed(node, r)
+        if not node_call(node, "ping", "GET", timeout=15).get("core_sha"):
+            raise Bad("transfer_core", "نصب هسته در مقصد تأیید نشد", "could not verify the core installation")
+        _transfer_stage(jid, core="installed")
+    rows = []
+    for link in load_links():
+        if source not in (link["a_node"], link["b_node"]):
+            continue
+        side = "b" if source == link["a_node"] else "a"
+        blocked = ""
+        if link[side + "_node"] == node["id"] or node["id"] in _edge_ids(link):
+            blocked = tx("مقصد یکی از نودهای دیگر همین مسیر است.", "the destination is already part of this route")
+        elif any(c.get("name") == link["name"] or _sint(c.get("id")) == link["tunnel_id"] for c in listing["configs"]):
+            blocked = tx("نام یا شناسهٔ این تونل در مقصد استفاده شده است.", "the name or ID is in use at the destination")
+        fields = ("tunnel_id", "type", "a_name", "b_name", "a_ip", "b_ip", "subnet", "server_side", "port",
+                  "transport", "raw_profile", "raw_profile_down", "cipher", "ws_host", "ws_path", "cdn_carrier",
+                  "fec", "fec_data", "fec_parity", "obfs", "gso", "cover", "ip_rotate", "a_ip_pool", "b_ip_pool",
+                  "raw_port", "raw_sport", "a_workers", "b_workers", "cover_sni", "ws_tls", "raw_facade", "ws_edge_ips", "ws_rotate_secs")
+        rows.append({"id": link["id"], "name": link["name"], "peer": (get_node(link[side + "_node"]) or {}).get("name", link[side + "_name"]),
+                     "kind": link["type"], "blocked": blocked,
+                     "details": dict({k: link[k] for k in fields if k in link}, enabled=link.get("enabled", True),
+                                     overlay=list(_overlay_ips(link)))})
+    _transfer_stage(jid, source=source, sourceTunnels=rows)
+    _refresh_bg([node["id"]])
+    _install_finish(jid, True, tx("مقصد آماده است", "the destination is ready"))
+
+
+def api_transfer_prepare(d):
+    _require(d, ["source"])
+    if not get_node(d["source"]):
+        raise _no_node()
+    plan = _install_plan(d, {})
+    known = _transfer_known(d["source"], plan["name"], plan["host"])
+    pon, pid = valid_proxy_ref(known or {})
+    jid = _install_start(plan, pon, pid, lambda args: threading.Thread(
+        target=_install_worker, args=(*args, d["source"]), daemon=True).start())
+    return {"ok": True, "job": jid}
+
+
+def _install_worker(jid, cfg, name, agent_port, pon, pid, source=None):
     def fail(key, msg, log=""):
         _install_step(jid, key, "err", msg, log)
         _install_finish(jid, False, tx("نصب در مرحلهٔ «{0}» متوقف شد", "the install stopped at step '{0}'", _INSTALL_LABELS[key]))
@@ -3951,6 +4049,16 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
             return fail("ssh", tx("اتصالِ SSH ناموفق", "SSH connection failed"), (err or out).strip())
         _install_step(jid, "ssh", "ok", tx("{0}@{1}:{2} — وصل شد", "{0}@{1}:{2} — connected", cfg["user"], cfg["host"], cfg["port"]))
 
+        if source:
+            _transfer_stage(jid, agent="checking", core="checking", agentMode=_delivery_mode("agent"), coreMode=_delivery_mode("core"))
+            found = _transfer_probe(cfg)
+            if found:
+                port, token = found
+                node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"], "ssh_port": cfg["port"],
+                        "port": port, "token": token, "proxy_on": pon, "proxy_id": pid}
+                _transfer_ready(jid, node, source, "present")
+                return
+            _transfer_stage(jid, agent="installing")
         _install_step(jid, "agent", "run")
         try:
             raw, ameta = _deliverable_agent(_delivery_mode("agent"))
@@ -4007,6 +4115,9 @@ def _install_worker(jid, cfg, name, agent_port, pon, pid):
         _install_step(jid, "register", "run")
         node = {"id": secrets.token_hex(5), "name": name, "host": cfg["host"], "ssh_port": cfg["port"],
                 "port": agent_port, "token": token, "proxy_on": pon, "proxy_id": pid}
+        if source:
+            _transfer_ready(jid, node, source, "installed")
+            return
         with _reg_lock:
             nodes = load_nodes()
             if _name_taken(nodes, name):
@@ -4072,6 +4183,7 @@ def _install_start(plan, pon, pid, launch):
     jid = secrets.token_hex(6)
     if pon:
         _hold_proxy(pid, "install:" + jid)
+    cfg = {}
     try:
         cfg = {"host": plan["host"], "port": plan["port"], "user": plan["user"], "password": plan["password"],
                "proxy": node_proxy({"proxy_on": pon, "proxy_id": pid})}
@@ -4084,14 +4196,20 @@ def _install_start(plan, pon, pid, launch):
             cfg["keyfile"], cfg["password"] = kp, ""
         now = int(time.time())
         with _install_lock:
-            for k in [k for k, v in _install_jobs.items() if now - v.get("ts", now) > 3600]:
+            for k in [k for k, v in _install_jobs.items() if v["done"] and v.get("transfer_done", True) and now - v.get("ts", now) > 3600]:
                 _install_jobs.pop(k, None)
+            if any(not j["done"] and j["host"].lower() == plan["host"].lower() for j in _install_jobs.values()):
+                raise Bad("install_running", "آماده‌سازی این سرور از قبل در حال انجام است", "this server is already being prepared")
             _install_jobs[jid] = {"steps": [{"key": k, "label": l, "state": "wait", "detail": "", "log": ""}
                                             for k, l in _INSTALL_STEPS],
                                   "done": False, "ok": False, "banner": "", "node_id": None, "ts": now,
                                   "host": plan["host"], "port": plan["port"]}
         launch((jid, cfg, plan["name"], plan["agent_port"], pon, pid))
     except Exception:
+        if cfg.get("keyfile"):
+            os.unlink(cfg["keyfile"])
+        with _install_lock:
+            _install_jobs.pop(jid, None)
         _release_proxies("install:" + jid)
         raise
     return jid
@@ -7751,6 +7869,186 @@ def _restore_tail(stuck):
     return tx(" (بازگردانیِ تونلِ قبلی روی «{0}» هم نشد — آن سر الان تونل ندارد؛ «بازسازی» را بزن)",
               " (restoring the previous tunnel on '{0}' failed too — that end has no tunnel now; rebuild it)",
               tx_join("»، «", stuck, "', '"))
+
+
+def _transfer_routes(link, h):
+    if link.get("edges"):
+        problem = _edge_sync(*_edge_ids(link))
+        if problem:
+            raise Bad("edge_sync", problem)
+    if link.get("cdn"):
+        note = _cdn_follow_build(link["id"], link["a_ip"] if _srv_is_a(link) else link["b_ip"], h, 2, 3)
+        if not _cdn_uptodate(get_link(link["id"]).get("cdn") or {}):
+            raise Bad("cdn_sync", note or tx("مسیر CDN آماده نشد", "the CDN route is not ready"))
+
+
+def _transfer_save(lid, updates):
+    with _reg_lock:
+        if store_edit(_LINKS, lid, lambda x: x.update(updates)) is None:
+            raise _no_tunnel()
+
+
+def _transfer_cleanup(origin, old, side):
+    r = node_call(origin, "list", "GET", timeout=30)
+    if not isinstance(r.get("configs"), list):
+        return "lost"
+    cfg = next((x for x in r["configs"] if x.get("name") == old["name"]), None)
+    if cfg is None:
+        return "done"
+    if (cfg.get("type") != old["type"] or _sint(cfg.get("id")) != old["tunnel_id"]
+            or cfg.get("local_ip") != old[side + "_ip"]):
+        return "changed"
+    return "done" if node_call(origin, "delete", "POST", {"name": old["name"]}, timeout=NODE_OP_TIMEOUT).get("ok") else "lost"
+
+
+def _transfer_one(lid, source, dest, clean, h):
+    old = get_link(lid)
+    if not old or source not in (old["a_node"], old["b_node"]):
+        raise Bad("transfer_source_changed", "این تونل دیگر به مبدأ انتخاب‌شده وصل نیست",
+                  "this tunnel no longer belongs to the selected source")
+    a, b, target = get_node(old["a_node"]), get_node(old["b_node"]), get_node(dest)
+    if not (a and b and target):
+        raise _no_node()
+    if dest in (a["id"], b["id"]):
+        raise Bad("same_node", "مقصد از قبل یکی از دو سر تونل است", "the destination is already an endpoint")
+    side = "a" if source == a["id"] else "b"
+    index = 0 if side == "a" else 1
+    peer, origin = (b, a) if index == 0 else (a, b)
+    A, B = (target, peer) if index == 0 else (peer, target)
+    name = old["name"]
+    _name_hold(h["key"], [source, dest, peer["id"]], name)
+    _hold_edges(old, h["key"])
+    _edge_not_end(old, A, B)
+    _guard_arrival_free(a, b, A, B, int(old["tunnel_id"]), {name})
+    if name in _pending_names(dest):
+        raise Bad("transfer_pending", "پاک‌سازی قبلی این تونل در مقصد هنوز تمام نشده است", "previous cleanup is still pending on the destination")
+    pa, pb = _ping_both(A, B)
+    ips = [_flat_ips(pa), _flat_ips(pb)]
+    target_ips = ips[index]
+    ip = _pick_ip("", target["host"], target_ips)
+    changes = {side + "_node": dest, side + "_name": target["name"], side + "_ip": ip}
+    if old.get("ip_rotate"):
+        changes[side + "_ip_pool"] = _pool_with(ip, old.get(side + "_ip_pool"), target_ips)
+    link = dict(old, **changes)
+    a_ip, b_ip = link["a_ip"], link["b_ip"]
+    if (b_ip if index == 0 else a_ip) not in ips[1 - index]:
+        raise Bad("transfer_peer_ip", "آی‌پی ثبت‌شدهٔ نود مقابل روی آن نود پیدا نشد؛ اول تونل را بازسازی کن",
+                  "the peer no longer owns its saved IP; rebuild the tunnel first")
+    _guard_ends(A, B, a_ip, b_ip, link["type"], exclude_id=lid)
+    _guard_subnet_overlap(A, B, link["subnet"], exclude_id=lid)
+    _guard_addr_on_another_iface(pa, pb, A, B, link["subnet"], {name})
+    _guard_server_ports(link["type"], link, link.get("server_side"), A, B, a_ip, b_ip, old, _own_ports(old, a, b))
+    if old.get("edges"):
+        link["edges"] = _thaw(old["edges"])
+        _edge_backend(link, a_ip if _srv_is_a(link) else b_ip, b_ip if _srv_is_a(link) else a_ip)
+        changes["edges"] = link["edges"]
+    _guard_edge_wires(link, lid, h["key"])
+    bodies = _stored_bodies(A, B, link, a_ips=ips[0], b_ips=ips[1])
+    restore = _stored_bodies(a, b, old)[1 - index]
+    peer_touched = saved = False
+    try:
+        r = _node_tunnel(target, bodies[index])
+        if not r.get("ok"):
+            raise _node_failed(target, r)
+        peer_touched = True
+        r = _node_tunnel(peer, bodies[1 - index])
+        if not r.get("ok"):
+            raise _node_failed(peer, r)
+        if link.get("edges") or link.get("cdn"):
+            _transfer_save(lid, changes)
+            saved = True
+            _transfer_routes(link, h)
+        if old.get("enabled", True):
+            for attempt in range(3):
+                if attempt:
+                    time.sleep(2)
+                r = node_call(target, "check", "POST", {"name": name}, timeout=30)
+                health = r.get("health") or {}
+                if r.get("ok") and health.get("up") and health.get("alive") is True:
+                    break
+            else:
+                raise Bad("transfer_no_traffic", "عبور ترافیک از تونل جدید تأیید نشد", "the new tunnel did not pass its traffic check")
+        if not saved:
+            _transfer_save(lid, changes)
+    except StoreUnknown:
+        raise Bad("transfer_unknown", "نتیجهٔ ثبت در پنل روشن نیست؛ نسخهٔ مبدأ حفظ شد. دو سر تونل را بررسی کن",
+                  "the registry commit is uncertain; the source was retained, check both ends") from None
+    except Exception as err:
+        problems = []
+        if saved:
+            try:
+                _transfer_save(lid, {k: old[k] for k in changes if k in old})
+                _transfer_routes(old, h)
+            except Exception as ex:
+                problems.append(_why(ex))
+        if peer_touched and not _put_back(peer, restore):
+            problems.append(tx("بازگردانی نود مقابل انجام نشد", "peer rollback failed"))
+        tail = _drop_tunnel_from([target], name)
+        raise Bad(_code(err), tx_join("؛ ", [p for p in [_why(err), *problems, tail] if p], "; ")) from None
+    outcome = "kept"
+    if clean:
+        outcome = _transfer_cleanup(origin, old, side)
+    _set_drift(lid, False)
+    _refresh_bg([source, dest, peer["id"]])
+    return outcome
+
+
+def api_transfer_run(d):
+    _require(d, ["job", "links"])
+    j = _install_get(d["job"])
+    inv = (j or {}).get("transfer", {})
+    if not j or not j["done"] or not j["ok"] or not inv.get("source"):
+        raise Bad("transfer_not_ready", "مقصد را دوباره بررسی کن", "inspect the destination again")
+    ids = d["links"]
+    allowed = {r["id"] for r in inv["sourceTunnels"] if not r["blocked"]}
+    if not isinstance(ids, list) or not ids or not all(isinstance(k, str) and k in allowed for k in ids) or len(set(ids)) != len(ids):
+        raise Bad("transfer_selection", "تونل‌های انتخاب‌شده معتبر نیستند", "invalid tunnel selection")
+    clean = d.get("clean", False)
+    if not isinstance(clean, bool):
+        raise Bad("transfer_cleanup", "گزینهٔ پاک‌سازی نامعتبر است", "invalid cleanup option")
+    source, dest = inv["source"], inv["destination"]
+
+    def publish(lid, result):
+        with _install_lock:
+            j = _install_jobs[d["job"]]
+            j["results"][lid] = result
+            j["ts"] = int(time.time())
+
+    def run():
+        for lid in ids:
+            def move(h):
+                a, b = _link_nodes({"id": lid})
+                try:
+                    with _PairLock(a, b, source, dest), _CdnLinkLock(lid):
+                        outcome = _transfer_one(lid, source, dest, clean, h)
+                    h["cleanup"] = outcome
+                    return {"ok": True}
+                finally:
+                    _name_free(h["key"])
+                    _release_edges(h["key"])
+            publish(lid, {"state": "run"})
+            try:
+                h = _act_open(*_link_act_key({"id": lid}))
+                act_step(h, tx("انتقال تونل", "transferring tunnel"), stop=False)
+                _act_run(h, move)
+                result = {"state": h["state"], "detail": h.get("error") or h.get("cleanup") or ""}
+            except Exception as err:
+                result = {"state": "fail", "detail": _why(err)}
+            publish(lid, result)
+        with _install_lock:
+            _install_jobs[d["job"]]["transfer_done"] = True
+
+    with _install_lock:
+        live = _install_jobs.get(d["job"])
+        if not live:
+            raise _no_job()
+        if live.get("submission"):
+            if live["submission"] != (ids, clean):
+                raise Bad("transfer_submitted", "انتقال این انتخاب قبلاً شروع شده است", "this transfer was already submitted")
+            return {"ok": True}
+        live.update(submission=(ids, clean), results={}, transfer_done=False)
+        threading.Thread(target=run, daemon=True).start()
+        return {"ok": True}
 
 
 def api_edit_link(d):
@@ -12805,6 +13103,7 @@ def api_ui_config(d):
 
 
 API = {
+    "transfer-prepare": api_transfer_prepare, "transfer-run": api_transfer_run,
     "nodes": api_nodes, "node-names": api_node_names, "summary": api_summary, "next-port": api_next_port,
     "settings": api_settings, "settings-set": api_settings_set, "readiness": api_readiness,
     "ui-config": api_ui_config, "api-token-new": api_token_new,
@@ -12842,7 +13141,7 @@ API = {
     "cdn-check": api_cdn_check, "cdn-notes": api_cdn_notes, "cdn-ports": api_cdn_ports, "cdn-make": api_cdn_make, "cdn-drop": api_cdn_drop, "cdn-sync": api_cdn_sync,
     "cdn-edge": api_cdn_edge,
 }
-MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
+MUTATIONS = {"transfer-prepare", "transfer-run", "proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel", "push-pause", "node-add", "node-install", "node-install-batch", "install-batch-stop", "install-batch-retry", "install-forget-key", "node-edit", "node-del", "node-toggle", "node-kernel-tune", "node-adopt-ip", "create-tunnel", "edit-link", "rebuild-link", "restart-link",
              "link-speed", "check-link", "node-test", "node-ips", "link-rebuild-info",
              "delete-link", "link-toggle", "stray-del", "edge-status", "pool-retest-now", "pool-select",
              "peer-status", "peer-retest-now", "peer-select",
@@ -12853,7 +13152,7 @@ MUTATIONS = {"proxy-add", "proxy-edit", "proxy-del", "proxy-test", "push-cancel"
              "reorder", "link-tag",
              "act-cancel", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
              "cdn-key", "cdn-set", "cdn-test", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync", "cdn-edge"}
-TOKEN_DENY = {"settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
+TOKEN_DENY = {"transfer-prepare", "transfer-run", "settings-set", "api-token-new", "backup", "backup-restore", "sign-key-rotate",
               "cdn", "cdn-key", "cdn-set", "cdn-test", "cdn-zones", "cdn-check", "cdn-notes", "cdn-ports", "cdn-make", "cdn-drop", "cdn-sync", "cdn-edge"}
 API_MSG = {
     "unauthorized": ("وارد نشده‌اید", 401, "unauthorized"),
