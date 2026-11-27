@@ -73,7 +73,7 @@ h1{font-size:clamp(31px,5vw,39px);font-weight:850;line-height:1.55;letter-spacin
 .text-slot:focus-within label,.text-slot input:not(:placeholder-shown)+label{transform:translateY(calc(-50% - 12px)) scale(.77);color:var(--blue)}
 .password-toggle{flex:0 0 44px;width:44px;height:44px;padding:0;margin-inline-end:-7px;border:0;border-radius:8px;background:transparent;color:var(--muted);display:grid;place-items:center}
 .password-toggle svg{display:block;width:17px;height:17px}
-.password-toggle:hover,.edit:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+@media(hover:hover) and (pointer:fine){.password-toggle:hover{color:var(--ink)}.edit:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}}
 .feedback{min-height:29px;font-size:12.5px;color:var(--danger);font-weight:550;padding:3px 2px}
 .action{width:100%;min-height:55px;border-radius:13px;border:0;background:linear-gradient(135deg,var(--fill),var(--fill-deep));box-shadow:inset 0 1px #ffffff33,0 6px 15px -9px #425bcc66;color:white;display:flex;align-items:center;justify-content:space-between;text-align:start;padding:5px 17px 5px 8px;font-size:16px;font-weight:760;transition:filter .16s,transform .16s}
 .action:hover{filter:brightness(1.055)}.action:active{transform:scale(.99)}
