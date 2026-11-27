@@ -41,6 +41,7 @@ function NodeCard({
   onTune,
   onDelete,
   onMovedIp,
+  onTransfer,
 }) {
   const [message, setMessage] = useState(null)
   const [messageOnline, setMessageOnline] = useState(node.online)
@@ -197,6 +198,7 @@ function NodeCard({
         ) : null}
         <ActBtn cls="reset" icon="reset" title={T('tip_nreset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
         <ActBtn cls="info" icon="info" title={T('tip_details')} locked={!!busyAct} onClick={() => onDetails(node)} />
+        <ActBtn cls="info" icon="swap" title="انتقال نود" locked={!!busyAct} onClick={() => onTransfer(node)} />
         <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(node)} />
         <ActBtn cls="danger" icon="trash" title={T('tip_delete')} locked={!!busyAct} onClick={() => onDelete(node)} />
       </div>
