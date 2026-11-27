@@ -21,7 +21,7 @@ export default function TransferDetails({ tunnel }) {
   const id = useId()
   const d = tunnel.details
   const firstServer = d.type !== 'core' || d.server_side !== 'b'
-  const rows = [
+  const rows = open ? [
     ['نوع تونل', tunnel.kind],
     ...['a', 'b'].flatMap((side, i) => {
       const server = i === 0 ? firstServer : !firstServer
@@ -31,7 +31,7 @@ export default function TransferDetails({ tunnel }) {
     }),
     ...Object.entries(labels).filter(([k]) => d[k] != null && d[k] !== '' && !(Array.isArray(d[k]) && !d[k].length))
       .map(([k,label]) => [label, cellValue(d[k])])
-  ]
+  ] : []
   return <>
     <button className="nt-details-btn" type="button" aria-expanded={open} aria-controls={id}
       aria-label={(open ? 'بستن' : 'نمایش') + ' جزئیات ' + tunnel.name} onClick={() => setOpen(!open)}>
