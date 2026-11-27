@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import Icon from '../../components/Icon.jsx'
 import { Check } from '../../components/Marks.jsx'
 import Field from '../../components/Field.jsx'
@@ -386,17 +385,12 @@ function BulkFab({ batch, hidden, onOpen }) {
   const [kept, setKept] = useState(batch)
   if (visible && batch !== kept) setKept(batch)
 
-  useEffect(() => {
-    document.body.classList.toggle('bulking', visible)
-    return () => document.body.classList.remove('bulking')
-  }, [visible])
-
   const b = visible ? batch : kept
   if (!shown || !b) return null
   const t = tally(b.rows)
   const n = b.rows.length
   const tone = b.done ? endTone(t) : ''
-  return createPortal(
+  return (
     <button type="button" className={'bfab ' + tone + (visible ? '' : ' out')} inert={!visible} onClick={onOpen}>
       {b.done ? <Icon name={TONE_ICON[tone]} /> : <span className="ispin" />}
       <span>{b.done ? T('nb_fab_done') : T('nb_fab')}</span>
@@ -407,8 +401,7 @@ function BulkFab({ batch, hidden, onOpen }) {
       <span className="bfbar">
         <i style={{ width: (100 * t.end) / Math.max(n, 1) + '%' }} />
       </span>
-    </button>,
-    document.body
+    </button>
   )
 }
 

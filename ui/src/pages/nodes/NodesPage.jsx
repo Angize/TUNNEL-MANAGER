@@ -6,7 +6,7 @@ import LoadBar from '../../components/LoadBar.jsx'
 import { SkelNodes, SkelZone, skelCount } from '../../components/Skeleton.jsx'
 import LoadFail from '../../components/LoadFail.jsx'
 import { useSummary } from '../../state/SummaryContext.jsx'
-import TransferModal from './TransferModal.jsx'
+import { useOpenTransfer } from '../../state/NodeJobs.jsx'
 import NodeCard from './NodeCard.jsx'
 import NodeAddModal from './NodeAddModal.jsx'
 import { useBulk } from '../../state/BulkInstallContext.jsx'
@@ -44,7 +44,7 @@ export default function NodesPage({ active }) {
   const [query, setQuery] = usePageQuery('nodes')
   const [overrides, setOverrides] = useState({})
   const [adding, setAdding] = useState(false)
-  const [transfer, setTransfer] = useState(null)
+  const openTransfer = useOpenTransfer()
   const [editing, setEditing] = useState(null)
   const [details, setDetails] = useState(null)
   const [tuning, setTuning] = useState(null)
@@ -141,7 +141,7 @@ export default function NodesPage({ active }) {
                   onToggle={onToggle}
                   onChanged={reload}
                   onEdit={setEditing}
-                  onTransfer={setTransfer}
+                  onTransfer={node => openTransfer(node, nodes, !!query)}
                   onDetails={setDetails}
                   onTune={setTuning}
                   onDelete={setDeleting}
@@ -155,7 +155,6 @@ export default function NodesPage({ active }) {
         )}
       </div>
 
-      {transfer ? <TransferModal node={transfer} nodes={nodes} filtered={!!query} onClose={() => { setTransfer(null); reload() }} /> : null}
       {adding ? <NodeAddModal bulk={bulk} onClose={closeAdd} onAdded={reload} /> : null}
       {editing ? (
         <NodeEditModal node={editing} onClose={() => setEditing(null)} onSaved={reload} />

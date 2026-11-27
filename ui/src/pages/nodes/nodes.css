@@ -1453,7 +1453,7 @@ input.phrtl:placeholder-shown {
   font-size: 13px;
 }
 
-.bfab {
+.node-jobs {
   position: fixed;
   bottom: 16px;
   left: 50%;
@@ -1461,7 +1461,16 @@ input.phrtl:placeholder-shown {
   z-index: 40;
   display: flex;
   align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+
+.bfab {
+  display: flex;
+  align-items: center;
   gap: 9px;
+  min-width: 0;
   width: max-content;
   max-width: calc(100vw - 32px);
   min-height: 44px;
@@ -1488,11 +1497,11 @@ input.phrtl:placeholder-shown {
 }
 
 @keyframes bfabin {
-  from { opacity: 0; transform: translate(-50%, 18px) scale(.96) }
+  from { opacity: 0; transform: translateY(18px) scale(.96) }
 }
 
 @keyframes bfabout {
-  to { opacity: 0; transform: translate(-50%, 12px) scale(.97) }
+  to { opacity: 0; transform: translateY(12px) scale(.97) }
 }
 
 .bfab > .ic {
@@ -1553,32 +1562,32 @@ input.phrtl:placeholder-shown {
   background: var(--sub);
 }
 
-body.bulking .toasts {
+body:has(.node-jobs > .bfab:not([inert])) .toasts {
   bottom: 74px;
 }
 
-body.pushing .bfab {
+body.pushing .node-jobs {
   bottom: 68px;
 }
 
-body.pushing.bulking .toasts {
+body.pushing:has(.node-jobs > .bfab:not([inert])) .toasts {
   bottom: 122px;
 }
 
 @media (max-width: 840px) {
-  .bfab {
+  .node-jobs {
     bottom: 80px;
   }
 
-  body.bulking .toasts {
+  body:has(.node-jobs > .bfab:not([inert])) .toasts {
     bottom: 138px;
   }
 
-  body.pushing .bfab {
+  body.pushing .node-jobs {
     bottom: 132px;
   }
 
-  body.pushing.bulking .toasts {
+  body.pushing:has(.node-jobs > .bfab:not([inert])) .toasts {
     bottom: 186px;
   }
 }

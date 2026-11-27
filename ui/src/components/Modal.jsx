@@ -45,7 +45,7 @@ function growFrom(el, was) {
   cascadeIn(el, true)
 }
 
-export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, label, loading, children }) {
+export default function Modal({ icon, title, subtitle, footer, onClose, cls, bare, label, loading, closeLabel, children }) {
   const id = useId()
   const titleId = id + 't'
   const box = useRef(null)
@@ -143,7 +143,7 @@ export default function Modal({ icon, title, subtitle, footer, onClose, cls, bar
                 <h3 id={titleId}>{title}</h3>
                 {subtitle ? <div className="sb">{subtitle}</div> : null}
               </div>
-              <button type="button" className="mx" aria-label={T('close')} onClick={onClose}>
+              <button type="button" className="mx" title={closeLabel} aria-label={closeLabel || T('close')} onClick={onClose}>
                 <Icon name="x" />
               </button>
             </div>

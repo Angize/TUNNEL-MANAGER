@@ -26,7 +26,7 @@ import { UiConfigProvider } from './state/UiConfigContext.jsx'
 import { SummaryProvider } from './state/SummaryContext.jsx'
 import { ActsProvider, useActs } from './state/ActsContext.jsx'
 import { BulkInstallProvider } from './state/BulkInstallContext.jsx'
-import { BulkFabHost } from './pages/nodes/NodeBulk.jsx'
+import NodeJobs from './state/NodeJobs.jsx'
 import { HUB_IDS, hasPage, hubFirst, hubOf, hubSize, kindCount, pageComponent } from './pages/index.jsx'
 
 const DEFAULT_INTERVAL = 2000
@@ -286,7 +286,7 @@ function Shell() {
   const Page = pageComponent(page) || pageComponent('overview')
 
   return (
-    <>
+    <NodeJobs onNavigate={navigate}>
       <div className="shell">
         <Sidebar
           page={page}
@@ -342,10 +342,9 @@ function Shell() {
           onClose={() => setPalette(false)}
         />
       ) : null}
-      <BulkFabHost onNavigate={navigate} />
       <ToastHost />
       <DialogHost />
-    </>
+    </NodeJobs>
   )
 }
 

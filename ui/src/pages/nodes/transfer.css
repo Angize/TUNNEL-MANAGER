@@ -55,3 +55,8 @@
 .nt-specs div{border-top:1px solid var(--bord);padding:6px 0;font-size:12px;min-width:0}
 .nt-specs dt{color:var(--sub)}
 .nt-specs dd{margin:2px 0 0;overflow-wrap:anywhere;font-weight:600}
+
+.nt-fab-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
