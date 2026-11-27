@@ -6,6 +6,9 @@ import ProxyFields, { proxyBody } from '../../components/ProxyFields.jsx'
 import useProxies from '../../lib/useProxies.js'
 import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
+import NodeIpField from './NodeIpField.jsx'
+import { isIpv4 } from '../../lib/cdn.js'
+import { T } from '../../i18n/fa.js'
 import { latinDigits } from '../../lib/num.js'
 import { prepareDestination, runTransfer } from './transferService.js'
 import TransferDetails from './TransferDetails.jsx'
@@ -38,7 +41,7 @@ function Item({ icon, label, detail, value, tone }) {
 function formErrors(form, source) {
   const errors = {}
   if (!isNodeNameValid(form.name.trim())) errors.name = 'نام نود را با حروف لاتین، عدد، فاصله، نقطه یا خط بنویس (حداکثر ۴۰ نویسه).'
-  if (!form.host.trim()) errors.host = 'نشانی مقصد را وارد کن.'
+  if (!isIpv4(form.host.trim())) errors.host = T('node_ip_invalid')
   else if (form.host.trim() === source.host) errors.host = 'مقصد و مبدأ یکی هستند.'
   if (!form.user.trim()) errors.user = 'نام کاربر اتصال را وارد کن.'
   for (const key of ['port', 'agentPort']) {
@@ -130,7 +133,8 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     {step >= 2 && <Route source={node.name} dest={form.name} />}
     <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{num(picked.length)} از {num(tunnels.length)} انتخاب شده</span>}</div>
     {step === 0 && <>
-      <div className="grid2">{field('name','نام نود مقصد',{placeholder:'IR-02'})}{field('host','نشانی سرور',{placeholder:'192.0.2.22'})}</div>
+      <div className="grid2">{field('name','نام نود مقصد',{placeholder:'IR-02'})}
+        <NodeIpField placeholder="192.0.2.22" value={form.host} error={errors.host} onChange={host => write('host',host)} /></div>
       <div className="grid2">{field('user','کاربر اتصال')}{field('port','پورت اتصال',{inputMode:'numeric'})}</div>
       <div className="grid2">{field('agentPort','پورت ایجنت',{inputMode:'numeric'})}</div>
       <div className={errors.auth ? 'nt-auth-error' : ''}><SshAuth mode={form.mode} onMode={v => write('mode',v)} pass={form.pass} onPass={v => write('pass',v)} sshKey={form.key} onKey={v => write('key',v)} />

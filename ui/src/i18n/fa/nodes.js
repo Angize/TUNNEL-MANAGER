@@ -46,6 +46,7 @@ export default {
   nadd_cmd_load_fail: 'دستورِ نصب از پنل خوانده نشد:',
   nadd_node_name: 'نامِ نود',
   nadd_srv_ip: 'آی‌پیِ سرور',
+  node_ip_invalid: 'یک آدرس IPv4 معتبر وارد کن، مثل 192.0.2.22',
   nadd_ssh_port: 'پورتِ SSH',
   nadd_ssh_user: 'کاربرِ SSH',
   nadd_agent_port: 'پورتِ ایجنت',
@@ -169,7 +170,6 @@ export default {
   mv_done: 'نشانیِ نود عوض شد: ',
 
   f_name: 'نام',
-  f_host_ip: 'هاست / آی‌پی',
   f_port: 'پورت',
   f_token: 'توکن',
   tok_keep: 'خالی = بدونِ تغییر',
@@ -179,8 +179,8 @@ export default {
   tip_nreset: 'صفر کردنِ ترافیکِ نود',
   tip_details: 'مشخصات',
 
-  need_nhp: 'نام، هاست و پورت لازم است',
-  need_all_nhpt: 'لطفاً نام، هاست، پورت و توکن را پر کن',
+  need_nhp: 'نام، آی‌پی و پورت لازم است',
+  need_all_nhpt: 'لطفاً نام، آی‌پی، پورت و توکن را پر کن',
   test_testing: 'در حال تست…',
   node_added_checking: 'نود اضافه شد — وضعیتش تا چند لحظهٔ دیگر روی کارتش می‌آید',
   node_name_ascii: 'نامِ نود فقط با حروفِ انگلیسی، عدد، فاصله و «_ . -» و حداکثر ۴۰ کاراکتر — نامِ فارسی روی نود قابلِ استفاده نیست',

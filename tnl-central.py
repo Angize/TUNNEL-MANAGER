@@ -3649,8 +3649,8 @@ def _node_name(v):
 
 def _node_host(v):
     host = str(v).strip()
-    if not (is_ipv4(host) or re.match(r"^[A-Za-z0-9.-]{1,253}$", host)):
-        raise Bad("bad_node_host", "آی‌پی یا هاستِ نود نامعتبر است", "invalid node IP or host")
+    if not is_ipv4(host):
+        raise Bad("bad_node_host", "یک آدرس IPv4 معتبر وارد کن، مثل 192.0.2.22", "enter a valid IPv4 address")
     return host
 
 
