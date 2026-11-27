@@ -5,48 +5,37 @@ import { latinDigits } from '../../lib/num.js'
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 const modes = { github: 'دریافت از گیت‌هاب', push: 'ارسال از پنل', panel: 'دریافت از پنل' }
-const states = {
-  checking: ['در حال بررسی…', ''], installing: ['در حال نصب…', 'wait'],
-  installed: ['نصب شد', 'ok'], present: ['نصب است', 'ok']
-}
-
 function componentStatus(state, mode) {
-  const [status, tone] = states[state] || states.checking
-  return { status, tone, detail: modes[mode] ? 'روش نصب پنل: ' + modes[mode] : '' }
+  const installed = state === 'installed'
+  return { value: installed ? 'نصب شد' : 'از قبل نصب بود', detail: installed && modes[mode] ? 'روش نصب پنل: ' + modes[mode] : '' }
 }
 
 async function readJob(job, after) {
   let last
   for (let i = 0; i < 4; i++) {
-    try { return await apiGet('install-status?job=' + encodeURIComponent(job) + (after === undefined ? '' : '&after=' + after)) }
+    try { return await apiGet('install-status?job=' + encodeURIComponent(job) + '&after=' + after) }
     catch (err) { last = err; if (err.status >= 400 && err.status < 500) throw err; if (i < 3) await delay(600 * (i + 1)) }
   }
   throw Error(readError(last))
 }
 
-export async function prepareDestination(node, form, proxy, publish, job) {
-  if (!job) {
-    const r = await apiPost('transfer-prepare', {
-      source: node.id, name: form.name.trim(), ssh_host: form.host.trim(), ...proxy,
-      ssh_user: form.user.trim(), ssh_port: latinDigits(form.port), agent_port: latinDigits(form.agentPort),
-      ssh_pass: form.mode === 'pass' ? form.pass : '', ssh_key: form.mode === 'key' ? form.key : ''
-    })
-    if (!r.ok || !r.d.ok) throw Error(postError(r))
-    job = r.d.job
-    publish({ job, pending: true })
-  }
-  for (;;) {
-    const j = await readJob(job)
-    const inventory = j.transfer || {}
-    const sourceTunnels = inventory.sourceTunnels?.map(t => ({ ...t, kind: t.kind === 'core' ? 'هسته'
+export async function startPreparation(node, form, proxy) {
+  const r = await apiPost('transfer-prepare', {
+    source: node.id, name: form.name.trim(), ssh_host: form.host.trim(), ...proxy,
+    ssh_user: form.user.trim(), ssh_port: latinDigits(form.port), agent_port: latinDigits(form.agentPort),
+    ssh_pass: form.mode === 'pass' ? form.pass : '', ssh_key: form.mode === 'key' ? form.key : ''
+  })
+  if (!r.ok || !r.d.ok) throw Error(postError(r))
+  return r.d.job
+}
+
+export function destinationInventory(inventory) {
+  return {
+    ...inventory,
+    agent: componentStatus(inventory.agent, inventory.agentMode),
+    core: componentStatus(inventory.core, inventory.coreMode),
+    sourceTunnels: inventory.sourceTunnels.map(t => ({ ...t, kind: t.kind === 'core' ? 'هسته'
       : TUNNEL_TYPES.find(type => type.v === t.kind)?.label || t.kind }))
-    const failed = j.done && !j.success
-    const issues = failed ? j.steps.filter(step => step.state === 'err' || step.state === 'warn') : []
-    publish({ ...inventory, sourceTunnels, job, pending: !j.done, issues,
-      agent: componentStatus(inventory.agent, inventory.agentMode), core: componentStatus(inventory.core, inventory.coreMode) })
-    if (failed) throw Error(j.banner || 'آماده‌سازی مقصد کامل نشد.')
-    if (j.done) return
-    await delay(550)
   }
 }
 

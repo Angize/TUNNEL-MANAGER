@@ -11,10 +11,6 @@ export function StepIcon({ state }) {
   return <span className="istep-i wait" />
 }
 
-function displayState(confirmed) {
-  return confirmed === 'ok' || confirmed === 'warn' ? confirmed : 'err'
-}
-
 export function Roll({ text }) {
   const [now, setNow] = useState(text)
   const [gone, setGone] = useState(null)
@@ -63,17 +59,13 @@ export default function InstallProgress({ state, onForgetKey }) {
   const running = !state.finished
   const total = state.steps.length
   const at = Math.min(Math.max(state.revealIdx, 1), total)
-  const bannerText = running ? state.steps[at - 1].label : state.error || state.banner
-  const shownSteps = running
-    ? []
-    : state.steps.slice(0, state.revealIdx)
-        .map((step, i) => ({ ...step, state: displayState(state.confirmed[i]) }))
-        .filter(step => step.state !== 'ok')
+  const bannerText = running ? state.steps[at - 1]?.label || T('inst_ssh') : state.error || state.banner
+  const shownSteps = running ? [] : state.steps.filter(step => step.state === 'err' || step.state === 'warn')
 
   return <InstallReport
     tone={running ? 'run' : state.success ? 'ok' : 'err'}
     banner={bannerText}
-    counter={running ? TF('inst_step_of', { n: at, total }) : null}
+    counter={running && total > 0 ? TF('inst_step_of', { n: at, total }) : null}
     steps={shownSteps}
     onForgetKey={state.hostkey ? onForgetKey : undefined}
   />
@@ -82,7 +74,7 @@ export default function InstallProgress({ state, onForgetKey }) {
 export function InstallReport({ tone, banner, counter, steps = [], onForgetKey }) {
   return (
     <div className="iwrap">
-      <div className={'ibanner ' + tone}>
+      <div className={'ibanner ' + tone} role={tone === 'err' ? 'alert' : 'status'}>
         {tone === 'run' ? <span className="ispin" /> : tone === 'ok' ? <Check /> : <Cross />}
         <Roll text={banner} />
         {counter && <span className="ibx">{counter}</span>}

@@ -118,11 +118,6 @@ export default {
   nb_show_log: 'نمایشِ خطا',
 
   inst_ssh: 'اتصالِ SSH',
-  inst_agent: 'رساندنِ ایجنت به نود',
-  inst_service: 'نصب و راه‌اندازیِ سرویس',
-  inst_register: 'ثبت و اتصال در پنل',
-  inst_connecting: 'در حالِ اتصال…',
-  inst_waiting: 'در انتظار…',
   inst_installing: 'در حالِ نصب…',
   inst_step_of: '{n} از {total}',
   inst_done: 'انجام شد',

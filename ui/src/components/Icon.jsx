@@ -27,6 +27,13 @@ const PATHS = {
       <path d="M7 7.5h.01M7 16.5h.01" />
     </>
   ),
+  nodeTransfer: (
+    <>
+      <rect x="10" y="3" width="12" height="6" rx="1.7" />
+      <rect x="2" y="15" width="12" height="6" rx="1.7" />
+      <path d="M13 6h.4M5 18h.4M7 6H6a2 2 0 0 0-2 2v4m-2.2-2.2L4 12l2.2-2.2" />
+    </>
+  ),
   link: <path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8" />,
   globe: (
     <>
