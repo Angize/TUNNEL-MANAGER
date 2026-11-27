@@ -21,7 +21,7 @@ import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy, reorderMode } from '../../lib/reorder.js'
-import useFlipList from '../../lib/useFlipList.js'
+import useCardList from '../../lib/useCardList.js'
 import { splitBuilds } from '../../lib/builds.js'
 import { useActs } from '../../state/ActsContext.jsx'
 import './core.css'
@@ -109,7 +109,7 @@ export default function CorePage({ active }) {
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const builds = splitBuilds(pending, ordered)
   const listBox = useRef(null)
-  useFlipList(
+  useCardList(
     listBox,
     list === null ? null : [...builds.shown.map((l) => l.id), ...builds.cards.map((a) => 'pend_' + a.key)],
     query,

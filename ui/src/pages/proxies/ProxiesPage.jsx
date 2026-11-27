@@ -10,7 +10,7 @@ import { T } from '../../i18n/fa.js'
 import { apiGet } from '../../lib/api.js'
 import usePolledData from '../../lib/usePolledData.js'
 import { listBusy } from '../../lib/reorder.js'
-import useFlipList from '../../lib/useFlipList.js'
+import useCardList from '../../lib/useCardList.js'
 import './proxies.css'
 
 export default function ProxiesPage({ active }) {
@@ -28,7 +28,7 @@ export default function ProxiesPage({ active }) {
 
   const listBox = useRef(null)
   const cardKey = (proxy) => proxy.id + ':' + (edits[proxy.id] || 0)
-  useFlipList(listBox, list === null ? null : list.map(cardKey), null, { hold: listBusy() })
+  useCardList(listBox, list === null ? null : list.map(cardKey), null, { hold: listBusy() })
 
   const saved = (id) => {
     if (id) setEdits((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }))

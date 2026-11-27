@@ -24,7 +24,7 @@ import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy, reorderMode } from '../../lib/reorder.js'
-import useFlipList from '../../lib/useFlipList.js'
+import useCardList from '../../lib/useCardList.js'
 import './nodes.css'
 
 function StaleBanner({ count }) {
@@ -102,7 +102,7 @@ export default function NodesPage({ active }) {
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const live = (snapshot) => byId.get(snapshot.id) || snapshot
   const listBox = useRef(null)
-  useFlipList(listBox, data === null ? null : ordered.map((n) => n.id), query, { hold: reorderMode() || listBusy() })
+  useCardList(listBox, data === null ? null : ordered.map((n) => n.id), query, { hold: reorderMode() || listBusy() })
 
   return (
     <>

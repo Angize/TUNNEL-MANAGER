@@ -21,7 +21,8 @@ class ResponsivePanel(unittest.TestCase):
         panel = runpy.run_path(str(UI.parent / "tnl-central.py"))
         config = panel["api_ui_config"]({})
         nodes = [
-            {"id": str(i), "name": f"node-{i}", "host": f"192.0.2.{i}", "online": False}
+            {"id": str(i), "name": f"node-{i}", "host": f"192.0.2.{i}", "online": False,
+             "uptime": [100] * config["uptime_cells"], "uptime_pct": 100}
             for i in range(1, 7)
         ]
         cls.data = {
@@ -71,6 +72,14 @@ class ResponsivePanel(unittest.TestCase):
 
     def resize(self, width, height):
         self.page.set_viewport_size({"width": width, "height": height})
+
+    def card_boxes(self, cards):
+        return cards.evaluate_all("""async cards => {
+            const bodies = cards.flatMap(card => [...card.querySelectorAll('.cbody, .cbody-in')])
+            await Promise.all(bodies.flatMap(el => el.getAnimations().map(animation => animation.finished)))
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))))
+            return cards.map(c => [c.offsetLeft, c.offsetTop, c.offsetWidth, c.offsetHeight])
+        }""")
 
     def test_resource_dials_fit_inside_phone_cards(self):
         self.resize(320, 568)
@@ -124,6 +133,66 @@ class ResponsivePanel(unittest.TestCase):
                 self.assertLessEqual(group.evaluate("e => e.scrollWidth - e.clientWidth"), 1)
             self.page.locator(".modal .mx").click()
             expect(body).to_have_count(0)
+
+    def test_expanding_cards_only_moves_their_own_column(self):
+        def fleet(route):
+            core = "kind=core" in route.request.url
+            family = "core" if core else "gre"
+            links = [
+                {"id": family + str(i), "name": family + str(i), "type": family,
+                 "a_name": "east", "b_name": "west", "transport": "udp"}
+                for i in range(8)
+            ]
+            route.fulfill(json={"links": links, "total": len(links)})
+
+        self.page.route("**/api/fleet?*", fleet)
+        for section in ("nodes", "tunnels", "core"):
+            self.page.locator(".nav .navi").nth(1 if section == "nodes" else 2).click()
+            if section != "nodes":
+                self.page.locator(".lseg button").nth(0 if section == "tunnels" else 1).click()
+            cards = self.page.locator(".lpane:not([inert]) .flist > [data-rid]")
+            expect(cards).to_have_count(6 if section == "nodes" else 8)
+            for width, columns in [(1280, 2), (1920, 4)]:
+                self.resize(width, 900)
+                for index in (0, 1):
+                    with self.subTest(section=section, width=width, index=index):
+                        before = self.card_boxes(cards)
+                        head = cards.nth(index).locator(".chead")
+                        head.click()
+                        try:
+                            expect(head).to_have_attribute("aria-expanded", "true")
+                            after = self.card_boxes(cards)
+                            growth = after[index][3] - before[index][3]
+                            self.assertGreater(growth, 10)
+                            for i, (x, y, w, h) in enumerate(before):
+                                below = i > index and i % columns == index
+                                self.assertEqual(after[i][:3], [x, y + (growth if below else 0), w])
+                        finally:
+                            head.click()
+                        self.assertEqual(self.card_boxes(cards), before)
+
+    def test_open_cards_reflow_on_resize_and_reorder(self):
+        self.resize(1280, 900)
+        self.page.locator(".nav .navi").nth(1).click()
+        pane = self.page.locator(".lpane:not([inert])")
+        cards = pane.locator(".card.node")
+        expect(cards).to_have_count(6)
+        for i in (0, 1, 3):
+            cards.nth(i).locator(".chead").press("Enter")
+        for width, columns in [(390, 1), (1280, 2), (1920, 4), (1280, 2)]:
+            with self.subTest(width=width):
+                self.resize(width, 840)
+                boxes = self.card_boxes(cards)
+                self.assertEqual(len({box[0] for box in boxes}), columns)
+                for i in range(columns, len(boxes)):
+                    x, y, _, h = boxes[i - columns]
+                    self.assertEqual(boxes[i][:2], [x, y + h + 12])
+        for columns in (1, 2):
+            pane.locator(".reordbtn").click()
+            boxes = self.card_boxes(cards)
+            self.assertEqual(len({box[0] for box in boxes}), columns)
+            for i in range(columns, len(boxes)):
+                self.assertEqual(boxes[i][1], boxes[i - columns][1] + boxes[i - columns][3] + 12)
 
     def test_save_is_reachable_on_long_api_page_after_resizing(self):
         self.page.locator(".nav .navi").nth(4).click()

@@ -16,7 +16,7 @@ import usePolledData from '../../lib/usePolledData.js'
 import usePageQuery from '../../lib/pageQuery.js'
 import useCardReorder from '../../lib/useCardReorder.js'
 import { listBusy, reorderMode } from '../../lib/reorder.js'
-import useFlipList from '../../lib/useFlipList.js'
+import useCardList from '../../lib/useCardList.js'
 
 export default function PortfwPage({ active }) {
   const [query, setQuery] = usePageQuery('portfw')
@@ -70,7 +70,7 @@ export default function PortfwPage({ active }) {
   const byId = new Map(items.map((x) => [x.node_id + x.name, x]))
   const ordered = order.map((id) => byId.get(id)).filter(Boolean)
   const listBox = useRef(null)
-  useFlipList(listBox, list === null ? null : ordered.map((x) => x.node_id + x.name), query, {
+  useCardList(listBox, list === null ? null : ordered.map((x) => x.node_id + x.name), query, {
     hold: reorderMode() || listBusy(),
   })
 
