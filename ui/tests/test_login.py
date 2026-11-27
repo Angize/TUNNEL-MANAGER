@@ -51,6 +51,43 @@ class PanelLogin(unittest.TestCase):
         self.user = self.page.get_by_label("نام کاربری", exact=True)
         self.password_field = self.page.get_by_label("رمز عبور", exact=True)
 
+    def test_mobile_taps_and_autofill_preserve_the_login_surfaces(self):
+        with self.browser.new_context(viewport={"width": 393, "height": 851}, has_touch=True,
+                                      is_mobile=True, reduced_motion="reduce") as context:
+            page = context.new_page()
+            page.goto(self.origin)
+            page.evaluate("document.fonts.ready")
+            devtools = context.new_cdp_session(page)
+            devtools.send("DOM.enable")
+            devtools.send("CSS.enable")
+            root = devtools.send("DOM.getDocument")["root"]["nodeId"]
+            for theme in ("light", "dark"):
+                if theme == "dark":
+                    page.locator("#themeControl").tap()
+                    page.locator("#edit").tap()
+                for name in ("username", "password"):
+                    field = page.locator("#" + name)
+                    field.fill("123456")
+                    node = devtools.send("DOM.querySelector", {"nodeId": root, "selector": "#" + name})["nodeId"]
+                    bounds = field.bounding_box()
+                    # Sample the empty part of the input, away from the text and caret.
+                    sample = {"x": int(bounds["x"]) + 8, "y": int(bounds["y"]) + 20, "width": 16, "height": 12}
+                    ordinary = page.screenshot(clip=sample)
+                    devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": ["autofill"]})
+                    self.assertTrue(field.evaluate("el => el.matches(':autofill')"))
+                    self.assertEqual(page.screenshot(clip=sample), ordinary)
+                    devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": []})
+                    if name == "username":
+                        page.get_by_role("button", name="ادامه").tap()
+                for selector in ("#themeControl", "#motionControl", "#eye", "#password", "#action"):
+                    color = page.locator(selector).evaluate("el => getComputedStyle(el).webkitTapHighlightColor")
+                    self.assertEqual(color, "rgba(0, 0, 0, 0)")
+                page.locator("#eye").tap()
+                expect(page.locator("#password")).to_have_attribute("type", "text")
+                page.get_by_role("button", name="ورود به پنل").tap()
+                expect(page.get_by_role("alert")).to_have_text("نام کاربری یا رمز اشتباه است")
+                expect(page.locator("#action")).to_have_css("filter", "none")
+
     def test_retry_after_rejection_and_open_authenticated_dashboard_in_selected_theme(self):
         sent = []
         self.page.on("request", lambda req: sent.append(req.post_data_json) if req.url.endswith("/api/login") else None)
