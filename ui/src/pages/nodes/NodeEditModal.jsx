@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Modal from '../../components/Modal.jsx'
 import Field from '../../components/Field.jsx'
 import NumberInput from '../../components/NumberInput.jsx'
@@ -9,6 +9,7 @@ import { apiPost } from '../../lib/api.js'
 import { postError } from '../../lib/errors.js'
 import { alertBox } from '../../lib/dialog.js'
 import { isNodeNameValid } from './nodeName.js'
+import NodeIpField from './NodeIpField.jsx'
 import useBusy from '../../lib/useBusy.js'
 import useProxies from '../../lib/useProxies.js'
 
@@ -22,6 +23,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
   const [saved, markSaved] = useSaved()
   const [name, setName] = useState(node.name)
   const [host, setHost] = useState(node.host)
+  const ipRef = useRef(null)
   const [port, setPort] = useState(String(node.port))
   const [token, setToken] = useState('')
   const [proxy, setProxy] = useState({ on: !!node.proxy_on, id: node.proxy_id || '' })
@@ -29,7 +31,8 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
   const proxies = useProxies()
 
   const save = async () => {
-    if (!name.trim() || !host.trim() || !port.trim()) {
+    if (!ipRef.current.checkValidity()) return
+    if (!name.trim() || !port.trim()) {
       setMessage('')
       alertBox(T('need_nhp'))
       return
@@ -77,13 +80,7 @@ export default function NodeEditModal({ node, onClose, onSaved }) {
         <Field label={T('f_name')} first>
           <input {...LTR_TEXT} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label={T('f_host_ip')} first>
-          <input
-            {...LTR_TEXT}
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-          />
-        </Field>
+        <NodeIpField first inputRef={ipRef} value={host} onChange={setHost} />
       </div>
       <div className="grid2">
         <Field label={T('f_port')}>

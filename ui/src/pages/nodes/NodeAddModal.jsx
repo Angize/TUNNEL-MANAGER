@@ -11,6 +11,7 @@ import SwapCascade from '../../components/SwapCascade.jsx'
 import { reducedMotion } from '../../lib/motion.js'
 import useProxies from '../../lib/useProxies.js'
 import InstallProgress from './InstallProgress.jsx'
+import NodeIpField from './NodeIpField.jsx'
 import useInstallJob from './useInstallJob.js'
 import { BulkFooter, BulkForm, BulkRun, useBulkList } from './NodeBulk.jsx'
 import SshAuth from './SshAuth.jsx'
@@ -36,6 +37,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   const [saved, markSaved] = useSaved()
   const [installed, setInstalled] = useState(false)
   const progressRef = useRef(null)
+  const autoIpRef = useRef(null)
+  const manualIpRef = useRef(null)
 
   const [auto, setAuto] = useState({
     name: '',
@@ -113,7 +116,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
     const pass = authMode === 'pass' ? auto.pass : ''
     const key = authMode === 'key' ? auto.key.trim() : ''
 
-    if (!name || !host) {
+    if (!autoIpRef.current.checkValidity()) return
+    if (!name) {
       alertBox(T('nadd_need_name_ip'))
       return
     }
@@ -158,7 +162,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
 
   const addManual = async () => {
     const { name, host, port, token } = manual
-    if (!name.trim() || !host.trim() || !port.trim() || !token.trim()) {
+    if (!manualIpRef.current.checkValidity()) return
+    if (!name.trim() || !port.trim() || !token.trim()) {
       alertBox(T('need_all_nhpt'))
       return
     }
@@ -279,14 +284,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
                   onChange={(e) => setAuto({ ...auto, name: e.target.value })}
                 />
               </Field>
-              <Field label={T('nadd_srv_ip')} first>
-                <input
-                  {...LTR_TEXT}
-                  placeholder="5.75.197.55"
-                  value={auto.host}
-                  onChange={(e) => setAuto({ ...auto, host: e.target.value })}
-                />
-              </Field>
+              <NodeIpField first inputRef={autoIpRef} placeholder="5.75.197.55" value={auto.host}
+                onChange={host => setAuto({ ...auto, host })} />
             </div>
             <div className="grid2">
               <Field label={rangeLabel(T('nadd_ssh_port'), ...limits.port)}>
@@ -396,14 +395,8 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
                   onChange={(e) => setManual({ ...manual, name: e.target.value })}
                 />
               </Field>
-              <Field label={T('f_host_ip')} first>
-                <input
-                  {...LTR_TEXT}
-                  placeholder="203.0.113.10"
-                  value={manual.host}
-                  onChange={(e) => setManual({ ...manual, host: e.target.value })}
-                />
-              </Field>
+              <NodeIpField first inputRef={manualIpRef} placeholder="203.0.113.10" value={manual.host}
+                onChange={host => setManual({ ...manual, host })} />
             </div>
             <div className="grid2">
               <Field label={rangeLabel(T('nadd_agent_port'), ...limits.port)}>
