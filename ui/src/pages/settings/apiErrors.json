@@ -2517,7 +2517,7 @@
    [
     400,
     "bad_node_host",
-    "invalid node IP or host"
+    "enter a valid IPv4 address"
    ],
    [
     400,
@@ -2767,7 +2767,7 @@
    [
     400,
     "bad_node_host",
-    "invalid node IP or host"
+    "enter a valid IPv4 address"
    ],
    [
     400,
@@ -2899,7 +2899,7 @@
    [
     400,
     "bad_node_host",
-    "invalid node IP or host"
+    "enter a valid IPv4 address"
    ],
    [
     400,
@@ -2953,7 +2953,7 @@
    [
     400,
     "bad_node_host",
-    "invalid node IP or host"
+    "enter a valid IPv4 address"
    ],
    [
     400,
@@ -3017,7 +3017,7 @@
    [
     400,
     "bad_node_host",
-    "invalid node IP or host"
+    "enter a valid IPv4 address"
    ],
    [
     400,
