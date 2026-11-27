@@ -17,7 +17,7 @@ export default function Gauge({ label, pct, sub }) {
   return (
     <div className="gauge">
       <div className="gwrap">
-        <svg width={SIZE} height={SIZE}>
+        <svg viewBox={`0 0 ${SIZE} ${SIZE}`}>
           <circle
             className="gtrack"
             cx={CENTER}

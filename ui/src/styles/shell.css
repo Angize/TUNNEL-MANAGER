@@ -4,8 +4,8 @@
 }
 
 .side {
-  width: 216px;
-  flex: 0 0 216px;
+  flex: 0 0 clamp(180px, 17vw, 216px);
+  min-width: 0;
   margin-block: 14px;
   margin-inline-start: 14px;
   border-radius: 20px;
@@ -32,6 +32,11 @@
   font-size: 14px;
   font-weight: 800;
   direction: ltr;
+}
+
+.side .sbrand {
+  font-size: clamp(12px, 1.1vw, 14px);
+  gap: 6px;
 }
 
 .sbrand small {
@@ -150,7 +155,7 @@
   max-width: 2200px;
   margin-inline: auto;
   --main-pb: 64px;
-  --main-px: 26px;
+  --main-px: clamp(16px, 1.6vw, 26px);
   padding: 22px var(--main-px) var(--main-pb);
 }
 

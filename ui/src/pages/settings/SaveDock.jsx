@@ -40,7 +40,7 @@ function Bar({ count, busy, leaving, onRevert, onSave }) {
     </div>
   )
 
-  return phone ? createPortal(bar, document.body) : bar
+  return createPortal(bar, phone ? document.body : document.querySelector('.main'))
 }
 
 export default function SaveDock({ show, count, busy, onRevert, onSave }) {
