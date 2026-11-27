@@ -7,6 +7,20 @@ import { latinNumber } from '../../lib/num.js'
 
 export default function NodeIpField({ value, onChange, inputRef, placeholder, first, error }) {
   const [checked, setChecked] = useState(false)
+  const change = (event) => {
+    const input = event.currentTarget
+    const raw = input.value
+    const normalized = latinNumber(raw).trim()
+    if (raw !== normalized) {
+      const offset = raw.length - raw.trimStart().length
+      const start = Math.max(0, input.selectionStart - offset)
+      const end = Math.max(0, input.selectionEnd - offset)
+      const direction = input.selectionDirection
+      input.value = normalized
+      input.setSelectionRange(start, end, direction)
+    }
+    onChange(normalized)
+  }
   return (
     <Field first={first} label={T('nadd_srv_ip')} error={error || (checked && !isIpv4(value) && T('node_ip_invalid'))}>
       <input
@@ -17,7 +31,7 @@ export default function NodeIpField({ value, onChange, inputRef, placeholder, fi
         pattern={IPV4.source}
         placeholder={placeholder}
         value={value}
-        onChange={e => onChange(latinNumber(e.target.value).trim())}
+        onChange={change}
         onBlur={() => setChecked(true)}
         onInvalid={e => { setChecked(true); e.currentTarget.focus() }}
       />
