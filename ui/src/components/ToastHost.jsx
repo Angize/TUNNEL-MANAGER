@@ -28,11 +28,9 @@ function restTop(el) {
   return top
 }
 
-function fitFoot(root, height, glide) {
-  const feet = document.querySelectorAll('.modalov:not(.leaving) .mfoot')
-  const foot = height ? feet[feet.length - 1] : null
+function fitFoot(root, height, glide, foot) {
   let lift = 0
-  if (foot) {
+  if (foot?.isConnected) {
     const base = innerHeight - parseFloat(getComputedStyle(root).bottom)
     const top = restTop(foot)
     if (top < base && top + foot.offsetHeight > base - height) lift = base - top + GAP
@@ -53,9 +51,23 @@ export default function ToastHost() {
   if (open && live < 2) setOpen(false)
 
   useLayoutEffect(() => {
-    const height = stack(box.current, open)
-    fitFoot(box.current, height, shown.current > 0 && height > 0)
+    const root = box.current
+    const height = stack(root, open)
+    const feet = height ? document.querySelectorAll('.modalov:not(.leaving) .mfoot') : []
+    const foot = feet[feet.length - 1]
+    fitFoot(root, height, shown.current > 0 && height > 0, foot)
     shown.current = height
+    if (!foot) return
+
+    const refit = () => fitFoot(root, height, false, foot)
+    const observer = new ResizeObserver(refit)
+    observer.observe(foot.closest('.modal'))
+    observer.observe(foot)
+    window.addEventListener('resize', refit)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', refit)
+    }
   }, [items, open])
 
   return (
