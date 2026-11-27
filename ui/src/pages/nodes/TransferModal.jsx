@@ -7,6 +7,7 @@ import useProxies from '../../lib/useProxies.js'
 import SshAuth from './SshAuth.jsx'
 import { isNodeNameValid } from './nodeName.js'
 import NodeIpField from './NodeIpField.jsx'
+import { runPageRefresh } from '../../lib/poll.js'
 import { isIpv4 } from '../../lib/cdn.js'
 import { T } from '../../i18n/fa.js'
 import { latinDigits } from '../../lib/num.js'
@@ -54,7 +55,7 @@ function formErrors(form, source) {
   return errors
 }
 
-export default function TransferModal({ node, nodes, filtered, onClose }) {
+export default function TransferModal({ node, nodes, filtered, minimized, onMinimize, onRestore, onClose }) {
   const [form, setForm] = useState(empty)
   const [step, setStep] = useState(0)
   const [errors, setErrors] = useState({})
@@ -66,7 +67,10 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
   const [results, setResults] = useState(null)
   const { state: progress, start, reset } = useInstallJob({
     onFinished(success, banner, transfer) {
-      if (success) setInventory(destinationInventory(transfer))
+      if (success) {
+        setInventory(destinationInventory(transfer))
+        runPageRefresh()
+      }
       setBusy(false)
     }
   })
@@ -76,7 +80,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
   const known = nodes.find(n => n.host.toLowerCase() === form.host.trim().toLowerCase())
   const proxy = chosenProxy || { on: !!known?.proxy_on, id: known?.proxy_id || '' }
   const title = useRef(null)
-  useEffect(() => { if (step) title.current?.focus() }, [step])
+  useEffect(() => { if (step && !minimized) title.current?.focus() }, [step, minimized])
   const write = (key, value) => {
     setForm(f => ({ ...f, [key]: value }))
     setErrors(e => ({ ...e, [key === 'pass' || key === 'key' || key === 'mode' ? 'auth' : key]: '' }))
@@ -114,7 +118,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       setFault(err.message)
       setResults(rows => Object.fromEntries(Object.entries(rows).map(([id, row]) =>
         [id, row.final ? row : { status: 'نتیجه نامشخص', tone: 'wait' }])))
-    } finally { setBusy(false) }
+    } finally { setBusy(false); runPageRefresh() }
   }
   const back = () => {
     setFault('')
@@ -138,7 +142,22 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       {busy && <span className="bspin sm" />}{primary}</button>
     {!results && <button type="button" className="ghost" disabled={busy} onClick={back}>{step ? 'بازگشت' : 'انصراف'}</button>}
   </>
-  return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={() => { if (!busy) onClose() }} footer={footer}>
+  if (minimized) {
+    const rows = Object.values(results || {})
+    const current = progress?.steps[progress.revealIdx - 1]
+    const needsReview = failed || !!fault || rows.some(row => row.final && row.tone !== 'ok')
+    const label = busy ? (step === 1 ? current?.label || T('inst_ssh') : 'در حال انتقال تونل‌ها')
+      : needsReview ? 'نیاز به بررسی' : inventory && !results ? 'آمادهٔ انتخاب تونل‌ها' : 'انتقال پایان یافت'
+    const count = busy && step === 1 && progress?.steps.length ? progress.revealIdx + '/' + progress.steps.length
+      : rows.length ? rows.filter(row => row.final).length + '/' + rows.length : ''
+    return <button type="button" className={'bfab nt-fab' + (busy ? '' : needsReview ? ' bad' : ' ok')}
+      onClick={onRestore} aria-label={'باز کردن انتقال از ' + node.name + ' به ' + form.name + '، ' + label}>
+      {busy ? <span className="ispin" /> : <Icon name={needsReview ? 'warn' : 'nodeTransfer'} />}
+      <span className="nt-fab-text"><bdi>{form.name}</bdi> · {label}</span>
+      {count && <bdi className="bfn">{count}</bdi>}
+    </button>
+  }
+  return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={busy ? onMinimize : onClose} footer={footer}>
     <StepRail step={step} />
     {step >= 2 && <Route source={node.name} dest={form.name} />}
     <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{num(picked.length)} از {num(tunnels.length)} انتخاب شده</span>}</div>
