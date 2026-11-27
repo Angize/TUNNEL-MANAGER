@@ -3,104 +3,343 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ورود · کنترل فلیت</title>
+<title>ورود به گره‌چین</title>
 <link rel="icon" type="image/svg+xml" href="/assets/fleet-mark.svg">
 <link rel="preload" href="/assets/fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
-<script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch(x){}</script>
+<script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch{}</script>
 <style>
-@font-face { font-family: Vazirmatn; src: url('/assets/fonts/vazirmatn.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
-:root {
-  --acc: #4d6bf0; --fill: #4460e6; --fill-deep: #3a53d0; --page: #e6ebf3; --glow1: #d3e0ff; --glow2: #d8e0fb;
-  --card: rgba(255, 255, 255, .7); --edge: rgba(15, 27, 45, .1); --bord: rgba(15, 27, 45, .09); --field: rgba(15, 27, 45, .04);
-  --tx: #0f1b2d; --sub: #57667c; --bad: #d13b3b; --hi: rgba(255, 255, 255, .95); --accw: rgba(77, 107, 240, .12);
-  --sh: 0 24px 60px -30px rgba(15, 27, 45, .4);
+@font-face{font-family:Vazir;src:url('/assets/fonts/vazirmatn.woff2') format("woff2");font-weight:100 900;font-display:swap}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+:root{
+ color-scheme:light;--page:#e6ebf3;--glow1:#d3e0ff;--glow2:#d8e0fb;--card:rgba(255,255,255,.7);--edge:rgba(15,27,45,.1);--hi:rgba(255,255,255,.95);--field:rgba(15,27,45,.04);
+ --accent:#4d6bf0;--ink:#0f1b2d;--muted:#57667c;--blue:#3154ee;--danger:#bc2c2c;--fill:#4460e6;--fill-deep:#3a53d0;
+ --panel-shadow:0 1px 2px rgba(15,27,45,.05),0 16px 44px -28px rgba(15,27,45,.45),inset 0 1px var(--hi);
+ --control-edge:#7b8ba5;--small-surface:#eef2fd;--sky-edge:#c4d2f2;--star:#627bb0;--rim:#f3f7ff;--soil-1:#bccce9;--soil-2:#dee7f8;--soil-3:#c7d5ee;--soil-4:#aebfe1;--crater-1:#b9c9e7;--crater-2:#afc1e0;--crater-3:#8ea3cb;--pin:#7183a7
 }
-html.dark {
-  --acc: #8fa3ff; --page: #0d1220; --glow1: #1c2a5a; --glow2: #162049;
-  --card: rgba(255, 255, 255, .06); --edge: rgba(255, 255, 255, .1); --bord: rgba(255, 255, 255, .08); --field: rgba(0, 0, 0, .22);
-  --tx: #e8edf5; --sub: #98a5ba; --bad: #f87171; --hi: rgba(255, 255, 255, .08); --accw: rgba(143, 163, 255, .14);
-  --sh: 0 24px 60px -30px rgba(0, 0, 0, .8);
+html.dark{
+ color-scheme:dark;--page:#0d1220;--glow1:#1c2a5a;--glow2:#162049;--card:rgba(255,255,255,.06);--edge:rgba(255,255,255,.1);--hi:rgba(255,255,255,.08);--field:rgba(0,0,0,.22);
+ --accent:#8fa3ff;--ink:#e8edf5;--muted:#98a5ba;--blue:var(--accent);--danger:#f87171;
+ --panel-shadow:0 16px 44px -30px rgba(0,0,0,.7),inset 0 1px var(--hi);
+ --control-edge:#6e7d98;--small-surface:#1b243d;--sky-edge:#1d2947;--star:#e6efff;--rim:#9cacde;--soil-1:#63759f;--soil-2:#334364;--soil-3:#24324e;--soil-4:#18253b;--crater-1:#2c3d5b;--crater-2:#283752;--crater-3:#1a2741;--pin:#8b9abd
 }
-* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-html { height: 100%; background: var(--page); }
-body {
-  font-family: Vazirmatn, Tahoma, sans-serif; color: var(--tx); min-height: 100%;
-  display: flex; align-items: center; justify-content: center; padding: 18px;
-  background: radial-gradient(1100px 560px at 85% -8%, var(--glow1) 0%, transparent 60%), radial-gradient(900px 520px at -5% 105%, var(--glow2) 0%, transparent 55%), var(--page);
-  background-attachment: fixed;
-}
-@keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98) } to { opacity: 1; transform: none } }
-@keyframes up { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
-@keyframes shake { 0%, 100% { transform: none } 25% { transform: translateX(5px) } 75% { transform: translateX(-5px) } }
-.box {
-  position: relative; width: 360px; max-width: 100%; border-radius: 22px; padding: 26px 22px 22px;
-  background: var(--card); border: 1px solid var(--edge);
-  backdrop-filter: blur(9px) saturate(150%); -webkit-backdrop-filter: blur(9px) saturate(150%);
-  box-shadow: var(--sh), inset 0 1px 0 var(--hi);
-  animation: rise .55s cubic-bezier(.2, .7, .2, 1) both;
-}
-.box > * { animation: up .5s cubic-bezier(.2, .7, .2, 1) both; }
-.box > :nth-child(2) { animation-delay: .08s } .box > :nth-child(3) { animation-delay: .14s } .box > :nth-child(4) { animation-delay: .18s }
-.box > :nth-child(5) { animation-delay: .24s } .box > :nth-child(6) { animation-delay: .28s } .box > :nth-child(7) { animation-delay: .34s }
-h1 { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
-h1 b { color: var(--acc); }
-.chip { width: 38px; height: 38px; border-radius: 13px; box-shadow: 0 8px 18px -8px var(--acc); }
-p.s { color: var(--sub); font-size: 12.5px; margin: 8px 2px 16px; }
-label { display: block; font-size: 12px; color: var(--sub); margin: 14px 2px 7px; }
-input { width: 100%; padding: 12px 13px; border: 1px solid var(--bord); border-radius: 13px; background: var(--field); color: var(--tx); font-size: 14px; font-family: inherit; transition: border-color .2s, box-shadow .2s; }
-input:focus { outline: none; border-color: color-mix(in srgb, var(--acc) 55%, transparent); box-shadow: 0 0 0 4px var(--accw); }
-button {
-  width: 100%; margin-top: 22px; padding: 13px; border: 0; border-radius: 14px;
-  background: linear-gradient(135deg, var(--fill), var(--fill-deep)); color: #fff; font-weight: 800; font-size: 14px; font-family: inherit; cursor: pointer;
-  box-shadow: 0 12px 24px -12px var(--acc);
-  transition: transform .18s cubic-bezier(.2, .8, .2, 1), box-shadow .18s, opacity .2s;
-}
-button:hover { transform: translateY(-2px); box-shadow: 0 16px 30px -12px var(--acc); }
-button:active { transform: scale(.98); }
-button:disabled { opacity: .75; transform: none; cursor: wait; }
-.spin { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255, 255, 255, .4); border-top-color: #fff; border-radius: 50%; animation: lsp .8s linear infinite; vertical-align: -3px; }
-@keyframes lsp { to { transform: rotate(360deg) } }
-.e { color: var(--bad); font-size: 12.5px; margin-top: 14px; min-height: 18px; text-align: center; }
-.box.err { animation: shake .4s cubic-bezier(.36, .07, .19, .97); }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-</style>
-</head>
-<body>
-<form class="box" id="box">
-  <h1><img class="chip" src="/assets/fleet-mark.svg" alt=""> <span><b>tnl</b> کنترل فلیت</span></h1>
-  <p class="s">برای ورود، نام کاربری و رمز را وارد کنید</p>
-  <label for="u">نام کاربری</label><input id="u" autocomplete="username" autofocus>
-  <label for="p">رمز عبور</label><input id="p" type="password" autocomplete="current-password">
-  <button id="btn">ورود</button>
-  <div class="e" id="e"></div>
-</form>
+html{background:var(--page)}
+body{font-family:Vazir,Tahoma,sans-serif;color:var(--ink);margin:0;min-height:100vh;min-height:100svh;isolation:isolate;display:grid;grid-template-rows:1fr auto 1fr;justify-items:center}
+button,input{font:inherit}
+button{color:inherit;cursor:pointer;touch-action:manipulation}
+button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
+body{position:relative}
+.backdrop{position:fixed;inset:0;z-index:-2;background:radial-gradient(ellipse at 90% 0%,var(--glow1),transparent 56%),radial-gradient(ellipse at 5% 95%,var(--glow2),transparent 50%),linear-gradient(140deg,var(--sky-edge),var(--page) 56%,var(--sky-edge));pointer-events:none;overflow:hidden}
+.backdrop canvas,.backdrop svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.page-controls{position:fixed;z-index:1;inset:auto auto 16px 16px;display:flex;gap:6px;direction:ltr}
+.page-controls button{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--small-surface);border:1px solid var(--edge);color:var(--muted)}
+.page-controls svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linejoin:round;stroke-linecap:round}
+.brand{height:31px;display:flex;align-items:center;gap:9px;font-size:19px;font-weight:800}
+.brand img{width:30px;height:30px}
+.card{align-self:center;grid-row:2;width:min(444px,calc(100% - 32px));margin:28px 0 0;padding:25px 30px 28px;border-radius:26px;border:1px solid var(--edge);background:var(--card);box-shadow:var(--panel-shadow);backdrop-filter:blur(9px) saturate(150%)}
+.topline{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.count{font-size:12px;color:var(--muted)}
+.steps{display:flex;gap:6px;margin:15px 0 0}
+.steps i{background:color-mix(in srgb,var(--muted) 24%,transparent);height:3px;border-radius:3px;flex:1;position:relative;overflow:hidden}
+.steps i:after{content:"";position:absolute;inset:0;background:var(--accent);border-radius:inherit;transform:scaleX(0);transform-origin:right;transition:transform .45s ease}
+.steps i:first-child:after,body:not([data-step="account"]) .steps i:after{transform:scaleX(1)}
+.seal{width:76px;height:76px;display:grid;place-items:center;position:relative;isolation:isolate;margin:24px 0 8px;border-radius:26px;color:white;
+ background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 32%,var(--small-surface)),var(--small-surface) 55%,color-mix(in srgb,var(--accent) 23%,var(--small-surface)));border:1px solid color-mix(in srgb,var(--accent) 32%,var(--edge));box-shadow:0 7px 15px -10px #23365577,inset 0 1px var(--hi)}
+.seal:before,.seal:after{content:"";position:absolute;inset:7px;border:1px solid #8fa3ff40;border-radius:21px;box-shadow:inset 0 1px #cad7ff1c}
+.seal:after{inset:13px;border-radius:16px;background:linear-gradient(145deg,#7183c4,#485b99 57%,#354476);box-shadow:inset 0 1px #d7e1ff6b,0 2px 5px #10182d80;border-color:#8396d885;z-index:-1}
+.seal svg{position:absolute;width:27px;height:27px;transition:opacity .26s,transform .42s cubic-bezier(.2,.8,.25,1);opacity:0;transform:translateY(4px) scale(.82)}
+body[data-step="account"] .seal .person,body[data-step="password"] .seal .key,body[data-step="success"] .seal .check{opacity:1;transform:translateY(0) scale(1)}
+h1{font-size:clamp(31px,5vw,39px);font-weight:850;line-height:1.55;letter-spacing:-.055em;margin:0}
+.context{margin:0 0 17px;min-height:38px;display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted)}
+.context .identity{display:inline-flex;align-items:center;gap:6px;max-width:60%;min-width:0;font-weight:700;color:var(--ink)}
+.typing{position:relative;display:inline-block}
+.typing span{display:block;animation:reveal-line 1.65s steps(28,end) both}
+.typing:after{position:absolute;content:"";top:12%;height:76%;width:1.5px;background:var(--blue);opacity:0;animation:typing-caret 1.65s steps(28,end) both}
+@keyframes reveal-line{from{clip-path:inset(0 0 0 100%)}to{clip-path:inset(0)}}
+@keyframes typing-caret{0%{right:0;opacity:.8}99%{right:100%;opacity:.8}100%{right:100%;opacity:0}}
+.identity bdi{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.identity svg{width:16px;height:16px;flex:none}
+.edit{min-height:44px;margin-block:-3px;border:0;background:transparent;color:var(--blue);font-size:13px;font-weight:670;padding:0 8px;border-radius:7px;text-decoration:underline;text-decoration-color:#a6b6ec;text-underline-offset:4px}
+.step-in{animation:step-in .36s cubic-bezier(.2,.75,.2,1) both}
+@keyframes step-in{from{opacity:0;transform:translateX(9px)}}
+.input-shell{position:relative;display:flex;align-items:center;gap:10px;border:1px solid var(--control-edge);border-radius:13px;background:var(--field);min-height:62px;padding:0 13px;transition:border-color .15s,box-shadow .15s}
+.input-shell:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px #8fa3ff2e}
+.input-shell.invalid{border-color:var(--danger);box-shadow:0 0 0 2px #ab315012}
+.field-glyph{width:29px;height:29px;background:color-mix(in srgb,var(--accent) 11%,transparent);border:1px solid color-mix(in srgb,var(--accent) 24%,transparent);color:var(--blue);border-radius:9px;display:grid;place-items:center;flex:none}
+.field-glyph svg{width:17px;height:17px}
+.text-slot{min-width:0;flex:1;position:relative;height:54px}
+.text-slot input{width:100%;height:100%;padding:17px 1px 0;border:none;background:transparent;outline:0;color:var(--ink);font-size:16px;text-align:right}
+.text-slot label{position:absolute;right:1px;top:50%;transform:translateY(-50%);transform-origin:right center;white-space:nowrap;font-size:15px;font-weight:590;color:var(--muted);pointer-events:none;transition:transform .16s,color .16s}
+.text-slot:focus-within label,.text-slot input:not(:placeholder-shown)+label{transform:translateY(calc(-50% - 12px)) scale(.77);color:var(--blue)}
+.eye{min-width:44px;min-height:44px;margin-inline-end:-7px;border:0;border-radius:8px;background:transparent;color:var(--muted);display:grid;place-items:center}
+.eye svg{width:21px;height:21px}
+.eye:hover,.edit:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.feedback{min-height:29px;font-size:12.5px;color:var(--danger);font-weight:550;padding:3px 2px}
+.action{width:100%;min-height:55px;border-radius:13px;border:0;background:linear-gradient(135deg,var(--fill),var(--fill-deep));box-shadow:inset 0 1px #ffffff33,0 6px 15px -9px #425bcc66;color:white;display:flex;align-items:center;justify-content:space-between;text-align:start;padding:5px 17px 5px 8px;font-size:16px;font-weight:760;transition:filter .16s,transform .16s}
+.action:hover{filter:brightness(1.055)}.action:active{transform:scale(.99)}
+.action-icon{width:38px;height:38px;display:grid;place-items:center;background:#ffffff15;border:1px solid #ffffff35;border-radius:10px}
+.action-icon svg{width:20px;height:20px}
+.action[aria-disabled=true]{cursor:progress}
+.busy .action-icon svg{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.success{padding-bottom:16px}#heading:focus{outline:0}
+.success p{font-size:15px;color:var(--muted);overflow-wrap:anywhere;margin:5px 0 26px}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:480px){.card{padding:21px 21px 23px;border-radius:24px}.seal{margin-top:19px;width:70px;height:70px}.context{margin-bottom:12px}}
+@media(max-height:590px){body{grid-template-rows:auto auto auto}.card{margin-top:16px}.seal{margin-top:15px}}
+@media(max-width:480px){.card{width:min(356px,calc(100% - 44px))}.page-controls{position:absolute;inset:10px auto auto 10px}.card{margin-top:62px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
+@media(prefers-reduced-motion:reduce){.page-controls .motion-control{display:none}}
+</style></head>
+<body data-step="account">
+<div class="backdrop" aria-hidden="true" id="backdrop"></div>
+<div class="page-controls"><button class="motion-control" id="motionControl" type="button" aria-label="توقف حرکت ستاره‌ها" title="توقف حرکت ستاره‌ها"></button><button id="themeControl" type="button" aria-label="نمایش تم تیره" title="نمایش تم تیره"></button></div>
+<main class="card" aria-labelledby="heading">
+  <div class="topline"><div class="brand"><img src="/assets/fleet-mark.svg" alt="">گره‌چین</div><span class="count" id="count">گام ۱ از ۲</span></div>
+  <div class="steps" aria-hidden="true"><i></i><i></i></div>
+  <div class="seal" id="seal" aria-hidden="true"></div>
+  <h1 id="heading" tabindex="-1">ورود به پنل</h1>
+  <form id="login" action="/api/login" method="post" novalidate>
+    <div id="context" class="context"></div>
+    <div class="input-shell" id="nameBox"><span class="field-glyph" data-icon="person"></span><div class="text-slot"><input type="text" id="username" name="user" autocomplete="username" dir="auto" placeholder=" " aria-describedby="feedback" autocapitalize="none" spellcheck="false"><label for="username">نام کاربری</label></div></div>
+    <div class="input-shell" id="passBox" hidden><span class="field-glyph" data-icon="key"></span><div class="text-slot"><input type="password" id="password" name="pass" autocomplete="current-password" dir="auto" placeholder=" " aria-describedby="feedback" spellcheck="false"><label for="password">رمز عبور</label></div><button type="button" class="eye" aria-label="نمایش رمز عبور" aria-pressed="false" id="eye"></button></div>
+    <div role="alert" id="feedback" class="feedback"></div>
+    <button type="submit" id="action" class="action"><span id="actionText">ادامه</span><span class="action-icon" id="actionIcon"></span></button>
+  </form>
+  <div id="success" class="success" hidden><p id="receipt"></p></div>
+  <div class="visually-hidden" role="status" id="announce"></div>
+</main>
 <script>
-(function () {
-  var box = document.getElementById('box'), btn = document.getElementById('btn'), err = document.getElementById('e')
-  var label = btn.textContent
-  box.addEventListener('submit', async function (ev) {
-    ev.preventDefault()
-    err.textContent = ''
-    box.classList.remove('err')
-    btn.disabled = true
-    btn.innerHTML = '<span class="spin"></span>'
-    try {
-      var r = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user: document.getElementById('u').value, pass: document.getElementById('p').value })
-      })
-      var j = await r.json().catch(function () { return {} })
-      if (r.ok) { location.href = '/'; return }
-      err.textContent = j.error || 'ورود ناموفق'
-    } catch (x) {
-      err.textContent = 'ارتباط با پنل برقرار نشد'
-    }
-    btn.disabled = false
-    btn.textContent = label
-    box.classList.add('err')
+function installOrbitalSky(){
+ const backdrop=document.getElementById('backdrop')
+ const control=document.getElementById('motionControl')
+ const preference=window.matchMedia('(prefers-reduced-motion: reduce)')
+ const canvas=document.createElement('canvas')
+ const moon=document.createElementNS('http://www.w3.org/2000/svg','svg')
+ backdrop.append(canvas,moon)
+ const ctx=canvas.getContext('2d')
+ let width=0,height=0,stars=[],elapsed=0,previous=null,frame=0,paused=false
+ let route=null,pulse=null
+ function starField(count){
+  let seed=7285
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296}
+  return Array.from({length:count},()=>{
+   const direction=random()*Math.PI*2,speed=5+13*random()
+   return {x:random(),y:random(),vx:Math.cos(direction)*speed,vy:Math.sin(direction)*speed,
+    radius:.48+2.03*Math.pow(random(),2.1),alpha:.22+.7*random(),phase:random()*Math.PI*2}
   })
-})()
+ }
+ function lunarSurface(){
+  const compact=width<620
+  const y0=(compact?1.02:1.15)*height,y1=(compact?.795:.79)*height,y2=.715*height
+  const rim=x=>{const t=x/width;return (1-t)*(1-t)*y0+2*(1-t)*t*y1+t*t*y2}
+  const outline=`M0 ${y0} Q${width*.5} ${y1} ${width} ${y2} V${height+2} H0Z`
+  const crater=(fraction,size,depth,angle)=>{
+   const x=width*fraction,r=Math.min(width*size,height*.102),y=rim(x)+depth*r
+   return `<g transform="translate(${x} ${y}) rotate(${angle})"><ellipse rx="${r}" ry="${r*.65}" fill="url(#bowl)"/><path d="M${-r} 0a${r} ${r*.65} 0 0 1 ${2*r} 0" fill="none" stroke="var(--crater-3)" stroke-opacity=".62" stroke-width="1.5"/><path d="M${r} 0a${r} ${r*.65} 0 0 1 ${-2*r} 0" fill="none" stroke="var(--rim)" stroke-opacity=".46"/></g>`
+  }
+  const a={x:width*(compact?.39:.64),y:0},b={x:width*(compact?.625:.78),y:0}
+  a.y=rim(a.x)+4;b.y=rim(b.x)+4
+  const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2-Math.min(36,width*.047)}
+  route={a,b,mid}
+  const pin=p=>`<g transform="translate(${p.x} ${p.y})"><ellipse rx="4.5" ry="1.45" fill="var(--pin)" opacity=".5"/><path d="M0 0v-4" stroke="var(--pin)" stroke-width="1.1"/><circle cy="-4" r="1.5" fill="var(--accent)"/></g>`
+  moon.setAttribute('viewBox',`0 0 ${width} ${height}`)
+  const horizon=`M0 ${y0} Q${width*.5} ${y1} ${width} ${y2}`
+  moon.innerHTML=`<defs><linearGradient id="soil" x1=".48" y1=".02" x2=".54" y2=".9"><stop stop-color="var(--soil-1)"/><stop offset=".27" stop-color="var(--soil-2)"/><stop offset=".7" stop-color="var(--soil-3)"/><stop offset="1" stop-color="var(--soil-4)"/></linearGradient><radialGradient id="bowl" cx=".55" cy=".74" r=".88"><stop offset=".5" stop-color="var(--crater-1)"/><stop offset=".85" stop-color="var(--crater-2)"/><stop offset="1" stop-color="var(--crater-3)"/></radialGradient><filter id="atmosphere" x="-.1" y="-.6" width="1.2" height="2.2"><feGaussianBlur stdDeviation="7"/></filter><clipPath id="surface"><path d="${outline}"/></clipPath></defs>
+   <path d="${horizon}" fill="none" stroke="var(--rim)" stroke-width="12" opacity=".4" filter="url(#atmosphere)"/>
+   <path d="${outline}" fill="url(#soil)"/><path d="${horizon}" fill="none" stroke="var(--rim)" stroke-width="1.5"/>
+   <g clip-path="url(#surface)">${crater(compact?.803:.861,compact?.119:.073,1.24,-21)}${compact?'':crater(.971,.017,2.35,-18)}</g>
+   <path d="M${a.x} ${a.y-4} Q${mid.x} ${mid.y-4} ${b.x} ${b.y-4}" fill="none" stroke="var(--pin)" stroke-width="1" opacity=".6" stroke-dasharray="2 4"/>${pin(a)}${pin(b)}<circle id="relayDot" r="1.8" fill="var(--accent)"/>`
+  pulse=moon.querySelector('#relayDot')
+ }
+ function position(base,delta,span){return ((base*span+delta)%span+span)%span}
+ function paint(){
+  if(!ctx)return
+  ctx.clearRect(0,0,width,height)
+  ctx.fillStyle=starColor
+  for(const star of stars){
+   const x=position(star.x,star.vx*elapsed,width+8)-4,y=position(star.y,star.vy*elapsed,height+8)-4
+   ctx.globalAlpha=star.alpha*(.90+.10*Math.sin(star.phase+elapsed*.63))
+   ctx.beginPath()
+   ctx.arc(x,y,star.radius,0,Math.PI*2)
+   ctx.fill()
+  }
+  ctx.globalAlpha=1
+  const t=(elapsed/8.5+.27)%1,u=1-t,{a,b,mid}=route
+  pulse.setAttribute('cx',u*u*a.x+2*u*t*mid.x+t*t*b.x)
+  pulse.setAttribute('cy',u*u*a.y+2*u*t*mid.y+t*t*b.y-4)
+  pulse.setAttribute('opacity',Math.min(.88,t*8,(1-t)*8))
+ }
+ function tick(now){
+  frame=requestAnimationFrame(tick)
+  if(previous===null){previous=now;return}
+  const delta=now-previous
+  if(delta<1000/32)return
+  elapsed+=Math.min(delta,120)/1000
+  previous=now
+  paint()
+ }
+ function updatePlayback(){
+  cancelAnimationFrame(frame)
+  previous=null
+  if(ctx&&!paused&&!preference.matches&&!document.hidden)frame=requestAnimationFrame(tick)
+  const label=paused?'پخش حرکت ستاره‌ها':'توقف حرکت ستاره‌ها'
+  control.setAttribute('aria-label',label)
+  control.title=label
+  control.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24">'+(paused?'<path d="m8 5 11 7-11 7Z"/>':'<path d="M8.5 5.5v13m7-13v13"/>')+'</svg>'
+ }
+ function resize(){
+  width=Math.max(1,backdrop.clientWidth);height=Math.max(1,backdrop.clientHeight)
+  const ratio=Math.min(2,window.devicePixelRatio||1)
+  canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio)
+  if(ctx)ctx.setTransform(ratio,0,0,ratio,0,0)
+  stars=starField(Math.max(28,Math.min(140,Math.round(width*height/7200))))
+  lunarSurface()
+  paint()
+ }
+ control.addEventListener('click',()=>{paused=!paused;updatePlayback()})
+ preference.addEventListener('change',updatePlayback)
+ document.addEventListener('visibilitychange',updatePlayback)
+ const themeButton=document.getElementById('themeControl')
+ let starColor
+ function updateTheme(){
+  starColor=getComputedStyle(backdrop).getPropertyValue('--star').trim()
+  const dark=document.documentElement.classList.contains('dark')
+  const label=dark?'نمایش تم روشن':'نمایش تم تیره'
+  themeButton.setAttribute('aria-label',label)
+  themeButton.title=label
+  themeButton.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24">'+(dark?'<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/>':'<path d="M20 15.2A8.4 8.4 0 0 1 8.8 4a8.5 8.5 0 1 0 11.2 11.2Z"/>')+'</svg>'
+ }
+ themeButton.addEventListener('click',()=>{
+  const dark=document.documentElement.classList.toggle('dark')
+  try{localStorage.setItem('tnl_dark',dark?'1':'')}catch{}
+  updateTheme()
+  paint()
+ })
+ updateTheme()
+ resize()
+ new ResizeObserver(resize).observe(backdrop)
+ updatePlayback()
+}
+const byId=id=>document.getElementById(id)
+const drawings={
+ person:'<circle cx="12" cy="7.8" r="3.4"/><path d="M5.2 20v-1.2c0-3.5 3-5.5 6.8-5.5s6.8 2 6.8 5.5V20"/>',
+ key:'<circle cx="8.2" cy="9.1" r="4.7"/><path d="m11.8 12.2 7.7 7.7 2-2-1.9-1.9 1.5-1.5-2.2-2.2-1.4 1.4-2.8-2.8"/><circle cx="7.2" cy="8.2" r=".55"/>',
+ eye:'<path d="M2 12s3.8-6.4 10-6.4S22 12 22 12s-3.8 6.4-10 6.4S2 12 2 12Z"/><circle cx="12" cy="12" r="2.7"/>',
+ off:'<path d="m3 3 18 18M10.5 5.7C17.5 4.9 22 12 22 12a20 20 0 0 1-3.1 3.9M6.3 7.9A20 20 0 0 0 2 12s3.8 6.4 10 6.4c1.6 0 3.1-.4 4.4-1"/>',
+ arrow:'<path d="M20 12H4m6-6-6 6 6 6"/>',
+ check:'<path d="m4.5 12.3 5 5 10-11"/>',
+ wait:'<path d="M19.5 15a8 8 0 1 1-2-9"/>'
+}
+function icon(name){return '<svg class="'+name+'" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">'+drawings[name]+'</svg>'}
+document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon))
+byId('seal').innerHTML=['person','key','check'].map(icon).join('')
+const username=byId('username'),password=byId('password'),form=byId('login')
+let stage='account',working=false
+function clearError(){
+ byId('feedback').textContent=''
+ for(const [el,box] of [[username,byId('nameBox')],[password,byId('passBox')]]){
+  el.removeAttribute('aria-invalid')
+  box.classList.remove('invalid')
+ }
+}
+function error(message,input){
+ byId('feedback').textContent=message
+ input.setAttribute('aria-invalid','true')
+ input.closest('.input-shell').classList.add('invalid')
+ input.focus()
+}
+function visibility(visible){
+ password.type=visible?'text':'password'
+ byId('eye').setAttribute('aria-pressed',String(visible))
+ byId('eye').setAttribute('aria-label',visible?'پنهان کردن رمز عبور':'نمایش رمز عبور')
+ byId('eye').innerHTML=icon(visible?'off':'eye')
+}
+function render(next,focus=true){
+ stage=next
+ document.body.dataset.step=next
+ const account=next==='account',done=next==='success'
+ form.hidden=done
+ byId('success').hidden=!done
+ byId('count').textContent=account?'گام ۱ از ۲':done?'پایان ورود':'گام ۲ از ۲'
+ byId('heading').textContent=account?'ورود به پنل':done?'وارد شدید':'ورود با رمز عبور'
+ byId('nameBox').hidden=!account
+ username.readOnly=!account
+ byId('passBox').hidden=account||done
+ password.disabled=done
+ byId('actionText').textContent=account?'ادامه':'ورود به پنل'
+ byId('actionIcon').innerHTML=icon('arrow')
+ byId('announce').textContent=done?'ورود موفق بود.':account?'':'گام ۲ از ۲، رمز عبور'
+ clearError()
+ visibility(false)
+ if(done){
+  byId('receipt').textContent='در حال باز کردن پنل…'
+  password.value=''
+  byId('heading').focus()
+  return
+ }
+ const context=byId('context')
+ if(account){context.innerHTML='<span class="typing"><span>با نام کاربری خود شروع کنید.</span></span>'}
+ else{
+  context.innerHTML='<span class="identity">'+icon('person')+'<bdi></bdi></span><button class="edit" type="button" id="edit">تغییر حساب</button>'
+  context.querySelector('bdi').textContent=username.value
+  byId('edit').onclick=()=>{if(!working){password.value='';render('account')}}
+ }
+ const active=account?username:password
+ const box=active.closest('.input-shell')
+ box.classList.remove('step-in')
+ void box.offsetWidth
+ box.classList.add('step-in')
+ if(focus)active.focus()
+}
+function busy(value){
+ working=value
+ form.classList.toggle('busy',value)
+ form.setAttribute('aria-busy',String(value))
+ byId('action').setAttribute('aria-disabled',String(value))
+ byId('eye').disabled=value
+ byId('edit').disabled=value
+ password.readOnly=value
+ byId('actionText').textContent=value?'در حال بررسی…':'ورود به پنل'
+ byId('actionIcon').innerHTML=icon(value?'wait':'arrow')
+ byId('announce').textContent=value?'در حال بررسی ورود':''
+}
+byId('eye').onclick=()=>visibility(password.type==='password')
+form.addEventListener('input',clearError)
+form.onsubmit=async event=>{
+ event.preventDefault()
+ if(working||stage==='success')return
+ if(stage==='account'){
+  if(!username.value){error('نام کاربری را وارد کنید.',username);return}
+  render('password')
+  return
+ }
+ if(!password.value){error('رمز عبور را وارد کنید.',password);return}
+ clearError()
+ busy(true)
+ try{
+  const response=await fetch('/api/login',{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({user:username.value,pass:password.value})
+  })
+  const result=await response.json().catch(()=>({}))
+  if(response.ok&&result.ok===true){
+   render('success')
+   const delay=window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:420
+   window.setTimeout(()=>location.replace('/'),delay)
+   return
+  }
+  busy(false)
+  const message=result.error||'ورود ناموفق بود.'
+  if(response.status===401)error(message,password)
+  else byId('feedback').textContent=message
+ }catch{
+  busy(false)
+  byId('feedback').textContent='ارتباط با پنل برقرار نشد. دوباره تلاش کنید.'
+ }
+}
+render('account',window.matchMedia('(pointer:fine)').matches)
+installOrbitalSky()
 </script>
-</body>
-</html>
+</body></html>

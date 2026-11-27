@@ -1,0 +1,106 @@
+"""Browser tests against the built UI and the panel's login and session handlers."""
+
+import importlib.util
+import os
+import secrets
+import threading
+import unittest
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from unittest.mock import patch
+
+from playwright.sync_api import expect, sync_playwright
+
+
+UI = Path(__file__).resolve().parents[1]
+
+
+class PanelLogin(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("panel", UI.parent / "tnl-central.py")
+        panel = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(panel)
+        panel.UI_DIR = str(Path(os.environ.get("TNL_TEST_DIST", UI / "dist")))
+        cls.username = "اپراتور"
+        cls.password = " " + secrets.token_hex(12) + " "
+        salt, digest = panel.hash_password(cls.password)
+        events = patch.object(panel, "log_event")
+        events.start()
+        cls.addClassCleanup(events.stop)
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
+        cls.server.conf = {"user": cls.username, "salt": salt, "hash": digest, "secret": secrets.token_hex(32)}
+        thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        thread.start()
+        cls.addClassCleanup(cls.server.server_close)
+        cls.addClassCleanup(thread.join)
+        cls.addClassCleanup(cls.server.shutdown)
+        cls.origin = f"http://127.0.0.1:{cls.server.server_port}/"
+        runtime = sync_playwright().start()
+        cls.addClassCleanup(runtime.stop)
+        cls.browser = runtime.chromium.launch(executable_path=os.environ.get("TNL_TEST_CHROMIUM"))
+        cls.addClassCleanup(cls.browser.close)
+
+    def setUp(self):
+        self.page = self.browser.new_page(viewport={"width": 375, "height": 812}, reduced_motion="reduce")
+        self.addCleanup(self.page.close)
+        # Only the login, session and static asset routes are under test.
+        self.page.route("**/api/**", lambda route: route.continue_() if route.request.url.endswith("/api/login")
+                        else route.fulfill(status=503, json={"error": "دادهٔ آزمایشی در دسترس نیست"}))
+        self.page.goto(self.origin)
+        self.user = self.page.get_by_label("نام کاربری", exact=True)
+        self.password_field = self.page.get_by_label("رمز عبور", exact=True)
+
+    def test_retry_after_rejection_and_open_authenticated_dashboard_in_selected_theme(self):
+        sent = []
+        self.page.on("request", lambda req: sent.append(req.post_data_json) if req.url.endswith("/api/login") else None)
+        expect(self.page.locator(".brand")).to_have_text("گره‌چین")
+        self.page.get_by_role("button", name="نمایش تم تیره").click()
+        self.page.reload()
+        expect(self.page.locator("html")).to_have_class("dark")
+        self.page.get_by_role("button", name="ادامه").click()
+        expect(self.user).to_be_focused()
+        self.user.fill("اشتباه")
+        self.user.press("Enter")
+        self.password_field.fill("discard")
+        self.page.get_by_role("button", name="تغییر حساب").click()
+        self.user.fill(self.username)
+        self.user.press("Enter")
+        expect(self.password_field).to_be_empty()
+        expect(self.password_field).to_be_focused()
+        self.password_field.press("Enter")
+        expect(self.page.get_by_role("alert")).to_have_text("رمز عبور را وارد کنید.")
+        self.assertEqual(sent, [])
+        self.password_field.fill("wrong")
+        self.page.get_by_role("button", name="نمایش رمز عبور").click()
+        expect(self.password_field).to_have_attribute("type", "text")
+        self.page.get_by_role("button", name="پنهان کردن رمز عبور").click()
+        self.password_field.press("Enter")
+        expect(self.page.get_by_role("alert")).to_have_text("نام کاربری یا رمز اشتباه است")
+        self.password_field.fill(self.password)
+        with self.page.expect_response(lambda r: r.url == self.origin and r.request.is_navigation_request()) as target:
+            self.password_field.press("Enter")
+            self.page.evaluate("document.getElementById('login')?.requestSubmit()")
+        self.assertEqual(target.value.status, 200)
+        expect(self.page.locator("#root")).to_be_attached()
+        expect(self.page.locator("html")).to_have_class("dark")
+        self.assertTrue(any(c["name"] == "tnl_session" and c["httpOnly"] for c in self.page.context.cookies()))
+        self.assertEqual(sent, [{"user": self.username, "pass": "wrong"}, {"user": self.username, "pass": self.password}])
+
+    def test_recover_from_network_error_and_show_server_wait_message(self):
+        self.user.fill(self.username)
+        self.user.press("Enter")
+        self.password_field.fill("unused")
+        self.page.route("**/api/login", lambda route: route.abort())
+        self.password_field.press("Enter")
+        expect(self.page.get_by_role("alert")).to_contain_text("ارتباط با پنل برقرار نشد")
+        self.page.unroute("**/api/login")
+        message = "تلاشِ زیاد — چند دقیقه صبر کن"
+        self.page.route("**/api/login", lambda route: route.fulfill(status=429, json={"error": message}))
+        self.password_field.press("Enter")
+        expect(self.page.get_by_role("alert")).to_have_text(message)
+        expect(self.page.get_by_role("button", name="ورود به پنل")).to_be_enabled()
+
+
+if __name__ == "__main__":
+    unittest.main()
