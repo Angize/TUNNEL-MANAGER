@@ -9,7 +9,7 @@ import { isNodeNameValid } from './nodeName.js'
 import NodeIpField from './NodeIpField.jsx'
 import { isIpv4 } from '../../lib/cdn.js'
 import { T } from '../../i18n/fa.js'
-import { latinDigits } from '../../lib/num.js'
+import { formatNumber, latinDigits } from '../../lib/num.js'
 import { destinationInventory, startPreparation, runTransfer } from './transferService.js'
 import TransferDetails from './TransferDetails.jsx'
 import useInstallJob from './useInstallJob.js'
@@ -17,13 +17,12 @@ import InstallProgress, { InstallReport } from './InstallProgress.jsx'
 import './transfer.css'
 
 const steps = ['مقصد', 'آماده‌سازی', 'تونل‌ها', 'انتقال']
-const num = n => Number(n).toLocaleString('fa-IR')
 const empty = { name: '', host: '', port: '22', user: 'root', agentPort: '8099', mode: 'pass', pass: '', key: '' }
 
 function StepRail({ step }) {
   return <ol className="nt-steps" aria-label="مراحل انتقال">{steps.map((name,i) =>
     <li key={name} className={i === step ? 'here' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}>
-      <span>{i < step ? <Icon name="check" /> : num(i + 1)}</span>{name}
+      <span>{i < step ? <Icon name="check" /> : formatNumber(i + 1)}</span>{name}
     </li>)}</ol>
 }
 
@@ -42,13 +41,13 @@ function Item({ icon, label, detail, value, tone }) {
 
 function formErrors(form, source) {
   const errors = {}
-  if (!isNodeNameValid(form.name.trim())) errors.name = 'نام نود را با حروف لاتین، عدد، فاصله، نقطه یا خط بنویس (حداکثر ۴۰ نویسه).'
+  if (!isNodeNameValid(form.name.trim())) errors.name = 'نام نود را با حروف لاتین، عدد، فاصله، نقطه یا خط بنویس (حداکثر 40 نویسه).'
   if (!isIpv4(form.host.trim())) errors.host = T('node_ip_invalid')
   else if (form.host.trim() === source.host) errors.host = 'مقصد و مبدأ یکی هستند.'
   if (!form.user.trim()) errors.user = 'نام کاربر اتصال را وارد کن.'
   for (const key of ['port', 'agentPort']) {
     const v = latinDigits(form[key]).trim()
-    if (!/^\d+$/.test(v) || +v < 1 || +v > 65535) errors[key] = 'یک پورت بین ۱ و ۶۵۵۳۵ وارد کن.'
+    if (!/^\d+$/.test(v) || +v < 1 || +v > 65535) errors[key] = 'یک پورت بین 1 و 65535 وارد کن.'
   }
   if (!(form.mode === 'key' ? form.key.trim() : form.pass)) errors.auth = form.mode === 'key' ? 'کلید خصوصی را وارد کن.' : 'گذرواژه را وارد کن.'
   return errors
@@ -141,7 +140,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
   return <Modal icon="nodeTransfer" title="انتقال نود" subtitle={<>از نود <bdi>{node.name}</bdi></>} cls="nt-modal" onClose={() => { if (!busy) onClose() }} footer={footer}>
     <StepRail step={step} />
     {step >= 2 && <Route source={node.name} dest={form.name} />}
-    <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{num(picked.length)} از {num(tunnels.length)} انتخاب شده</span>}</div>
+    <div className="nt-heading"><h4 tabIndex={-1} ref={title}>{heading}</h4>{step === 2 && <span>{formatNumber(picked.length)} از {formatNumber(tunnels.length)} انتخاب شده</span>}</div>
     {step === 0 && <>
       <div className="grid2">{field('name','نام نود مقصد',{placeholder:'IR-02'})}
         <NodeIpField placeholder="192.0.2.22" value={form.host} error={errors.host} onChange={host => write('host',host)} /></div>
@@ -160,7 +159,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
       {progress ? <InstallProgress state={progress} /> : <InstallReport tone={fault ? 'err' : 'run'} banner={fault || T('inst_ssh')} />}
       {inventory && <div className="nt-box">
         {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'agent'} label={i ? 'هسته' : 'ایجنت'} tone="ok" {...inventory[key]} />)}
-        <Item icon="link" label="تونل‌های موجود در مقصد" value={num(inventory.existing.length) + ' تونل'} detail={inventory.existing.map(t => t.name).join('، ')} />
+        <Item icon="link" label="تونل‌های موجود در مقصد" value={formatNumber(inventory.existing.length) + ' تونل'} detail={inventory.existing.map(t => t.name).join('، ')} />
       </div>}
     </>}
     {step === 2 && <>

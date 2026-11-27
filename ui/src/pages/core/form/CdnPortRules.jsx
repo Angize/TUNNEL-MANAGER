@@ -3,7 +3,7 @@ import RichText from '../../../components/RichText.jsx'
 import { Seg2, SegOpt } from './controls.jsx'
 import { intOf } from './validate.js'
 import { cfWantsRule } from '../../../lib/cdn.js'
-import { faNum } from '../../../lib/num.js'
+import { formatNumber } from '../../../lib/num.js'
 import { T, TF } from '../../../i18n/fa.js'
 
 const ICON = { ok: 'okc', gold: 'info', no: 'warn' }
@@ -39,7 +39,7 @@ function names(infos) {
 }
 
 function fills(infos, count) {
-  return infos.map((i) => TF('cpr_count', { u: faNum(count(i)), c: faNum(i.cap) })).join('؛ ')
+  return infos.map((i) => TF('cpr_count', { u: formatNumber(count(i)), c: formatNumber(i.cap) })).join('؛ ')
 }
 
 function slot(v) {
@@ -100,7 +100,7 @@ function Meter({ info, next, many }) {
           {many ? null : after}
         </span>
         <b className={'cprcount' + (full(info) ? ' full' : '')}>
-          {TF('cpr_count', { u: faNum(n), c: faNum(info.cap) })}
+          {TF('cpr_count', { u: formatNumber(n), c: formatNumber(info.cap) })}
         </b>
       </div>
       <div className="cprbar" aria-hidden="true">
@@ -111,17 +111,17 @@ function Meter({ info, next, many }) {
       <div className="cprlegend">
         <span>
           <i className="cp" aria-hidden="true" />
-          {TF('cpr_legend_panel', { n: faNum(panel) })}
+          {TF('cpr_legend_panel', { n: formatNumber(panel) })}
         </span>
         {info.hand ? (
           <span>
             <i className="ch" aria-hidden="true" />
-            {TF('cpr_legend_hand', { n: faNum(info.hand) })}
+            {TF('cpr_legend_hand', { n: formatNumber(info.hand) })}
           </span>
         ) : null}
         <span>
           <i aria-hidden="true" />
-          {TF('cpr_legend_free', { n: faNum(free) })}
+          {TF('cpr_legend_free', { n: formatNumber(free) })}
         </span>
       </div>
     </div>
@@ -134,8 +134,8 @@ function chipOff(infos, port) {
 }
 
 function chipSub(infos, port, hits) {
-  if (infos.length === 1) return TF('cpr_hosts', { n: faNum(infos[0].rules.find((r) => r.port === port).hosts.length) })
-  return hits === infos.length ? T('cpr_in_all') : TF('cpr_in_some', { n: faNum(hits), m: faNum(infos.length) })
+  if (infos.length === 1) return TF('cpr_hosts', { n: formatNumber(infos[0].rules.find((r) => r.port === port).hosts.length) })
+  return hits === infos.length ? T('cpr_in_all') : TF('cpr_in_some', { n: formatNumber(hits), m: formatNumber(infos.length) })
 }
 
 export default function CdnPortRules({ infos, port, tls, bad, onPick }) {
@@ -152,11 +152,11 @@ export default function CdnPortRules({ infos, port, tls, bad, onPick }) {
         <div className={'warncap ' + v.tone} role="status">
           <Icon name={ICON[v.tone]} />
           <span>
-            <RichText text={TF('cpr_' + v.kind, { p: v.p, t: v.t, z: v.z, n: v.n && faNum(v.n), f: v.f })} />
+            <RichText text={TF('cpr_' + v.kind, { p: v.p, t: v.t, z: v.z, n: v.n && formatNumber(v.n), f: v.f })} />
           </span>
         </div>
       ) : null}
-      {many ? <div className="cprpick">{TF('cpr_zones', { n: faNum(infos.length) })}</div> : null}
+      {many ? <div className="cprpick">{TF('cpr_zones', { n: formatNumber(infos.length) })}</div> : null}
       {infos.map((info) => (info.cap ? <Meter key={info.zone} info={info} next={next.has(info.zone)} many={many} /> : null))}
       {list.length ? (
         <>
