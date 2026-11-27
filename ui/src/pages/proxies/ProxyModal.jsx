@@ -86,7 +86,7 @@ export default function ProxyModal({ proxy, onClose, onSaved }) {
 
   return (
     <Modal
-      icon={proxy ? 'pen' : 'plus'}
+      icon={proxy ? 'pen' : 'addProxy'}
       title={T(proxy ? 'px_edit_t' : 'px_add_t')}
       subtitle={proxy ? proxy.name : null}
       footer={footer}

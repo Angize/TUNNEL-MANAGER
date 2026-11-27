@@ -518,11 +518,11 @@ export default function AgentPage() {
     <>
       <div className="card opc sc-panel upc upduo">
         <UpdateRow
-          icon="server"
+          icon="agent"
           title={T('ag_lbl_agent')}
           sub={agentUnknown ? unknownSub('agent') : agentReady ? <bdi className="mono">{agentMeta.version}</bdi> : T('ag_empty')}
           state={agentUnknown ? null : agentReady ? { cls: 'ok', text: T('ag_ready') } : { cls: 'na', text: T('ag_empty') }}
-          goIcon="redo"
+          goIcon="deploy"
           goLabel={T('ag_push_all')}
           goDisabled={agentUnknown}
           onGo={() => pushAgent('all')}
@@ -577,7 +577,7 @@ export default function AgentPage() {
                   ? { cls: 'warn', text: T('ag_not_ready') }
                   : { cls: 'na', text: T('ag_empty') }
           }
-          goIcon="redo"
+          goIcon="deploy"
           goLabel={T('ag_install_all')}
           goDisabled={coreUnknown}
           onGo={pushCoreAll}

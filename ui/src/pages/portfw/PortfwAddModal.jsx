@@ -82,7 +82,7 @@ export default function PortfwAddModal({ nodes, onClose, onCreated }) {
   )
 
   return (
-    <Modal icon="plus" title={T('pf_add_t')} footer={footer} onClose={onClose}>
+    <Modal icon="addForward" title={T('pf_add_t')} footer={footer} onClose={onClose}>
       <Field label={T('pf_node')} first>
         <Select
           items={nodeItems}

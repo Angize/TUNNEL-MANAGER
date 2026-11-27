@@ -9,9 +9,9 @@ import { T, TF } from '../i18n/fa.js'
 const NAMES_SHOWN = 3
 
 export const BULK_ACTIONS = [
-  { key: 'ping', icon: 'activity', tone: 'ok' },
+  { key: 'ping', icon: 'probe', tone: 'ok' },
   { key: 'restart', icon: 'restart', tone: 'acc', coreOnly: true },
-  { key: 'rebuild', icon: 'redo', tone: 'tx' },
+  { key: 'rebuild', icon: 'rebuild', tone: 'tx' },
   { key: 'reset', icon: 'reset', tone: 'gold' },
   { key: 'off', icon: 'plugoff', tone: 'bad', enabled: false },
   { key: 'on', icon: 'bolt', tone: 'ok', enabled: true },

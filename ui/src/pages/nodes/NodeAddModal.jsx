@@ -201,12 +201,12 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
     </>
   ) : mode === 'auto' ? (
     <>
-      <Icon name="bolt" />
+      <Icon name="ssh" />
       {progress && progress.finished && !progress.success ? T('inst_retry') : T('nadd_install_connect')}
     </>
   ) : (
     <>
-      <Icon name="plus" />
+      <Icon name="addNode" />
       {T('nadd_add_connect')}
     </>
   )
@@ -231,7 +231,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
   )
 
   return (
-    <Modal icon="plus" title={T('nadd_title')} footer={footer} onClose={onClose}>
+    <Modal icon="addNode" title={T('nadd_title')} footer={footer} onClose={onClose}>
       <div className="seg" role="radiogroup" aria-label={T('nadd_mode')}>
         <button
           type="button"
@@ -241,7 +241,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
           disabled={locked}
           onClick={() => switchMode('auto')}
         >
-          <Icon name="bolt" />
+          <Icon name="ssh" />
           {T('nadd_auto')}
         </button>
         <button
@@ -252,7 +252,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
           disabled={locked}
           onClick={() => switchMode('bulk')}
         >
-          <Icon name="list" />
+          <Icon name="bulkInstall" />
           {T('nadd_bulk')}
         </button>
         <button
@@ -272,7 +272,7 @@ export default function NodeAddModal({ onClose, onAdded, bulk }) {
         <Reveal show={mode === 'auto'}>
           <div>
             <div className="autonote">
-              <Icon name="bolt" />
+              <Icon name="ssh" />
               <span>{T('nadd_autonote')}</span>
             </div>
             <div className="grid2">

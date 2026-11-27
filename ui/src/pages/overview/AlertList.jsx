@@ -132,7 +132,7 @@ export default function AlertList({ alerts, onNavigate }) {
               ) : null}
               <button type="button" className="go" onClick={jump}>
                 {T(PAGE_LABEL[page])}
-                <span aria-hidden="true">←</span>
+                <Icon name="back" />
               </button>
             </div>
           </Reveal>

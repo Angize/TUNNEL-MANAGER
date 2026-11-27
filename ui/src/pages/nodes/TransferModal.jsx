@@ -30,7 +30,7 @@ function StepRail({ step }) {
 function Route({ source, dest }) {
   return <div className="nt-route">
     <div><small>مبدأ</small><strong><bdi>{source}</bdi></strong></div>
-    <span aria-hidden="true">←</span>
+    <span aria-hidden="true"><Icon name="back" /></span>
     <div><small>مقصد</small><strong><bdi>{dest}</bdi></strong></div>
   </div>
 }
@@ -159,7 +159,7 @@ export default function TransferModal({ node, nodes, filtered, onClose }) {
     {step === 1 && <>
       {progress ? <InstallProgress state={progress} /> : <InstallReport tone={fault ? 'err' : 'run'} banner={fault || T('inst_ssh')} />}
       {inventory && <div className="nt-box">
-        {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'server'} label={i ? 'هسته' : 'ایجنت'} tone="ok" {...inventory[key]} />)}
+        {['agent','core'].map((key,i) => <Item key={key} icon={i ? 'cpu' : 'agent'} label={i ? 'هسته' : 'ایجنت'} tone="ok" {...inventory[key]} />)}
         <Item icon="link" label="تونل‌های موجود در مقصد" value={num(inventory.existing.length) + ' تونل'} detail={inventory.existing.map(t => t.name).join('، ')} />
       </div>}
     </>}

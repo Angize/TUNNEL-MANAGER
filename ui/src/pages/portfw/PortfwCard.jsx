@@ -59,7 +59,7 @@ function Box({ name, state, text, copy, rotating }) {
           <span className="cprot">
             {rotating ? (
               <span className="rotmark" title={T('pf_rotating')}>
-                <Icon name="redo" />
+                <Icon name="rotateTarget" />
               </span>
             ) : null}
           </span>
@@ -237,13 +237,13 @@ function PortfwCard({ item, onEdit, onChanged }) {
 
       {enabled ? (
         <div className="ltraf">
-          <span className="din iso">↓ {fmtRate(item.rx_bps)}</span>
-          <span className="dout iso">↑ {fmtRate(item.tx_bps)}</span>
+          <span className="din iso"><Icon name="rx" label="دریافت" /> {fmtRate(item.rx_bps)}</span>
+          <span className="dout iso"><Icon name="tx" label="ارسال" /> {fmtRate(item.tx_bps)}</span>
           <span className="tot">
             {T('total')}{' '}
             <span className="iso">
-              <b className="din">↓{fmtBytes(item.rx_total)}</b>
-              <b className="dout">↑{fmtBytes(item.tx_total)}</b>
+              <b className="din"><Icon name="rx" label="دریافت" /> {fmtBytes(item.rx_total)}</b>
+              <b className="dout"><Icon name="tx" label="ارسال" /> {fmtBytes(item.tx_total)}</b>
             </span>
           </span>
         </div>
@@ -258,7 +258,7 @@ function PortfwCard({ item, onEdit, onChanged }) {
         <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
         {enabled && multiTarget && serverActive ? (
           <ActBtn
-            icon="redo"
+            icon="rotateTarget"
             title={T('pf_rotate_now')}
             style={ROTATE_BTN_STYLE}
             busy={busyAct === 'rotate'}

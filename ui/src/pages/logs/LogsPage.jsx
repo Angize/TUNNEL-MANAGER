@@ -245,7 +245,7 @@ export default function LogsPage() {
           aria-label={hiddenTypes && T('logf_btn') + '، ' + hiddenTypes}
           onClick={(e) => openFilters(e, !filtersOpen)}
         >
-          <Icon name="cog" />
+          <Icon name="filter" />
           {T('logf_btn')}
           {hiddenCount ? (
             <span className="ct" title={hiddenTypes}>
@@ -292,7 +292,7 @@ export default function LogsPage() {
           {T(hiddenOut ? 'logf_empty' : 'logs_empty')}
           {hiddenOut && !filtersOpen ? (
             <button type="button" className="ghost" onClick={(e) => openFilters(e, true)}>
-              <Icon name="cog" />
+              <Icon name="filter" />
               {T('logf_open')}
             </button>
           ) : null}
@@ -314,7 +314,7 @@ export default function LogsPage() {
             ))}
             {hiddenOut && !filtersOpen ? (
               <button type="button" className="fchip lgfhid" onClick={(e) => openFilters(e, true)}>
-                <Icon name="cog" />
+                <Icon name="filter" />
                 {TF('logf_hidden', { n: hiddenOut })}
               </button>
             ) : null}

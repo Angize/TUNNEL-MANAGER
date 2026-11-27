@@ -180,11 +180,11 @@ export default function OverviewPage({ onNavigate }) {
               <TrafficChart live={live.current} now={{ rx: summary.fleet_rx_bps, tx: summary.fleet_tx_bps }} />
               <div className="ttiles">
                 <div className="ttile">
-                  <span className="din">{T('ov_rxtot')}</span>
+                  <span className="din"><Icon name="rx" /> {T('ov_rxtot')}</span>
                   <b>{fmtBytes(summary.fleet_rx_total)}</b>
                 </div>
                 <div className="ttile">
-                  <span className="dout">{T('ov_txtot')}</span>
+                  <span className="dout"><Icon name="tx" /> {T('ov_txtot')}</span>
                   <b>{fmtBytes(summary.fleet_tx_total)}</b>
                 </div>
               </div>
@@ -192,7 +192,7 @@ export default function OverviewPage({ onNavigate }) {
           </Section>
         </div>
 
-        <Section icon="grid" titleKey="ov_allnodes">
+        <Section icon="fleet" titleKey="ov_allnodes">
           <NodeGroups heat={summary.heat || []} onNavigate={onNavigate} />
         </Section>
 

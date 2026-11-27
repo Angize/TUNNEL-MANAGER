@@ -4,7 +4,7 @@ import { T } from '../i18n/fa.js'
 import './formtabs.css'
 
 const TABS = [
-  { v: 'ip', icon: 'pin', label: 'form_tab_ips' },
+  { v: 'ip', icon: 'address', label: 'form_tab_ips' },
   { v: 'set', icon: 'cog', label: 'form_tab_set' },
 ]
 

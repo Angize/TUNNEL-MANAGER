@@ -262,7 +262,7 @@ export default function ApiRef() {
     <div className="card sg sc-panel apref" dir="ltr">
       <div className="sghd">
         <span className="sgt">
-          <Icon name="list" />
+          <Icon name="reference" />
         </span>
         <b>{TEXT.ref}</b>
         <span className="schip">{TEXT.refN.replace('{n}', api.length)}</span>

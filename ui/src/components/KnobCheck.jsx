@@ -1,3 +1,4 @@
+import { CHECK_PATH } from './Icon.jsx'
 import { useLayoutEffect, useRef } from 'react'
 import { EASE_OUT, reducedMotion } from '../lib/motion.js'
 
@@ -22,7 +23,7 @@ export default function KnobCheck({ on }) {
 
   return (
     <svg className="tgck" viewBox="0 0 24 24" aria-hidden="true">
-      <path ref={path} d="M20 6 9 17l-5-5" />
+      <path ref={path} d={CHECK_PATH} />
     </svg>
   )
 }

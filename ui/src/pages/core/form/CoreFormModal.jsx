@@ -185,7 +185,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
   if (!form) {
     return modalLoading({
-      icon: link ? 'pen' : 'cpu',
+      icon: link ? 'pen' : 'addCore',
       title: T(link ? 'core_edit_t' : 'core_tun_t'),
       subtitle: link ? link.name : T('core_tun_sub'),
       cls: 'edit',
@@ -356,7 +356,7 @@ export default function CoreFormModal({ link, onClose, onDone }) {
 
   return (
     <Modal
-      icon={link ? 'pen' : 'cpu'}
+      icon={link ? 'pen' : 'addCore'}
       title={T(link ? 'core_edit_t' : 'core_tun_t')}
       subtitle={link ? link.name : T('core_tun_sub')}
       footer={footer}

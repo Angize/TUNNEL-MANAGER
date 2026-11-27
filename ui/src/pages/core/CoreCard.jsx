@@ -57,7 +57,7 @@ function SideBox({ link, side, activeIp, rotating }) {
           <span className="cprot">
             {rotating ? (
               <span className="rotmark" title={T('peer_rotating')}>
-                <Icon name="redo" />
+                <Icon name="rotateTarget" />
               </span>
             ) : null}
           </span>
@@ -238,8 +238,8 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             <div className="ltraf flat">
               {link.rx_total != null || link.rx_bps != null ? (
                 <>
-                  <span className="din iso">↓ {fmtRate(link.rx_bps)}</span>
-                  <span className="dout iso">↑ {fmtRate(link.tx_bps)}</span>
+                  <span className="din iso"><Icon name="rx" label="دریافت" /> {fmtRate(link.rx_bps)}</span>
+                  <span className="dout iso"><Icon name="tx" label="ارسال" /> {fmtRate(link.tx_bps)}</span>
                 </>
               ) : (
                 <span className="muted" style={{ fontSize: 11 }}>
@@ -250,8 +250,8 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
                 {T('total')}{' '}
                 {link.rx_total != null || link.rx_bps != null ? (
                   <span className="iso">
-                    <b className="din">↓{fmtBytes(link.rx_total)}</b>
-                    <b className="dout">↑{fmtBytes(link.tx_total)}</b>
+                    <b className="din"><Icon name="rx" label="دریافت" /> {fmtBytes(link.rx_total)}</b>
+                    <b className="dout"><Icon name="tx" label="ارسال" /> {fmtBytes(link.tx_total)}</b>
                   </span>
                 ) : (
                   <b className="mono">—</b>
@@ -263,11 +263,11 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
           <ActionRow act={act} warn={!!(link.cdn && link.cdn.ok === false)} />
 
           <div className="nact iconly">
-            <ActBtn cls="ok" icon="activity" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
+            <ActBtn cls="ok" icon="probe" title={T('tip_ping')} busy={busyAct === 'ping'} locked={!!busyAct} onClick={check} />
             <ActBtn cls="info" icon="gauge" title={T('tip_speed')} busy={busyAct === 'speed'} locked={!!busyAct} onClick={speed} />
             <ActBtn
               cls="info"
-              icon="swap"
+              icon="flip"
               title={T('tip_flip') + (link.view_name || '—')}
               busy={busyAct === 'flip'}
               locked={!!busyAct}
@@ -275,7 +275,7 @@ function CoreCard({ link, act, activeEdge, onEdit, onReload, onTag, register, se
             />
             <ActBtn cls="reset" icon="reset" title={T('tip_reset')} busy={busyAct === 'reset'} locked={!!busyAct} onClick={resetTraffic} />
             <ActBtn cls="warn" icon="pen" title={T('tip_edit')} locked={!!busyAct} onClick={() => onEdit(link)} />
-            <ActBtn icon="redo" title={T('tip_rebuild')} busy={busyAct === 'rebuild'} locked={!!busyAct} onClick={rebuild} />
+            <ActBtn icon="rebuild" title={T('tip_rebuild')} busy={busyAct === 'rebuild'} locked={!!busyAct} onClick={rebuild} />
             <ActBtn cls="info" icon="restart" title={T('tip_restart')} busy={busyAct === 'restart'} locked={!!busyAct} onClick={restart} />
             <ActBtn cls="danger" icon="trash" title={T('tip_delete')} busy={busyAct === 'del'} locked={!!busyAct} onClick={remove} />
           </div>

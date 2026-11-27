@@ -111,7 +111,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
   }, [])
 
   if (!nodes) {
-    return modalLoading({ icon: 'plus', title: T('add_tunnel_t'), subtitle: T('create_sub'), onClose })
+    return modalLoading({ icon: 'addTunnel', title: T('add_tunnel_t'), subtitle: T('create_sub'), onClose })
   }
 
   const items = nodeItemsKeeping(nodes, [])
@@ -184,7 +184,7 @@ export default function TunnelCreateModal({ onClose, onCreated }) {
 
   return (
     <Modal
-      icon="plus"
+      icon="addTunnel"
       title={T('add_tunnel_t')}
       subtitle={T('create_sub')}
       footer={footer}

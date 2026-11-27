@@ -1,28 +1,10 @@
-import Icon from './Icon.jsx'
+import Icon, { Glyph } from './Icon.jsx'
 import { T } from '../i18n/fa.js'
-
-function LinkMark() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ verticalAlign: '-1px' }}
-    >
-      <path d="M9 7H6a4 4 0 000 8h3M15 7h3a4 4 0 010 8h-3M8 11h8" />
-    </svg>
-  )
-}
 
 function PeerChip({ peer }) {
   return (
     <span className="ippeer">
-      <LinkMark />
+      <Glyph name="link" width={11} height={11} style={{ verticalAlign: '-1px' }} />
       <bdi>{peer.name || peer.type}</bdi>
       <span className="ipo">
         <Icon name="arrows" />
@@ -40,7 +22,7 @@ export default function IpChips({ entry }) {
       ))}
       {entry.pf.map((name) => (
         <span className="ippf" key={'pf:' + name}>
-          <Icon name="globe" />
+          <Icon name="portForward" />
           {T('nd_portfw') + ' ·'}
           <bdi>{name}</bdi>
         </span>

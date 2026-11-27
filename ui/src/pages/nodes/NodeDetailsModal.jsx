@@ -30,11 +30,11 @@ function TrafficRow({ row }) {
         </span>
       </div>
       <div className="tf-fig">
-        <span className="din iso">↓{fmtRate(row.rx_bps)}</span>
-        <span className="dout iso">↑{fmtRate(row.tx_bps)}</span>
+        <span className="din iso"><Icon name="rx" label="دریافت" /> {fmtRate(row.rx_bps)}</span>
+        <span className="dout iso"><Icon name="tx" label="ارسال" /> {fmtRate(row.tx_bps)}</span>
         <span className="tot iso">
-          <b className="din">↓{fmtBytes(row.rx_total)}</b>{' '}
-          <b className="dout">↑{fmtBytes(row.tx_total)}</b>
+          <b className="din"><Icon name="rx" label="دریافت" /> {fmtBytes(row.rx_total)}</b>{' '}
+          <b className="dout"><Icon name="tx" label="ارسال" /> {fmtBytes(row.tx_total)}</b>
         </span>
       </div>
     </div>
@@ -143,7 +143,7 @@ export default function NodeDetailsModal({ node, onClose }) {
 
   return (
     <Modal
-      icon="info"
+      icon="inspectNode"
       title={T('nd_title')}
       subtitle={subtitle}
       footer={footer}
@@ -239,13 +239,13 @@ export default function NodeDetailsModal({ node, onClose }) {
             <NodeTile icon="link" label={T('nd_tunnels')}>
               {num(info.tunnels)}
             </NodeTile>
-            <NodeTile icon="globe" label={T('nd_portfw')}>
+            <NodeTile icon="portForward" label={T('nd_portfw')}>
               {num(info.portfw)}
             </NodeTile>
-            <NodeTile icon="shield" label={T('nd_ctrlproxy')}>
+            <NodeTile icon="proxy" label={T('nd_ctrlproxy')}>
               {node.proxy_on ? node.proxy_name || '?' : '—'}
             </NodeTile>
-            <NodeTile icon="server" label={T('host')} wide line ltr>
+            <NodeTile icon="address" label={T('host')} wide line ltr>
               {info.hostname || '?'}
             </NodeTile>
             <NodeTile icon="globe" label={T('nd_central')} wide line ltr>

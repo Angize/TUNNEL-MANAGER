@@ -27,7 +27,7 @@ function RouteChip({ form, fronts, onRoute }) {
   const names = form.edges.map((e) => ((fronts || []).find((f) => f.id === e.node) || {}).name).filter(Boolean)
   return (
     <button type="button" className="routechip" onClick={onRoute}>
-      <Icon name="swap" />
+      <Icon name="route" />
       <span>{TF('pedge_via', { n: names.join('، ') })}</span>
       <em>{T('pedge_chip_go')}</em>
     </button>

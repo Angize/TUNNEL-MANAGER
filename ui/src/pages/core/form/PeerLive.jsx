@@ -34,7 +34,7 @@ function PeerRow({ side, ip, section, status, pending, live }) {
         <span className="eacts">
           {burned ? (
             <ActionButton
-              icon="redo"
+              icon="probe"
               title={T('pa_testnow')}
               onClick={() => live.retest(side, ip)}
             />

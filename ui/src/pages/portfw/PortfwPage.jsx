@@ -78,7 +78,7 @@ export default function PortfwPage({ active }) {
     <>
       <div className="tbtnrow">
         <button className="primary glass" disabled={opening} onClick={openAdd}>
-          {opening ? <span className="bspin ink sm" /> : <Icon name="plus" />}
+          {opening ? <span className="bspin ink sm" /> : <Icon name="addForward" />}
           {T('pf_add')}
         </button>
       </div>

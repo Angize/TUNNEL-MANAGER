@@ -132,7 +132,7 @@ export default function AgentNodeRow({
           title={T('ag_send') + ' ' + T('ag_lbl_agent')}
           onClick={() => onPushAgent(node.id)}
         >
-          <Icon name="server" />
+          <Icon name="agent" />
           <span>{T('ag_lbl_agent')}</span>
         </button>
         <button

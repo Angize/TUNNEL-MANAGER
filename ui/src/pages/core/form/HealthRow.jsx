@@ -101,7 +101,7 @@ export function Accordion({ label, badges, collapsible, open, onToggle, children
           <div className="paccs">{badges}</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {collapsible ? <div className={'pchev' + (open ? ' open' : '')}>▾</div> : null}
+          {collapsible ? <div className={'pchev' + (open ? ' open' : '')}><Icon name="chev" /></div> : null}
         </div>
       </div>
       <Reveal show={open} instant={kb}>
