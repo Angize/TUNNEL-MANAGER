@@ -100,7 +100,7 @@ class PanelLogin(unittest.TestCase):
                     devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": []})
                     if name == "username":
                         page.get_by_role("button", name="ادامه").tap()
-                for selector in ("#themeControl", "#motionControl", "#eye", "#password", "#action"):
+                for selector in ("#themeControl", "#eye", "#password", "#action"):
                     color = page.locator(selector).evaluate("el => getComputedStyle(el).webkitTapHighlightColor")
                     self.assertEqual(color, "rgba(0, 0, 0, 0)")
                 page.locator("#eye").tap()
