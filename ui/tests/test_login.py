@@ -51,7 +51,7 @@ class PanelLogin(unittest.TestCase):
         self.user = self.page.get_by_label("نام کاربری", exact=True)
         self.password_field = self.page.get_by_label("رمز عبور", exact=True)
 
-    def test_heading_and_description_share_a_row_with_the_step_icon(self):
+    def test_card_starts_with_the_step_icon_and_heading_above_progress_and_field(self):
         self.page.evaluate("document.fonts.ready")
         for width in (320, 393, 1280):
             with self.subTest(width=width):
@@ -63,6 +63,15 @@ class PanelLogin(unittest.TestCase):
                     title = self.page.locator("#heading").bounding_box()
                     detail = self.page.locator("#context").bounding_box()
                     icon = self.page.locator("#seal").bounding_box()
+                    card = self.page.locator("main")
+                    header = card.locator("header").bounding_box()
+                    card_top = card.evaluate("el => el.getBoundingClientRect().top + el.clientTop + parseFloat(getComputedStyle(el).paddingTop)")
+                    self.assertAlmostEqual(header["y"], card_top, delta=1)
+                    progress = card.locator(".progress").bounding_box()
+                    self.assertGreaterEqual(progress["y"], header["y"] + header["height"])
+                    active = self.user if step == "account" else self.password_field
+                    self.assertGreaterEqual(active.bounding_box()["y"], progress["y"] + progress["height"])
+                    expect(card.locator("#count")).to_have_text("گام ۱ از ۲" if step == "account" else "گام ۲ از ۲")
                     for box in (title, detail):
                         self.assertLess(box["x"] + box["width"], icon["x"])
                     self.assertGreaterEqual(detail["y"], title["y"] + title["height"] - 1)
@@ -92,15 +101,16 @@ class PanelLogin(unittest.TestCase):
                     node = devtools.send("DOM.querySelector", {"nodeId": root, "selector": "#" + name})["nodeId"]
                     bounds = field.bounding_box()
                     # Sample the empty part of the input, away from the text and caret.
-                    sample = {"x": int(bounds["x"]) + 8, "y": int(bounds["y"]) + 20, "width": 16, "height": 12}
-                    ordinary = page.screenshot(clip=sample)
+                    sample = {"x": int(bounds["x"] + bounds["width"] / 2), "y": int(bounds["y"]) + 12,
+                              "width": 12, "height": 6}
+                    ordinary = page.screenshot(clip=sample, caret="hide")
                     devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": ["autofill"]})
                     self.assertTrue(field.evaluate("el => el.matches(':autofill')"))
-                    self.assertEqual(page.screenshot(clip=sample), ordinary)
+                    self.assertEqual(page.screenshot(clip=sample, caret="hide"), ordinary, (theme, name))
                     devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": []})
                     if name == "username":
                         page.get_by_role("button", name="ادامه").tap()
-                for selector in ("#themeControl", "#motionControl", "#eye", "#password", "#action"):
+                for selector in ("#themeControl", "#eye", "#password", "#action"):
                     color = page.locator(selector).evaluate("el => getComputedStyle(el).webkitTapHighlightColor")
                     self.assertEqual(color, "rgba(0, 0, 0, 0)")
                 page.locator("#eye").tap()
@@ -112,7 +122,8 @@ class PanelLogin(unittest.TestCase):
     def test_retry_after_rejection_and_open_authenticated_dashboard_in_selected_theme(self):
         sent = []
         self.page.on("request", lambda req: sent.append(req.post_data_json) if req.url.endswith("/api/login") else None)
-        expect(self.page.locator(".brand")).to_have_text("گره‌چین")
+        expect(self.page).to_have_title("ورود به پنل")
+        expect(self.page.get_by_role("heading", name="ورود به پنل")).to_be_visible()
         self.page.get_by_role("button", name="نمایش تم تیره").click()
         self.page.reload()
         expect(self.page.locator("html")).to_have_class("dark")

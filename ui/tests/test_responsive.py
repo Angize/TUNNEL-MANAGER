@@ -81,6 +81,33 @@ class ResponsivePanel(unittest.TestCase):
             return cards.map(c => [c.offsetLeft, c.offsetTop, c.offsetWidth, c.offsetHeight])
         }""")
 
+    def test_login_uses_panel_theme_icons_and_system_motion_preference(self):
+        self.resize(393, 851)
+        panel_theme = self.page.locator(".mtop button").last
+        glyph = "svg => svg.innerHTML"
+        moon = panel_theme.locator("svg").evaluate(glyph)
+        panel_theme.click()
+        sun = panel_theme.locator("svg").evaluate(glyph)
+        self.assertNotEqual(moon, sun)
+        self.page.goto(ORIGIN + "login.html")
+        theme = self.page.locator("button:not(main button)")
+        expect(theme).to_have_count(1)
+        for name, shape in (("نمایش تم روشن", sun), ("نمایش تم تیره", moon)):
+            expect(theme).to_have_accessible_name(name)
+            self.assertEqual(theme.locator("svg").evaluate(glyph), shape)
+            expect(self.page.locator("#seal .person")).to_have_css("stroke", theme.evaluate("el => getComputedStyle(el).color"))
+            theme.click()
+
+        pulse = self.page.locator("#relayDot")
+        fixed = pulse.get_attribute("cx")
+        self.page.clock.install()
+        self.page.clock.run_for(240)
+        expect(pulse).to_have_attribute("cx", fixed)
+        self.page.emulate_media(reduced_motion="no-preference")
+        self.page.clock.run_for(240)
+        expect(pulse).not_to_have_attribute("cx", fixed)
+        expect(theme).to_have_count(1)
+
     def test_resource_dials_fit_inside_phone_cards(self):
         self.resize(320, 568)
         gauges = self.page.locator(".gauge")
