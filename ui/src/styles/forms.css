@@ -11,6 +11,11 @@ textarea {
   background: transparent;
 }
 
+input:where([type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='color']) {
+  --field-surface: inset 0 0 transparent;
+  background: var(--card);
+}
+
 textarea {
   box-shadow: var(--field-surface);
 }
