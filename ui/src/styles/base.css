@@ -24,6 +24,7 @@ button:focus-visible,
 html {
   height: 100%;
   background: var(--page);
+  touch-action: pan-x pan-y;
 }
 
 :is(input, textarea, select):is(:autofill, :-webkit-autofill) {
@@ -39,7 +40,6 @@ body {
   background: var(--page);
   isolation: isolate;
   min-height: 100vh;
-  touch-action: manipulation;
 }
 
 body::before {

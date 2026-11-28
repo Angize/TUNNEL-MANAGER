@@ -2,7 +2,8 @@
 <html lang="fa" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no">
+<script defer src="/assets/viewport.js"></script>
 <title>ورود به پنل</title>
 <link rel="preload" href="/assets/fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
 <script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch{}</script>
@@ -24,7 +25,7 @@ html.dark{
  --panel-shadow:0 16px 44px -30px rgba(0,0,0,.7),inset 0 1px var(--hi);
  --control-edge:#6e7d98;--small-surface:#1b243d
 }
-html{background:var(--page)}
+html{background:var(--page);touch-action:pan-x pan-y}
 body{font-family:Vazir,Tahoma,sans-serif;color:var(--ink);margin:0;min-height:100vh;min-height:100svh;isolation:isolate;display:grid;grid-template-rows:1fr auto 1fr;justify-items:center}
 button,input{font:inherit}
 .text-slot input:is(:autofill,:-webkit-autofill){-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:var(--ink);caret-color:var(--ink)}
