@@ -123,6 +123,8 @@ class PanelLogin(unittest.TestCase):
         sent = []
         self.page.on("request", lambda req: sent.append(req.post_data_json) if req.url.endswith("/api/login") else None)
         expect(self.page).to_have_title("ورود به پنل")
+        expect(self.page.locator(".orbital-sky canvas")).to_be_visible()
+        expect(self.page.locator("#relayDot")).to_be_visible()
         expect(self.page.get_by_role("heading", name="ورود به پنل")).to_be_visible()
         self.page.get_by_role("button", name="نمایش تم تیره").click()
         self.page.reload()
@@ -152,6 +154,7 @@ class PanelLogin(unittest.TestCase):
             self.page.evaluate("document.getElementById('login')?.requestSubmit()")
         self.assertEqual(target.value.status, 200)
         expect(self.page.locator("#root")).to_be_attached()
+        expect(self.page.locator(".orbital-sky-panel #relayDot")).to_be_visible()
         expect(self.page.locator("html")).to_have_class("dark")
         self.assertTrue(any(c["name"] == "tnl_session" and c["httpOnly"] for c in self.page.context.cookies()))
         self.assertEqual(sent, [{"user": self.username, "pass": "wrong"}, {"user": self.username, "pass": self.password}])

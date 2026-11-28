@@ -6,6 +6,8 @@
 <title>ورود به پنل</title>
 <link rel="preload" href="/assets/fonts/vazirmatn.woff2" as="font" type="font/woff2" crossorigin>
 <script>try{if(localStorage.getItem('tnl_dark'))document.documentElement.classList.add('dark')}catch{}</script>
+<link rel="stylesheet" href="/assets/orbital-sky.css">
+<script defer src="/assets/orbital-sky.js"></script>
 <style>
 @font-face{font-family:Vazir;src:url('/assets/fonts/vazirmatn.woff2') format("woff2");font-weight:100 900;font-display:swap}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -14,13 +16,13 @@
  color-scheme:light;--page:#e6ebf3;--glow1:#d3e0ff;--glow2:#d8e0fb;--card:rgba(255,255,255,.7);--edge:rgba(15,27,45,.1);--hi:rgba(255,255,255,.95);--field:rgba(15,27,45,.04);
  --accent:#4d6bf0;--ink:#0f1b2d;--muted:#57667c;--blue:#3154ee;--danger:#bc2c2c;--fill:#4460e6;--fill-deep:#3a53d0;
  --panel-shadow:0 1px 2px rgba(15,27,45,.05),0 16px 44px -28px rgba(15,27,45,.45),inset 0 1px var(--hi);
- --control-edge:#7b8ba5;--small-surface:#eef2fd;--sky-edge:#c4d2f2;--star:#627bb0;--rim:#f3f7ff;--soil-1:#bccce9;--soil-2:#dee7f8;--soil-3:#c7d5ee;--soil-4:#aebfe1;--crater-1:#b9c9e7;--crater-2:#afc1e0;--crater-3:#8ea3cb;--pin:#7183a7
+ --control-edge:#7b8ba5;--small-surface:#eef2fd
 }
 html.dark{
  color-scheme:dark;--page:#0d1220;--glow1:#1c2a5a;--glow2:#162049;--card:rgba(255,255,255,.06);--edge:rgba(255,255,255,.1);--hi:rgba(255,255,255,.08);--field:rgba(0,0,0,.22);
  --accent:#8fa3ff;--ink:#e8edf5;--muted:#98a5ba;--blue:var(--accent);--danger:#f87171;
  --panel-shadow:0 16px 44px -30px rgba(0,0,0,.7),inset 0 1px var(--hi);
- --control-edge:#6e7d98;--small-surface:#1b243d;--sky-edge:#1d2947;--star:#e6efff;--rim:#9cacde;--soil-1:#63759f;--soil-2:#334364;--soil-3:#24324e;--soil-4:#18253b;--crater-1:#2c3d5b;--crater-2:#283752;--crater-3:#1a2741;--pin:#8b9abd
+ --control-edge:#6e7d98;--small-surface:#1b243d
 }
 html{background:var(--page)}
 body{font-family:Vazir,Tahoma,sans-serif;color:var(--ink);margin:0;min-height:100vh;min-height:100svh;isolation:isolate;display:grid;grid-template-rows:1fr auto 1fr;justify-items:center}
@@ -30,8 +32,6 @@ button,input{font:inherit}
 button{color:inherit;cursor:pointer;touch-action:manipulation}
 button:focus-visible{outline:3px solid var(--blue);outline-offset:3px}
 body{position:relative}
-.backdrop{position:fixed;inset:0;z-index:-2;background:radial-gradient(ellipse at 90% 0%,var(--glow1),transparent 56%),radial-gradient(ellipse at 5% 95%,var(--glow2),transparent 50%),linear-gradient(140deg,var(--sky-edge),var(--page) 56%,var(--sky-edge));pointer-events:none;overflow:hidden}
-.backdrop canvas,.backdrop svg{position:absolute;inset:0;width:100%;height:100%;display:block}
 #themeControl{position:fixed;z-index:1;inset:auto auto 16px 16px;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--small-surface);border:1px solid var(--edge);color:var(--blue)}
 #themeControl svg{width:20px;height:20px;stroke-width:1.8}
 .card{align-self:center;grid-row:2;width:min(444px,calc(100% - 32px));margin:28px 0 0;padding:25px 30px 28px;border-radius:26px;border:1px solid var(--edge);background:var(--card);box-shadow:var(--panel-shadow);backdrop-filter:blur(9px) saturate(150%)}
@@ -90,7 +90,7 @@ h1{font-size:clamp(26px,8vw,39px);font-weight:850;line-height:1.4;letter-spacing
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important;animation:none!important}}
 </style></head>
 <body data-step="account">
-<div class="backdrop" aria-hidden="true" id="backdrop"></div>
+<div class="orbital-sky" aria-hidden="true"></div>
 <button id="themeControl" type="button" aria-label="نمایش تم تیره" title="نمایش تم تیره"></button>
 <main class="card" aria-labelledby="heading">
   <header class="login-intro">
@@ -113,94 +113,9 @@ h1{font-size:clamp(26px,8vw,39px);font-weight:850;line-height:1.4;letter-spacing
   <div class="visually-hidden" role="status" id="announce"></div>
 </main>
 <script>
-function installOrbitalSky(){
- const backdrop=document.getElementById('backdrop')
- const preference=window.matchMedia('(prefers-reduced-motion: reduce)')
- const canvas=document.createElement('canvas')
- const moon=document.createElementNS('http://www.w3.org/2000/svg','svg')
- backdrop.append(canvas,moon)
- const ctx=canvas.getContext('2d')
- let width=0,height=0,stars=[],elapsed=0,previous=null,frame=0
- let route=null,pulse=null
- function starField(count){
-  let seed=7285
-  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296}
-  return Array.from({length:count},()=>{
-   const direction=random()*Math.PI*2,speed=5+13*random()
-   return {x:random(),y:random(),vx:Math.cos(direction)*speed,vy:Math.sin(direction)*speed,
-    radius:.48+2.03*Math.pow(random(),2.1),alpha:.22+.7*random(),phase:random()*Math.PI*2}
-  })
- }
- function lunarSurface(){
-  const compact=width<620
-  const y0=(compact?1.02:1.15)*height,y1=(compact?.795:.79)*height,y2=.715*height
-  const rim=x=>{const t=x/width;return (1-t)*(1-t)*y0+2*(1-t)*t*y1+t*t*y2}
-  const outline=`M0 ${y0} Q${width*.5} ${y1} ${width} ${y2} V${height+2} H0Z`
-  const crater=(fraction,size,depth,angle)=>{
-   const x=width*fraction,r=Math.min(width*size,height*.102),y=rim(x)+depth*r
-   return `<g transform="translate(${x} ${y}) rotate(${angle})"><ellipse rx="${r}" ry="${r*.65}" fill="url(#bowl)"/><path d="M${-r} 0a${r} ${r*.65} 0 0 1 ${2*r} 0" fill="none" stroke="var(--crater-3)" stroke-opacity=".62" stroke-width="1.5"/><path d="M${r} 0a${r} ${r*.65} 0 0 1 ${-2*r} 0" fill="none" stroke="var(--rim)" stroke-opacity=".46"/></g>`
-  }
-  const a={x:width*(compact?.39:.64),y:0},b={x:width*(compact?.625:.78),y:0}
-  a.y=rim(a.x)+4;b.y=rim(b.x)+4
-  const mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2-Math.min(36,width*.047)}
-  route={a,b,mid}
-  const pin=p=>`<g transform="translate(${p.x} ${p.y})"><ellipse rx="4.5" ry="1.45" fill="var(--pin)" opacity=".5"/><path d="M0 0v-4" stroke="var(--pin)" stroke-width="1.1"/><circle cy="-4" r="1.5" fill="var(--accent)"/></g>`
-  moon.setAttribute('viewBox',`0 0 ${width} ${height}`)
-  const horizon=`M0 ${y0} Q${width*.5} ${y1} ${width} ${y2}`
-  moon.innerHTML=`<defs><linearGradient id="soil" x1=".48" y1=".02" x2=".54" y2=".9"><stop stop-color="var(--soil-1)"/><stop offset=".27" stop-color="var(--soil-2)"/><stop offset=".7" stop-color="var(--soil-3)"/><stop offset="1" stop-color="var(--soil-4)"/></linearGradient><radialGradient id="bowl" cx=".55" cy=".74" r=".88"><stop offset=".5" stop-color="var(--crater-1)"/><stop offset=".85" stop-color="var(--crater-2)"/><stop offset="1" stop-color="var(--crater-3)"/></radialGradient><filter id="atmosphere" x="-.1" y="-.6" width="1.2" height="2.2"><feGaussianBlur stdDeviation="7"/></filter><clipPath id="surface"><path d="${outline}"/></clipPath></defs>
-   <path d="${horizon}" fill="none" stroke="var(--rim)" stroke-width="12" opacity=".4" filter="url(#atmosphere)"/>
-   <path d="${outline}" fill="url(#soil)"/><path d="${horizon}" fill="none" stroke="var(--rim)" stroke-width="1.5"/>
-   <g clip-path="url(#surface)">${crater(compact?.803:.861,compact?.119:.073,1.24,-21)}${compact?'':crater(.971,.017,2.35,-18)}</g>
-   <path d="M${a.x} ${a.y-4} Q${mid.x} ${mid.y-4} ${b.x} ${b.y-4}" fill="none" stroke="var(--pin)" stroke-width="1" opacity=".6" stroke-dasharray="2 4"/>${pin(a)}${pin(b)}<circle id="relayDot" r="1.8" fill="var(--accent)"/>`
-  pulse=moon.querySelector('#relayDot')
- }
- function position(base,delta,span){return ((base*span+delta)%span+span)%span}
- function paint(){
-  if(!ctx)return
-  ctx.clearRect(0,0,width,height)
-  ctx.fillStyle=starColor
-  for(const star of stars){
-   const x=position(star.x,star.vx*elapsed,width+8)-4,y=position(star.y,star.vy*elapsed,height+8)-4
-   ctx.globalAlpha=star.alpha*(.90+.10*Math.sin(star.phase+elapsed*.63))
-   ctx.beginPath()
-   ctx.arc(x,y,star.radius,0,Math.PI*2)
-   ctx.fill()
-  }
-  ctx.globalAlpha=1
-  const t=(elapsed/8.5+.27)%1,u=1-t,{a,b,mid}=route
-  pulse.setAttribute('cx',u*u*a.x+2*u*t*mid.x+t*t*b.x)
-  pulse.setAttribute('cy',u*u*a.y+2*u*t*mid.y+t*t*b.y-4)
-  pulse.setAttribute('opacity',Math.min(.88,t*8,(1-t)*8))
- }
- function tick(now){
-  frame=requestAnimationFrame(tick)
-  if(previous===null){previous=now;return}
-  const delta=now-previous
-  if(delta<1000/32)return
-  elapsed+=Math.min(delta,120)/1000
-  previous=now
-  paint()
- }
- function updatePlayback(){
-  cancelAnimationFrame(frame)
-  previous=null
-  if(ctx&&!preference.matches&&!document.hidden)frame=requestAnimationFrame(tick)
- }
- function resize(){
-  width=Math.max(1,backdrop.clientWidth);height=Math.max(1,backdrop.clientHeight)
-  const ratio=Math.min(2,window.devicePixelRatio||1)
-  canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio)
-  if(ctx)ctx.setTransform(ratio,0,0,ratio,0,0)
-  stars=starField(Math.max(28,Math.min(140,Math.round(width*height/7200))))
-  lunarSurface()
-  paint()
- }
- preference.addEventListener('change',updatePlayback)
- document.addEventListener('visibilitychange',updatePlayback)
+function installThemeControl(){
  const themeButton=document.getElementById('themeControl')
- let starColor
  function updateTheme(){
-  starColor=getComputedStyle(backdrop).getPropertyValue('--star').trim()
   const dark=document.documentElement.classList.contains('dark')
   const label=dark?'نمایش تم روشن':'نمایش تم تیره'
   themeButton.setAttribute('aria-label',label)
@@ -211,12 +126,8 @@ function installOrbitalSky(){
   const dark=document.documentElement.classList.toggle('dark')
   try{localStorage.setItem('tnl_dark',dark?'1':'')}catch{}
   updateTheme()
-  paint()
  })
  updateTheme()
- resize()
- new ResizeObserver(resize).observe(backdrop)
- updatePlayback()
 }
 const byId=id=>document.getElementById(id)
 const drawings={
@@ -338,6 +249,6 @@ form.onsubmit=async event=>{
  }
 }
 render('account',window.matchMedia('(pointer:fine)').matches)
-installOrbitalSky()
+installThemeControl()
 </script>
 </body></html>

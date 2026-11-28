@@ -13416,14 +13416,16 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, page, ctype)
         elif path.startswith("/assets/"):
-            if not PUBLIC_ASSET.fullmatch(path) and not self._user():
+            sky_asset = path in ("/assets/orbital-sky.css", "/assets/orbital-sky.js")
+            if not sky_asset and not PUBLIC_ASSET.fullmatch(path) and not self._user():
                 self._send(404, {"error": "پیدا نشد"})
                 return
             blob, ctype = ui_asset(path[1:])
             if blob is None:
                 self._send(404, {"error": "پیدا نشد"})
                 return
-            self._send(200, blob, ctype, cache="public, max-age=31536000, immutable")
+            cache = "no-cache" if sky_asset else "public, max-age=31536000, immutable"
+            self._send(200, blob, ctype, cache=cache)
         elif path == "/api/dl":
             self._dl()
         elif path.startswith("/api/"):
