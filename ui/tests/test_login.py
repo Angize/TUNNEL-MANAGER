@@ -119,6 +119,48 @@ class PanelLogin(unittest.TestCase):
                 expect(page.get_by_role("alert")).to_have_text("نام کاربری یا رمز اشتباه است")
                 expect(page.locator("#action")).to_have_css("filter", "none")
 
+    def test_login_and_dashboard_keep_the_viewport_fixed_during_zoom_gestures(self):
+        with self.browser.new_context(viewport={"width": 393, "height": 851}, is_mobile=True,
+                                      has_touch=True, reduced_motion="reduce") as context:
+            page = context.new_page()
+            page.route("**/api/**", lambda route: route.continue_() if route.request.url.endswith("/api/login")
+                       else route.fulfill(status=503, json={}))
+            page.goto(self.origin)
+            devtools = context.new_cdp_session(page)
+
+            def check_zoom():
+                for gaps in (range(20, 101, 10), range(100, 19, -10)):
+                    for i, gap in enumerate(gaps):
+                        points = [{"x": 170 - gap, "y": 310, "id": 1}, {"x": 170 + gap, "y": 310, "id": 2}]
+                        devtools.send("Input.dispatchTouchEvent", {"type": "touchStart" if i == 0 else "touchMove",
+                                                                  "touchPoints": points})
+                    devtools.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                    self.assertEqual(page.evaluate("visualViewport.scale"), 1)
+                page.touchscreen.tap(100, 180)
+                page.touchscreen.tap(100, 180)
+                self.assertEqual(page.evaluate("visualViewport.scale"), 1)
+                page.evaluate("""() => {
+                    window.keys = []
+                    window.addEventListener('keydown', event => {
+                        if (!['Control', 'Meta'].includes(event.key)) keys.push(event.defaultPrevented)
+                    })
+                }""")
+                for key in ("Control+Equal", "Control+Minus", "Meta+NumpadAdd", "ArrowDown"):
+                    page.keyboard.press(key)
+                self.assertEqual(page.evaluate("keys"), [True, True, True, False])
+                for modified in (True, False):
+                    prevented = page.evaluate("""ctrlKey => !document.body.dispatchEvent(new WheelEvent(
+                        'wheel', {ctrlKey, deltaY: 100, bubbles: true, cancelable: true}))""", modified)
+                    self.assertEqual(prevented, modified)
+
+            check_zoom()
+            page.get_by_label("نام کاربری", exact=True).fill(self.username)
+            page.get_by_role("button", name="ادامه").tap()
+            page.get_by_label("رمز عبور", exact=True).fill(self.password)
+            page.get_by_role("button", name="ورود به پنل").tap()
+            expect(page.locator("#root")).to_be_attached()
+            check_zoom()
+
     def test_retry_after_rejection_and_open_authenticated_dashboard_in_selected_theme(self):
         sent = []
         self.page.on("request", lambda req: sent.append(req.post_data_json) if req.url.endswith("/api/login") else None)
