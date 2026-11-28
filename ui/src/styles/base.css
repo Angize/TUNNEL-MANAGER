@@ -53,6 +53,10 @@ body::before {
     radial-gradient(900px 520px at -5% 105%, var(--glow2) 0%, transparent 55%);
 }
 
+body:has(.modalov, .selov, .bsheetov, .tagov, .hpop) > .orbital-sky-panel {
+  display: none;
+}
+
 h1 {
   font-size: 20px;
   font-weight: 800;

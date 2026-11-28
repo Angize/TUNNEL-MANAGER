@@ -1,0 +1,50 @@
+.orbital-sky {
+  --sky-edge: #c4d2f2;
+  --star: #627bb0;
+  --rim: #f3f7ff;
+  --soil-1: #bccce9;
+  --soil-2: #dee7f8;
+  --soil-3: #c7d5ee;
+  --soil-4: #aebfe1;
+  --crater-1: #b9c9e7;
+  --crater-2: #afc1e0;
+  --crater-3: #8ea3cb;
+  --pin: #7183a7;
+  --relay: var(--accent, var(--acc));
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 90% 0%, var(--glow1), transparent 56%),
+    radial-gradient(ellipse at 5% 95%, var(--glow2), transparent 50%),
+    linear-gradient(140deg, var(--sky-edge), var(--page) 56%, var(--sky-edge));
+}
+
+.dark .orbital-sky {
+  --sky-edge: #1d2947;
+  --star: #e6efff;
+  --rim: #9cacde;
+  --soil-1: #63759f;
+  --soil-2: #334364;
+  --soil-3: #24324e;
+  --soil-4: #18253b;
+  --crater-1: #2c3d5b;
+  --crater-2: #283752;
+  --crater-3: #1a2741;
+  --pin: #8b9abd;
+}
+
+.orbital-sky canvas,
+.orbital-sky svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.orbital-sky-panel {
+  opacity: .62;
+}
