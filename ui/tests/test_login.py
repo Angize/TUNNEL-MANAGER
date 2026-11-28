@@ -51,6 +51,27 @@ class PanelLogin(unittest.TestCase):
         self.user = self.page.get_by_label("نام کاربری", exact=True)
         self.password_field = self.page.get_by_label("رمز عبور", exact=True)
 
+    def test_heading_and_description_share_a_row_with_the_step_icon(self):
+        self.page.evaluate("document.fonts.ready")
+        for width in (320, 393, 1280):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({"width": width, "height": 812})
+                for step in ("account", "password"):
+                    if step == "password":
+                        self.user.fill(self.username * 12)
+                        self.user.press("Enter")
+                    title = self.page.locator("#heading").bounding_box()
+                    detail = self.page.locator("#context").bounding_box()
+                    icon = self.page.locator("#seal").bounding_box()
+                    for box in (title, detail):
+                        self.assertLess(box["x"] + box["width"], icon["x"])
+                    self.assertGreaterEqual(detail["y"], title["y"] + title["height"] - 1)
+                    text_center = (title["y"] + detail["y"] + detail["height"]) / 2
+                    self.assertAlmostEqual(text_center, icon["y"] + icon["height"] / 2, delta=1)
+                    self.assertEqual(self.page.evaluate("document.documentElement.scrollWidth"), width)
+                self.page.get_by_role("button", name="تغییر حساب").click()
+                expect(self.user).to_be_focused()
+
     def test_mobile_taps_and_autofill_preserve_the_login_surfaces(self):
         with self.browser.new_context(viewport={"width": 393, "height": 851}, has_touch=True,
                                       is_mobile=True, reduced_motion="reduce") as context:
