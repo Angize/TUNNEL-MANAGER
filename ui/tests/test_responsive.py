@@ -109,11 +109,37 @@ class ResponsivePanel(unittest.TestCase):
                 node = devtools.send("DOM.querySelector", {"nodeId": root, "selector": selector})["nodeId"]
                 devtools.send("CSS.forcePseudoState", {"nodeId": node, "forcedPseudoClasses": states})
 
+            def check_autofill(selector):
+                field = page.locator(selector).first
+                field.fill("sample")
+                for focused in (True, False):
+                    with self.subTest(theme=theme, field=selector, focused=focused):
+                        if not focused:
+                            field.blur()
+                        field.scroll_into_view_if_needed()
+                        bounds = field.bounding_box()
+                        sample = {"x": int(bounds["x"] + bounds["width"] / 2),
+                                  "y": int(bounds["y"] + bounds["height"] / 3), "width": 8, "height": 6}
+                        ordinary = page.screenshot(clip=sample, caret="hide")
+                        force(selector, ["autofill"])
+                        try:
+                            self.assertTrue(field.evaluate("el => el.matches(':autofill')"))
+                            self.assertEqual(ordinary, page.screenshot(clip=sample, caret="hide"))
+                            expect(field).to_have_value("sample")
+                        finally:
+                            force(selector, [])
+                field.fill("")
+                field.blur()
+
             page.locator(".tabbar button").nth(1).tap()
             for theme in ("light", "dark"):
                 if theme == "dark":
                     page.locator(".mtop button").last.tap()
                     expect(page.locator("html")).to_have_class("dark")
+                check_autofill(".lpane:not([inert]) input.search")
+                page.keyboard.press("Control+k")
+                check_autofill(".palin input")
+                page.locator(".palin input").press("Escape")
                 page.locator(".lpane:not([inert]) .tbtnrow button").first.tap()
                 modal = page.get_by_role("dialog")
                 expect(modal).to_be_visible()
@@ -124,16 +150,12 @@ class ResponsivePanel(unittest.TestCase):
                 expect(page.locator(close)).to_have_css("-webkit-tap-highlight-color", "rgba(0, 0, 0, 0)")
                 force(close, [])
                 for selector in ('.modal input[placeholder="DE02"]', '.modal .authbox input[type="password"]',
-                                 '.modal .authbox textarea'):
-                    if selector.endswith("textarea"):
+                                 '.modal .authbox textarea', '.modal textarea.blist'):
+                    if selector.endswith(".blist"):
+                        modal.locator(".seg").first.get_by_role("radio").nth(1).tap()
+                    elif selector.endswith("textarea"):
                         modal.locator(".authseg button").nth(1).tap()
-                    field = page.locator(selector).first
-                    field.fill("sample")
-                    force(selector, ["autofill"])
-                    self.assertTrue(field.evaluate("el => el.matches(':autofill')"))
-                    expect(field).to_have_css("background-clip", "text")
-                    expect(field).to_have_value("sample")
-                    force(selector, [])
+                    check_autofill(selector)
                 page.locator(close).tap()
                 expect(modal).to_have_count(0)
 

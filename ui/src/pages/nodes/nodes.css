@@ -762,7 +762,6 @@
   padding: 11px 12px;
   border: 1px solid var(--edge);
   border-radius: 11px;
-  background: var(--card);
   color: var(--tx);
   font-size: 13px;
   font-family: inherit;
@@ -984,8 +983,7 @@ input.phrtl:placeholder-shown {
   padding: 11px 12px;
   border: 1px solid var(--edge);
   border-radius: 13px;
-  background: var(--card);
-  box-shadow: var(--dsh);
+  box-shadow: var(--dsh), var(--field-surface);
   color: var(--tx);
   font-family: var(--mono);
   font-size: 12.5px;

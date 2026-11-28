@@ -5,13 +5,27 @@ label {
   margin: 13px 2px 6px;
 }
 
+input,
+textarea {
+  --field-surface: inset 0 0 0 100vmax var(--card);
+  background: transparent;
+}
+
+input:where([type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='color']) {
+  --field-surface: inset 0 0 transparent;
+  background: var(--card);
+}
+
+textarea {
+  box-shadow: var(--field-surface);
+}
+
 input {
   width: 100%;
   padding: 11px 12px;
   border: 1px solid var(--edge);
   border-radius: 13px;
-  background: var(--card);
-  box-shadow: var(--dsh);
+  box-shadow: var(--dsh), var(--field-surface);
   color: var(--tx);
   font-size: 13.5px;
   font-family: inherit;
@@ -28,7 +42,7 @@ input:focus,
 textarea:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--acc) 55%, transparent);
-  box-shadow: var(--dsh), 0 0 0 4px var(--accw);
+  box-shadow: var(--dsh), 0 0 0 4px var(--accw), var(--field-surface);
 }
 
 .grid2 {
